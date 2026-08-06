@@ -80,7 +80,12 @@ class BacktestTaskTests(unittest.TestCase):
         self.assertEqual(selector.eligible_symbols, frozenset(eligible))
 
     def test_options_expose_each_suite_and_include_daily_v_reversal(self):
-        payload = backtest_strategy_options(today=date(2026, 7, 31))
+        prompt_store = Mock()
+        prompt_store.list_versions.return_value = []
+        payload = backtest_strategy_options(
+            today=date(2026, 7, 31),
+            prompt_store=prompt_store,
+        )
         by_id = {item["id"]: item for item in payload["strategies"]}
 
         self.assertEqual(payload["defaults"]["start_date"], "2026-04-27")

@@ -52,6 +52,9 @@ def container_runtime_overrides(root: Path) -> dict[str, str]:
         "DASHBOARD_PUSH_HISTORY_DB": str(dashboard_home / "push_history.db"),
         "DASHBOARD_PORTFOLIO_STATE": str(dashboard_home / "cron" / "output" / "niuniu_practice_portfolio.json"),
         "DASHBOARD_NIUNIU_DB": str(dashboard_home / "niuniu.db"),
+        "DASHBOARD_PROMPT_STRATEGY_DB": str(
+            dashboard_home / "prompt_strategies.db"
+        ),
         "DASHBOARD_TRADER_SCRIPT": str(entrypoint_dir / "niuniu_practice_trader.py"),
         "DASHBOARD_B1_SCANNER": str(entrypoint_dir / "multi_strategy_screen.py"),
         "DASHBOARD_CN_STOCK_TOOLS": str(entrypoint_dir / "cn_stock_tools.py"),

@@ -57,7 +57,8 @@ def candidate_is_trade_ready(item: dict[str, Any]) -> bool:
     if raw_score is None:
         raw_score = item.get("score")
     score = safe_float(raw_score) or 0
-    threshold = safe_float(item.get("entry_threshold")) or 8
+    raw_threshold = safe_float(item.get("entry_threshold"))
+    threshold = raw_threshold if raw_threshold is not None else 8
     blockers = item.get("hard_blockers") or []
     distance = safe_float(item.get("distance_pct"))
     strategy_id = str(item.get("best_strategy") or item.get("strategy_id") or "")

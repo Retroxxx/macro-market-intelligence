@@ -26,7 +26,7 @@ def format_preset_strategy_section(source: str, preset_text: str) -> str:
 
 执行方式：
 1. 先将用户原文分析并优化成清晰的选股条件、买入触发、卖出/止损止盈、仓位和时间纪律。
-2. 将优化后的规则作为本轮唯一的新开仓策略，用它筛选候选股并决定买卖；其他策略不得影响本轮新增仓判断，基础扫描结果只作为原始候选池。
+2. 将优化后的规则作为本轮唯一的新开仓策略，用它筛选中性行情事实候选并决定买卖；其他策略不得影响本轮新增仓判断，中性候选排序不构成买点或其他战法意见。
 3. 若用户规则含糊、互相冲突或突破A股交易/账户风控硬约束，按更保守的解释执行；无法确认则HOLD。
 4. 返回JSON的summary和reason里简短体现预设文字策略的核心规则。"""
 
@@ -42,6 +42,7 @@ def build_position_exit_prompt_section(
         strategy_id
         for strategy_id in position_strategy_ids
         if strategy_id in STRATEGY_DEFINITIONS
+        and strategy_id != STRATEGY_SOURCE_PRESET_TEXT
     }
     if not known_ids:
         return "当前没有带有效 strategy_mark 的持仓，无需加载历史持仓退出规则。"
@@ -145,6 +146,7 @@ def build_strategy_prompt_sections(
             key=lambda item: int(STRATEGY_DEFINITIONS.get(item[0], {}).get("display_order", 999)),
         )
         if strategy_id in active_strategy_ids
+        and strategy_id != STRATEGY_SOURCE_PRESET_TEXT
     )
     persona_strategy_lines = []
     for strategy_id, definition in sorted(

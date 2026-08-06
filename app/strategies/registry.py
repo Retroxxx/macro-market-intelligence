@@ -32,7 +32,7 @@ STRATEGY_SOURCE_OPTIONS: tuple[dict[str, str], ...] = (
     {
         "id": STRATEGY_SOURCE_PRESET_TEXT,
         "label": "预设文字",
-        "desc": "由买卖决策模型把输入文字优化为本轮选股和买卖规则",
+        "desc": "由模型在创建阶段细化一次，确认后由冻结的本地规则完成选股与买卖",
         "color": "#2dd4bf",
     },
 )
@@ -323,6 +323,26 @@ STRATEGY_DEFINITIONS: dict[str, dict[str, Any]] = {
             ],
         },
     },
+    STRATEGY_SUITE_PRESET_TEXT: {
+        "label": "预设文字策略",
+        "color": "#2dd4bf",
+        "desc": "由版本化Prompt规则独立筛选中性候选并管理完整持仓生命周期",
+        "family": "prompt",
+        "persona": "prompt",
+        "scorer": "score_preset_text",
+        "display_order": 90,
+        "position_limit_pct": 100.0,
+        "aliases": ["预设文字", "预设文字策略", "文字策略", "preset_text"],
+        "profile": {
+            "priority": 50,
+            "entry_threshold": 0.0,
+            "score_basis": "中性数据完整度与流动性排序，具体准入完全由冻结Prompt规则决定",
+            "position_hint": "由文字策略解释与账户硬约束共同决定",
+            "time_stop": "按买入时冻结的文字策略快照执行",
+            "certainty_rank": 5,
+            "risk_reward_rank": 5,
+        },
+    },
 }
 
 
@@ -572,6 +592,7 @@ def default_trade_discipline_text(
     zettaranc_enabled: bool = True,
     sector_tide_enabled: bool = False,
     niuone_enabled: bool = False,
+    prompt_strategy_enabled: bool = False,
 ) -> str:
     position_limit_desc = str(position_limit_desc or "无固定百分比硬限制")
     position_rule = (
@@ -603,6 +624,8 @@ def default_trade_discipline_text(
         else
         "- 板块潮汐退出：结构止损；行业分数<55连续两次；复合风险硬停止且行业转弱；主线5日/轮动3日/修复T+2不延续；达到2R先减半，余仓峰值-2ATR跟踪"
         if sector_tide_enabled
+        else "- 系统底线风控：预设文字策略退出只读取每个持仓买入时冻结的原文与结构化解释；系统不追加通用止盈、技术破位或持有期退出。"
+        if prompt_strategy_enabled
         else
         "- 系统底线风控：持仓超25日退出；Z哥按入场战法使用专属结构止损，防卖飞、卤煮、S1/S2/S3、出货五式、白线/黄线等归属于下方 Z哥卖出风控"
         if zettaranc_enabled
@@ -616,7 +639,7 @@ def default_trade_discipline_text(
         if sector_tide_enabled
         else f"- 注册策略仓位纪律只作为参考：{position_limit_desc}。"
     )
-    generic_exit_rules = [] if sector_tide_enabled or niuone_enabled else [
+    generic_exit_rules = [] if sector_tide_enabled or niuone_enabled or prompt_strategy_enabled else [
         "- 移动止损：盈利>5%后进入回撤保护，回到成本附近自动退出",
         "- 信号恶化退出：持有>10天仍未站回BBI且盈利不足，或持有>12天仍亏>3%，自动离场",
     ]
@@ -684,9 +707,7 @@ def enabled_strategy_ids(
 ) -> set[str]:
     enabled: set[str] = set()
     suite = active_strategy_suite(strategy_suite_raw, strategy_source_raw, enabled_persona_raw)
-    # Text strategies intentionally use only the neutral base scanner as their
-    # raw candidate pool; the model-provided rules remain the sole decision policy.
-    enabled_options = {BASIC_STRATEGY_GROUP_ID if suite == STRATEGY_SUITE_PRESET_TEXT else suite}
+    enabled_options = {suite}
     for option_id in enabled_options:
         group = STRATEGY_SUITES.get(option_id)
         if group:

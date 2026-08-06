@@ -36,6 +36,17 @@ def permissive_market_context() -> dict:
     }
 
 
+def complete_preset_interpretation() -> dict[str, list[str]]:
+    return {
+        "selection_rules": ["选择放量站上20日线的股票"],
+        "entry_rules": ["回踩20日线企稳后买入"],
+        "exit_rules": ["收盘跌破20日线卖出"],
+        "position_rules": ["单票不超过账户权益10%"],
+        "time_rules": ["信号次一交易时段执行"],
+        "ambiguities": [],
+    }
+
+
 class SellStrategyRuleTests(unittest.TestCase):
     def test_trading_time_tracks_auction_and_static_period(self):
         allowed, reason = trader.is_a_share_trading_time(datetime(2026, 6, 24, 9, 15))
@@ -353,6 +364,391 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertEqual(compact_pos["strategy_mark_id"], "b3_accelerate")
         self.assertEqual(compact_pos["position_pct"], 10.0)
         self.assertEqual(compact_pos["strategy_mark_history"][-1]["action"], "BUY")
+
+    def test_preset_text_buy_freezes_auditable_policy_snapshot(self):
+        saved_active = os.environ.get(trader.ACTIVE_STRATEGY_ENV)
+        saved_text = os.environ.get(trader.PRESET_STRATEGY_TEXT_ENV)
+        original_execution_time = trader.is_a_share_execution_time
+        original_quote = trader.execution_quote
+        try:
+            os.environ[trader.ACTIVE_STRATEGY_ENV] = "preset_text"
+            os.environ[trader.PRESET_STRATEGY_TEXT_ENV] = "放量站上20日线买入\\n收盘跌破20日线卖出"
+            trader.is_a_share_execution_time = lambda dt=None: (True, "连续竞价交易时段")
+            trader.execution_quote = lambda code: {"price": 10.0, "name": "测试股", "source": "test"}
+            candidates = [{
+                "code": "600000",
+                "name": "测试股",
+                "best_strategy": "preset_text",
+                "best_score": 8.0,
+                "entry_threshold": 0.0,
+                "actionable": True,
+                "hard_blockers": [],
+                "return_20d_pct": 8.5,
+                "above_ema20": True,
+                "risk_flags": [],
+            }]
+            snapshot = trader.build_preset_strategy_snapshot(
+                trader.current_preset_strategy_text(),
+                captured_at="2026-06-24 10:00:00",
+            )
+            audit = trader.build_preset_decision_audit(
+                snapshot=snapshot,
+                candidates=candidates,
+                interpretation=complete_preset_interpretation(),
+                prompt="frozen prompt",
+                generated_at="2026-06-24 10:00:01",
+            )
+            state = {"cash": 100000.0, "positions": {}, "trade_log": []}
+            decision = {
+                "strategy_interpretation": complete_preset_interpretation(),
+                "preset_strategy_audit": audit,
+                "actions": [{
+                    "action": "BUY",
+                    "code": "600000",
+                    "name": "测试股",
+                    "shares": 1000,
+                    "reason": "预设文字策略：放量站上20日线且回踩企稳，仓位10%，跌破20日线失效",
+                }],
+            }
+
+            executed = trader.execute_actions(
+                state,
+                decision,
+                candidates,
+                True,
+                "连续竞价交易时段",
+                permissive_market_context(),
+            )
+        finally:
+            trader.is_a_share_execution_time = original_execution_time
+            trader.execution_quote = original_quote
+            if saved_active is None:
+                os.environ.pop(trader.ACTIVE_STRATEGY_ENV, None)
+            else:
+                os.environ[trader.ACTIVE_STRATEGY_ENV] = saved_active
+            if saved_text is None:
+                os.environ.pop(trader.PRESET_STRATEGY_TEXT_ENV, None)
+            else:
+                os.environ[trader.PRESET_STRATEGY_TEXT_ENV] = saved_text
+
+        self.assertEqual(len(executed), 1)
+        pos = state["positions"]["600000"]
+        self.assertEqual(pos["buy_strategy"], "preset_text")
+        self.assertEqual(pos["strategy_mark"]["strategy_id"], "preset_text")
+        self.assertEqual(pos["preset_strategy_snapshot"]["text"], "放量站上20日线买入\n收盘跌破20日线卖出")
+        self.assertEqual(
+            pos["preset_strategy_snapshot"]["text_sha256"],
+            executed[0]["preset_strategy_snapshot"]["text_sha256"],
+        )
+        self.assertEqual(
+            pos["preset_strategy_candidate_pool_sha256"],
+            executed[0]["preset_strategy_candidate_pool_sha256"],
+        )
+        self.assertEqual(
+            trader.preset_position_policy_context(state)[0]["snapshot"]["text"],
+            "放量站上20日线买入\n收盘跌破20日线卖出",
+        )
+
+    def test_preset_text_buy_fails_closed_without_complete_audit(self):
+        saved_active = os.environ.get(trader.ACTIVE_STRATEGY_ENV)
+        saved_text = os.environ.get(trader.PRESET_STRATEGY_TEXT_ENV)
+        original_execution_time = trader.is_a_share_execution_time
+        original_quote = trader.execution_quote
+        try:
+            os.environ[trader.ACTIVE_STRATEGY_ENV] = "preset_text"
+            os.environ[trader.PRESET_STRATEGY_TEXT_ENV] = "只买强趋势"
+            trader.is_a_share_execution_time = lambda dt=None: (True, "连续竞价交易时段")
+            trader.execution_quote = lambda code: {"price": 10.0, "name": "测试股", "source": "test"}
+            state = {"cash": 100000.0, "positions": {}, "trade_log": []}
+            candidates = [{
+                "code": "600000",
+                "name": "测试股",
+                "best_strategy": "preset_text",
+                "best_score": 8.0,
+                "entry_threshold": 0.0,
+                "actionable": True,
+                "hard_blockers": [],
+            }]
+            decision = {"actions": [{
+                "action": "BUY", "code": "600000", "name": "测试股",
+                "shares": 1000, "reason": "模型要求买入",
+            }]}
+
+            executed = trader.execute_actions(
+                state,
+                decision,
+                candidates,
+                True,
+                "连续竞价交易时段",
+                permissive_market_context(),
+            )
+        finally:
+            trader.is_a_share_execution_time = original_execution_time
+            trader.execution_quote = original_quote
+            if saved_active is None:
+                os.environ.pop(trader.ACTIVE_STRATEGY_ENV, None)
+            else:
+                os.environ[trader.ACTIVE_STRATEGY_ENV] = saved_active
+            if saved_text is None:
+                os.environ.pop(trader.PRESET_STRATEGY_TEXT_ENV, None)
+            else:
+                os.environ[trader.PRESET_STRATEGY_TEXT_ENV] = saved_text
+
+        self.assertEqual(executed, [])
+        self.assertEqual(state["positions"], {})
+        self.assertIn("决策审计", decision["execution_blocked_reason"])
+
+    def test_preset_text_buy_audit_detects_candidate_fact_drift(self):
+        text = "放量站上20日线买入"
+        candidates = [{
+            "code": "600000",
+            "name": "测试股",
+            "price": 10.0,
+            "return_20d_pct": 8.5,
+            "above_ema20": True,
+        }]
+        snapshot = trader.build_preset_strategy_snapshot(
+            text,
+            captured_at="2026-06-24 10:00:00",
+        )
+        audit = trader.build_preset_decision_audit(
+            snapshot=snapshot,
+            candidates=candidates,
+            interpretation=complete_preset_interpretation(),
+            prompt="frozen prompt",
+            generated_at="2026-06-24 10:00:01",
+        )
+        changed_candidates = [{**candidates[0], "return_20d_pct": 9.5}]
+
+        error = trader.validate_preset_buy_audit(
+            audit,
+            code="600000",
+            candidates=changed_candidates,
+            current_text=text,
+        )
+
+        self.assertIn("候选池审计不一致", error or "")
+
+    def test_preset_text_add_trade_links_current_decision_audit(self):
+        saved_active = os.environ.get(trader.ACTIVE_STRATEGY_ENV)
+        saved_text = os.environ.get(trader.PRESET_STRATEGY_TEXT_ENV)
+        original_execution_time = trader.is_a_share_execution_time
+        original_quote = trader.execution_quote
+        text = "放量站上20日线买入，收盘跌破20日线卖出"
+        interpretation = complete_preset_interpretation()
+        candidates = [{
+            "code": "600000",
+            "name": "测试股",
+            "best_strategy": "preset_text",
+            "best_score": 7.0,
+            "entry_threshold": 0.0,
+            "actionable": True,
+            "hard_blockers": [],
+            "return_20d_pct": 8.5,
+            "above_ema20": True,
+            "risk_flags": [],
+        }]
+        snapshot = trader.build_preset_strategy_snapshot(
+            text,
+            captured_at="2026-06-23 10:00:00",
+        )
+        entry_audit = trader.build_preset_decision_audit(
+            snapshot=snapshot,
+            candidates=candidates,
+            interpretation=interpretation,
+            prompt="entry prompt",
+            generated_at="2026-06-23 10:00:01",
+        )
+        add_audit = trader.build_preset_decision_audit(
+            snapshot=snapshot,
+            candidates=candidates,
+            interpretation=interpretation,
+            prompt="later add prompt",
+            generated_at="2026-06-24 10:00:01",
+        )
+        state = {
+            "cash": 90000.0,
+            "positions": {
+                "600000": {
+                    "code": "600000",
+                    "name": "测试股",
+                    "qty": 1000,
+                    "avg_cost": 10.0,
+                    "last_price": 10.0,
+                    "buy_date_lots": {"2026-06-23": 1000},
+                    "buy_strategy": "preset_text",
+                    "strategy_mark": {
+                        "strategy_id": "preset_text",
+                        "label": "预设文字策略",
+                    },
+                    "preset_strategy_snapshot": snapshot,
+                    "preset_strategy_interpretation": interpretation,
+                    "preset_strategy_interpretation_sha256": entry_audit[
+                        "interpretation_sha256"
+                    ],
+                    "preset_strategy_prompt_protocol": entry_audit[
+                        "prompt_protocol"
+                    ],
+                    "preset_strategy_prompt_sha256": entry_audit[
+                        "prompt_sha256"
+                    ],
+                }
+            },
+            "trade_log": [],
+        }
+        decision = {
+            "preset_strategy_audit": add_audit,
+            "actions": [{
+                "action": "BUY",
+                "code": "600000",
+                "name": "测试股",
+                "shares": 100,
+                "reason": "同一冻结策略回踩确认，加仓后约11%仓位",
+            }],
+        }
+        try:
+            os.environ[trader.ACTIVE_STRATEGY_ENV] = "preset_text"
+            os.environ[trader.PRESET_STRATEGY_TEXT_ENV] = text
+            trader.is_a_share_execution_time = lambda dt=None: (
+                True,
+                "连续竞价交易时段",
+            )
+            trader.execution_quote = lambda code: {
+                "price": 10.0,
+                "name": "测试股",
+                "source": "test",
+            }
+
+            executed = trader.execute_actions(
+                state,
+                decision,
+                candidates,
+                True,
+                "连续竞价交易时段",
+                permissive_market_context(),
+            )
+        finally:
+            trader.is_a_share_execution_time = original_execution_time
+            trader.execution_quote = original_quote
+            if saved_active is None:
+                os.environ.pop(trader.ACTIVE_STRATEGY_ENV, None)
+            else:
+                os.environ[trader.ACTIVE_STRATEGY_ENV] = saved_active
+            if saved_text is None:
+                os.environ.pop(trader.PRESET_STRATEGY_TEXT_ENV, None)
+            else:
+                os.environ[trader.PRESET_STRATEGY_TEXT_ENV] = saved_text
+
+        self.assertEqual(len(executed), 1)
+        self.assertEqual(
+            executed[0]["preset_strategy_prompt_sha256"],
+            add_audit["prompt_sha256"],
+        )
+        self.assertNotEqual(
+            executed[0]["preset_strategy_prompt_sha256"],
+            entry_audit["prompt_sha256"],
+        )
+        self.assertEqual(
+            state["positions"]["600000"]["preset_strategy_prompt_sha256"],
+            entry_audit["prompt_sha256"],
+        )
+
+    def test_preset_text_sell_uses_frozen_entry_policy_after_current_text_changes(self):
+        original_execution_time = trader.is_a_share_execution_time
+        original_quote = trader.execution_quote
+        original_today_key = trader.today_key
+        snapshot = trader.build_preset_strategy_snapshot(
+            "收盘跌破20日线卖出",
+            captured_at="2026-06-23 10:00:00",
+        )
+        interpretation = complete_preset_interpretation()
+        entry_audit = trader.build_preset_decision_audit(
+            snapshot=snapshot,
+            candidates=[],
+            interpretation=interpretation,
+            prompt="entry prompt",
+            generated_at="2026-06-23 10:00:00",
+        )
+        state = {
+            "cash": 90000.0,
+            "positions": {
+                "600000": {
+                    "code": "600000",
+                    "name": "测试股",
+                    "qty": 1000,
+                    "avg_cost": 10.0,
+                    "last_price": 9.8,
+                    "buy_date_lots": {"2026-06-23": 1000},
+                    "buy_strategy": "preset_text",
+                    "strategy_mark": {"strategy_id": "preset_text", "label": "预设文字策略"},
+                    "preset_strategy_snapshot": snapshot,
+                    "preset_strategy_interpretation": interpretation,
+                    "preset_strategy_interpretation_sha256": entry_audit[
+                        "interpretation_sha256"
+                    ],
+                }
+            },
+            "trade_log": [],
+        }
+        contexts = trader.preset_position_policy_context(state)
+        decision = {
+            "preset_exit_audit": trader.build_preset_exit_audit(
+                contexts,
+                prompt="prompt containing frozen policy",
+                generated_at="2026-06-24 10:00:00",
+            ),
+            "actions": [{
+                "action": "SELL",
+                "code": "600000",
+                "name": "测试股",
+                "shares": 1000,
+                "reason": f"策略指纹{snapshot['text_sha256'][:12]}：收盘跌破20日线",
+            }],
+        }
+        try:
+            trader.today_key = lambda: "2026-06-24"
+            trader.is_a_share_execution_time = lambda dt=None: (True, "连续竞价交易时段")
+            trader.execution_quote = lambda code: {"price": 9.8, "name": "测试股", "source": "test"}
+            executed = trader.execute_actions(
+                state,
+                decision,
+                [],
+                True,
+                "连续竞价交易时段",
+                permissive_market_context(),
+            )
+        finally:
+            trader.today_key = original_today_key
+            trader.is_a_share_execution_time = original_execution_time
+            trader.execution_quote = original_quote
+
+        self.assertEqual(len(executed), 1)
+        self.assertNotIn("600000", state["positions"])
+        self.assertEqual(executed[0]["buy_strategy"], "preset_text")
+        self.assertEqual(executed[0]["preset_strategy_text_sha256"], snapshot["text_sha256"])
+        self.assertEqual(
+            executed[0]["preset_strategy_exit_prompt_sha256"],
+            decision["preset_exit_audit"]["prompt_sha256"],
+        )
+
+    def test_preset_text_position_skips_unfrozen_generic_auto_exits(self):
+        snapshot = trader.build_preset_strategy_snapshot(
+            "只在跌破20日线时卖出",
+            captured_at="2026-05-01 10:00:00",
+        )
+        pos = {
+            "qty": 1000,
+            "avg_cost": 10.0,
+            "last_price": 15.0,
+            "buy_date_lots": {"2026-05-01": 1000},
+            "buy_strategy": "preset_text",
+            "strategy_mark": {"strategy_id": "preset_text", "label": "预设文字策略"},
+            "preset_strategy_snapshot": snapshot,
+        }
+
+        signal = trader.evaluate_sell_signal("600000", pos, "2026-06-24")
+
+        self.assertIsNone(signal)
 
     def test_execute_actions_daily_loss_budget_blocks_buy_but_not_sell(self):
         state = {
@@ -2379,7 +2775,8 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertIn("用户原文：\n只做主线强趋势回踩\n跌破5日线离场", prompt)
         self.assertIn("先将用户原文分析并优化成清晰的选股条件", prompt)
         self.assertIn("其他策略不得影响本轮新增仓判断", prompt)
-        self.assertIn("基础扫描结果只作为原始候选池", prompt)
+        self.assertIn("筛选中性行情事实候选", prompt)
+        self.assertIn("中性候选排序不构成买点", prompt)
         self.assertIn("不得引用、混合或补充其他未启用策略", prompt)
         self.assertIn("每条 BUY/SELL 的仓位大小由你决定", prompt)
         self.assertIn("参考价或成交价 × shares ÷ 当前总权益 × 100%", prompt)

@@ -185,6 +185,35 @@ class MultiStrategyRuleTests(unittest.TestCase):
         self.assertEqual(rows[-1]["close"], 11.5)
         self.assertIn("ema20", rows[-1])
 
+    def test_prompt_only_preparation_skips_legacy_indicator_enrichment(self):
+        historical = [
+            {
+                "date": f"2026-07-{index + 1:02d}",
+                "open": 10.0,
+                "high": 10.5,
+                "low": 9.5,
+                "close": 10.0,
+                "volume": 1000,
+            }
+            for index in range(30)
+        ]
+        original = screen.enrich_rows
+        calls = []
+        screen.enrich_rows = lambda rows: calls.append(len(rows))
+        try:
+            rows = screen.prepare_strategy_rows(
+                "600001",
+                "sh600001",
+                historical_rows=historical,
+                enrich_legacy_indicators=False,
+            )
+        finally:
+            screen.enrich_rows = original
+
+        self.assertIsNotNone(rows)
+        self.assertEqual(calls, [])
+        self.assertEqual(rows[-1]["symbol_code"], "600001")
+
     def test_prepare_strategy_rows_fills_cache_only_after_network_fallback(self):
         historical = [
             {
@@ -1198,7 +1227,7 @@ class MultiStrategyRuleTests(unittest.TestCase):
             else:
                 os.environ[screen.ACTIVE_STRATEGY_ENV] = old
 
-    def test_preset_text_suite_uses_only_neutral_base_scorers(self):
+    def test_preset_text_suite_uses_only_independent_prompt_scorer(self):
         old = os.environ.get(screen.ACTIVE_STRATEGY_ENV)
         try:
             os.environ[screen.ACTIVE_STRATEGY_ENV] = "preset_text"
@@ -1206,13 +1235,54 @@ class MultiStrategyRuleTests(unittest.TestCase):
 
             self.assertNotIn("li_daxiao_bottom", active)
             self.assertNotIn("shaofu_b1", active)
-            self.assertIn("trend_pullback", active)
-            self.assertIn("breakout", active)
+            self.assertNotIn("trend_pullback", active)
+            self.assertNotIn("breakout", active)
+            self.assertEqual(set(active), {"preset_text"})
         finally:
             if old is None:
                 os.environ.pop(screen.ACTIVE_STRATEGY_ENV, None)
             else:
                 os.environ[screen.ACTIVE_STRATEGY_ENV] = old
+
+    def test_preset_text_scorer_exposes_neutral_facts_without_base_entry_gates(self):
+        rows = []
+        for index in range(40):
+            close = 10.0 + index * 0.05
+            rows.append({
+                "date": f"2026-06-{index + 1:02d}",
+                "open": close - 0.02,
+                "high": close + 0.12,
+                "low": close - 0.10,
+                "close": close,
+                "volume": 1000 + index * 20,
+            })
+        screen.enrich_rows(rows)
+        rows[-1].update({
+            "quote_amount": 1_500_000_000,
+            "quote_turnover": 3.2,
+            "quote_change_pct": 1.1,
+        })
+
+        scored = screen.STRATEGY_SCORERS["preset_text"](rows)
+
+        self.assertEqual(scored["strategy_id"], "preset_text")
+        self.assertTrue(scored["actionable"])
+        self.assertEqual(scored["hard_blockers"], [])
+        self.assertEqual(scored["entry_threshold"], 0.0)
+        self.assertIsNone(scored["distance_pct"])
+        self.assertIsNotNone(scored["return_20d_pct"])
+        self.assertIsNotNone(scored["distance_ema20_pct"])
+        self.assertIsNotNone(scored["volume_ratio_5d"])
+        selected = screen.select_trade_candidates([
+            {
+                "code": "600000",
+                "name": "测试股",
+                "best_strategy": "preset_text",
+                "best_score": scored["score"],
+                **scored,
+            }
+        ], limit=1)
+        self.assertEqual([item["code"] for item in selected], ["600000"])
 
     def test_active_strategy_suites_are_isolated(self):
         old = os.environ.get(screen.ACTIVE_STRATEGY_ENV)
@@ -1222,7 +1292,7 @@ class MultiStrategyRuleTests(unittest.TestCase):
                 "zettaranc": {"b3_accelerate", "b2_confirm", "shaofu_b1", "super_b1"},
                 "li_daxiao_bottom": {"li_daxiao_bottom"},
                 "niuone": {"niu_emerging", "niu_leader", "niu_pullback", "niu_reversal_probe"},
-                "preset_text": {"breakout", "trend_pullback"},
+                "preset_text": {"preset_text"},
             }
             for suite, scorer_ids in expected.items():
                 os.environ[screen.ACTIVE_STRATEGY_ENV] = suite

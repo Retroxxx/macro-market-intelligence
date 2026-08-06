@@ -451,6 +451,7 @@ class PositionExitSignal:
     reason: str
     sell_ratio: float = 1.0
     fill_reference_price: float | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         signal = str(self.signal or "").strip()
@@ -475,6 +476,7 @@ class PositionExitSignal:
         object.__setattr__(self, "reason", reason)
         object.__setattr__(self, "sell_ratio", ratio)
         object.__setattr__(self, "fill_reference_price", fill_reference)
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata or {})))
 
 
 class PositionExitStrategy(Protocol):
@@ -1463,6 +1465,7 @@ def _run_trade_lifecycle_backtest(
                 "signal": decision.signal,
                 "reason": decision.reason,
                 "fee": exit_fee,
+                "metadata": dict(decision.metadata),
             }
             trade["exit_legs"].append(leg)
             position["remaining_units"] = max(0.0, remaining_units - exit_units)
@@ -1834,6 +1837,9 @@ def _run_strategy_portfolio_backtest(
     reset_selector = getattr(selector, "reset", None)
     if callable(reset_selector):
         reset_selector()
+    reset_strategy = getattr(strategy, "reset", None)
+    if callable(reset_strategy):
+        reset_strategy()
     evaluation_dates = tuple(trading_dates[first_selector_session:])
     completed_sessions = 0
 
@@ -1916,6 +1922,9 @@ def _run_strategy_portfolio_backtest(
                 raise SelectionBacktestError(
                     "portfolio entry strategy must return PortfolioEntryDecision"
                 )
+            decision_metadata = decision.state.get("decision_metadata")
+            if isinstance(decision_metadata, Mapping):
+                record["entry_decision_metadata"] = dict(decision_metadata)
             if decision.action == "reject" or decision.units <= 0:
                 record["status_reason"] = decision.reason or "entry_risk_rejected"
                 continue
@@ -1935,6 +1944,10 @@ def _run_strategy_portfolio_backtest(
                 "strategy_id": selected.strategy_id,
                 "action": decision.action,
                 "fee": entry_fee,
+                "metadata": (
+                    dict(decision_metadata)
+                    if isinstance(decision_metadata, Mapping) else {}
+                ),
             }
             if position is None:
                 trade_id = f"trade-{len(trades) + 1}"
@@ -2192,6 +2205,7 @@ def _run_strategy_portfolio_backtest(
                 "signal": decision.signal,
                 "reason": decision.reason,
                 "fee": exit_fee,
+                "metadata": dict(decision.metadata),
             }
             trade["exit_legs"].append(exit_leg)
             position["remaining_units"] = max(0, remaining_before - exit_units)

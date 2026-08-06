@@ -21,12 +21,17 @@ const taskError = ref('')
 const job = ref(null)
 const form = reactive({
   startDate: '', endDate: '', adjustment: 'qfq', source: 'auto',
+  promptVersionId: '',
 })
 let pollTimer = 0
 
 const strategy = computed(() => (
   (options.value?.strategies || []).find(item => item.id === strategyId.value) || null
 ))
+const promptVersions = computed(() => strategy.value?.prompt_versions || [])
+const selectedPromptVersion = computed(() => promptVersions.value.find(
+  item => item.version_id === form.promptVersionId,
+) || null)
 const limits = computed(() => options.value?.limits || {})
 const expectedProtocolVersion = computed(() => (
   strategy.value?.id === 'niuone'
@@ -100,6 +105,7 @@ const canStart = computed(() => (
   && strategy.value?.supported
   && form.startDate
   && form.endDate
+  && (strategy.value?.id !== 'preset_text' || Boolean(form.promptVersionId))
   && !starting.value
   && !isActive.value
 ))
@@ -158,6 +164,13 @@ const signalStatusReasonLabels = {
   below_board_lot: '风险预算不足 1 手，未成交',
   insufficient_cash: '现金不足或低于策略现金储备',
   entry_risk_rejected: '买入未通过风险定仓规则',
+  prompt_entry_false: '冻结文字策略买入条件不成立',
+  prompt_entry_unknown: '冻结文字策略买入数据不足',
+  prompt_add_disabled: '冻结文字策略禁止加仓',
+  prompt_max_new_positions: '冻结文字策略本轮新仓已达上限',
+  prompt_position_too_small: '冻结文字策略仓位不足一手',
+  prompt_single_position_limit: '冻结文字策略单票仓位超过系统上限',
+  prompt_total_position_limit: '冻结文字策略总仓位或现金储备超过系统上限',
 }
 const diagnosticFamilyLabels = {
   risk_structure: '结构风险', daily_v_structure: '日线 V 型结构', price_structure: '价格结构',
@@ -181,6 +194,10 @@ function applyDefaults() {
   if (!form.startDate) form.startDate = String(defaults.start_date || '')
   if (!form.endDate) form.endDate = String(defaults.end_date || '')
   if (!form.adjustment) form.adjustment = String(defaults.adjustment || 'qfq')
+  if (strategy.value?.id === 'preset_text' && !form.promptVersionId) {
+    const preferred = promptVersions.value.find(item => item.active) || promptVersions.value[0]
+    form.promptVersionId = String(preferred?.version_id || '')
+  }
 }
 
 async function loadOptions() {
@@ -257,6 +274,9 @@ async function startBacktest() {
       adjustment: form.adjustment,
       source: form.source,
     })
+    if (strategy.value?.id === 'preset_text') {
+      body.set('prompt_strategy_version_id', form.promptVersionId)
+    }
     const response = await fetch('/api/admin/backtests', {
       method: 'POST',
       credentials: 'same-origin',
@@ -504,6 +524,7 @@ function warningText(value) {
   if (text.includes('NiuOne entries use 100% of the deterministic maximum risk-permitted')) return '牛牛回测按风控允许的确定性最大整手数量下单；模拟交易使用模型指定股数，超出上限时会拒单而非自动缩量。因此本回测的组合收益和回撤反映最大定仓情景。'
   if (text.includes('NiuOne aggressive backtest profile increases account-risk')) return '牛牛进取回测参数提高账户风险、组合/题材敞口与持仓数量预算，但不会放宽价格形态、结构止损、涨停或 T+1 规则。'
   if (text.includes('completed daily bars at the close')) return '卖出规则使用每日收盘后可见的日 K 数据回放，触发时按当日收盘价估算成交；日 K 无法还原盘中精确触发时点与排队次序。'
+  if (text.includes('prompt strategy backtests enforce the static system position')) return '文字策略回测执行系统静态持仓、单票、总仓和现金储备上限；生产盘面指引可能进一步收紧这些上限，历史回测不会伪造缺失的盘面指引快照。'
   if (text.includes('historical universe coverage')) return `历史行情覆盖率：${text.split(':').slice(1).join(':').trim()}`
   if (text.includes('selection replay cache could not be persisted')) return '选股回放缓存未能持久化；本次回测已使用内存中的回放数据正常完成。'
   return text
@@ -521,6 +542,7 @@ function warningLabel(value) {
   if (text.includes('NiuOne entries use 100% of the deterministic maximum risk-permitted')) return '定仓差异'
   if (text.includes('NiuOne aggressive backtest profile increases account-risk')) return '进取参数'
   if (text.includes('completed daily bars at the close')) return '卖出成交假设'
+  if (text.includes('prompt strategy backtests enforce the static system position')) return '静态风控假设'
   if (text.includes('selection replay cache could not be persisted')) return '缓存降级'
   return '其他提示'
 }
@@ -536,6 +558,8 @@ watch(strategyId, async () => {
   job.value = null
   taskError.value = ''
   if (options.value) {
+    form.promptVersionId = ''
+    applyDefaults()
     setTitle(strategy.value ? `${strategy.value.label}回测` : '策略回测')
     if (strategy.value) await restoreLatestJob()
   }
@@ -589,10 +613,19 @@ onBeforeUnmount(stopPolling)
         <template v-else>
           <form class="backtest-form" @submit.prevent="startBacktest">
             <div class="backtest-form-head">
-              <div><h2>回测参数</h2><p v-if="strategy.id === 'niuone'">无需输入股票，系统按历史行情自主选股；牛牛战法固定使用进取风险参数和 100 万元独立初始资金，严格回放风险定仓、阶段升级加仓、T+1、持仓/主题/总仓约束及策略卖出。回测与模拟账户完全隔离，历史日 K 实时获取且不使用本地缓存。</p><p v-else>无需输入股票，系统按历史行情自主选股；收盘信号于次日开盘买入，与模拟账户及持仓完全隔离。历史日 K 按所选区间实时获取，不使用本地日 K 缓存。</p></div>
+              <div><h2>回测参数</h2><p v-if="strategy.id === 'niuone'">无需输入股票，系统按历史行情自主选股；牛牛战法固定使用进取风险参数和 100 万元独立初始资金，严格回放风险定仓、阶段升级加仓、T+1、持仓/主题/总仓约束及策略卖出。回测与模拟账户完全隔离，历史日 K 实时获取且不使用本地缓存。</p><p v-else-if="strategy.id === 'preset_text'">选择一个已激活的冻结版本后，系统按该版本独立执行选股、次日开盘买入、持仓逐日监测和规则卖出；全程不调用模型，也不读写模拟账户。结果保留版本、计划指纹和可重放审计。</p><p v-else>无需输入股票，系统按历史行情自主选股；收盘信号于次日开盘买入，与模拟账户及持仓完全隔离。历史日 K 按所选区间实时获取，不使用本地日 K 缓存。</p></div>
               <span>最长 {{ limits.max_range_days || 366 }} 天</span>
             </div>
             <div class="backtest-fields">
+              <label v-if="strategy.id === 'preset_text'">
+                <span>冻结策略版本</span>
+                <select v-model="form.promptVersionId" required>
+                  <option v-for="item in promptVersions" :key="item.version_id" :value="item.version_id">
+                    v{{ item.revision }} · {{ item.name }}{{ item.active ? '（当前）' : '' }}
+                  </option>
+                </select>
+                <small v-if="selectedPromptVersion">SHA-256 {{ selectedPromptVersion.plan_sha256?.slice(0, 16) }}…</small>
+              </label>
               <label><span>开始日期</span><input v-model="form.startDate" type="date" required></label>
               <label><span>结束日期</span><input v-model="form.endDate" type="date" required></label>
               <label>
@@ -653,6 +686,12 @@ onBeforeUnmount(stopPolling)
           </div>
 
           <template v-if="result">
+            <section v-if="result.prompt_backtest" class="backtest-notice">
+              冻结版本 {{ result.prompt_backtest.strategy_version_id }} · 计划指纹
+              {{ result.prompt_backtest.plan_sha256?.slice(0, 16) }}… ·
+              {{ result.prompt_backtest.audit_count || 0 }} 条审计
+              {{ result.prompt_backtest.replay_verified ? '已全部重放校验' : '存在重放失败' }}。
+            </section>
             <details v-if="qualityWarnings.length" class="backtest-quality">
               <summary>
                 <span class="backtest-quality-icon">!</span>

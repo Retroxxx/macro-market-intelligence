@@ -139,6 +139,48 @@ PRACTICE_COMPONENTS = '\n'.join(
 )
 
 
+def prompt_kdj_spec():
+    feature = {
+        'type': 'feature',
+        'feature_id': 'technical.kdj',
+        'field': 'j',
+        'parameters': {'n': 9, 'm1': 3, 'm2': 3},
+    }
+    def compare(rule_id, operator, value):
+        return {
+            'type': 'compare',
+            'rule_id': rule_id,
+            'left': dict(feature),
+            'operator': operator,
+            'right': value,
+        }
+    return {
+        'schema_version': 1,
+        'strategy_id': 'dashboard-kdj',
+        'name': 'KDJ文字策略',
+        'description': 'J值低于0买入，高于15卖出',
+        'data_contract': {
+            'timeframe': '1d',
+            'bar_status': 'closed',
+            'freshness_seconds': 129600,
+        },
+        'rules': {
+            'selection': compare('select', 'lt', 0),
+            'entry': compare('entry', 'lt', 0),
+            'exit': compare('exit', 'gt', 15),
+        },
+        'position': {'type': 'equity_pct', 'value': 10, 'allow_add': False},
+        'exit_quantity': 'all_available',
+        'candidate_limit': 20,
+        'max_new_buys_per_cycle': 2,
+        'missing_data_policy': 'hold',
+        'conflict_policy': 'exit_first',
+        'execution_mode': 'simulation',
+        'assumptions': ['KDJ指J值'],
+        'ambiguities': [],
+    }
+
+
 class FakeHandler:
     """Temporary response-shaped wrapper around the production ASGI app."""
 
@@ -321,6 +363,187 @@ class DashboardAuthTests(unittest.TestCase):
             json.loads(config.wfile.getvalue().decode('utf-8'))['error'],
             'admin_password_required',
         )
+
+    def test_prompt_strategy_admin_api_creates_refines_and_freezes_version(self):
+        cookie = self.admin_cookie()
+        old_db = os.environ.get('DASHBOARD_PROMPT_STRATEGY_DB')
+        original_requester = dashboard._request_prompt_refinement
+        original_persist = dashboard.persist_and_sync_business_updates
+        runtime_updates = []
+        os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = str(
+            self.tmp_path / 'prompt-strategies.db'
+        )
+        dashboard._request_prompt_refinement = lambda messages: {
+            'strategy_spec': prompt_kdj_spec(),
+        }
+        dashboard.persist_and_sync_business_updates = lambda updates: (
+            runtime_updates.append(dict(updates))
+            or {'ok': True, 'changed': True, 'runtime': {'ok': True}}
+        )
+        try:
+            raw = json.dumps({'raw_prompt': 'kdj<0买入，kdj>15卖出'}).encode('utf-8')
+            created = FakeHandler(
+                path='/api/admin/prompt-strategies/drafts',
+                method='POST',
+                headers={
+                    'Cookie': cookie,
+                    dashboard.ACTION_HEADER_NAME: '1',
+                    'Content-Type': 'application/json',
+                    'Content-Length': str(len(raw)),
+                },
+                body=raw,
+            )
+            created.do_POST()
+            self.assertEqual(created.status, 201)
+            draft = json.loads(created.wfile.getvalue().decode('utf-8'))['draft']
+
+            refined = FakeHandler(
+                path=f"/api/admin/prompt-strategies/drafts/{draft['draft_id']}/refine",
+                method='POST',
+                headers={
+                    'Cookie': cookie,
+                    dashboard.ACTION_HEADER_NAME: '1',
+                },
+            )
+            refined.do_POST()
+            self.assertEqual(refined.status, 200)
+            refined_payload = json.loads(refined.wfile.getvalue().decode('utf-8'))
+            self.assertEqual(refined_payload['draft']['status'], 'pending_confirmation')
+            self.assertTrue(refined_payload['draft']['plan_sha256'])
+
+            confirmation = json.dumps({
+                'confirmed_plan_sha256': refined_payload['draft']['plan_sha256'],
+            }).encode('utf-8')
+            wrong_confirmation = json.dumps({
+                'confirmed_plan_sha256': '0' * 64,
+            }).encode('utf-8')
+            rejected_activation = FakeHandler(
+                path=f"/api/admin/prompt-strategies/drafts/{draft['draft_id']}/activate",
+                method='POST',
+                headers={
+                    'Cookie': cookie,
+                    dashboard.ACTION_HEADER_NAME: '1',
+                    'Content-Type': 'application/json',
+                    'Content-Length': str(len(wrong_confirmation)),
+                },
+                body=wrong_confirmation,
+            )
+            rejected_activation.do_POST()
+            self.assertEqual(rejected_activation.status, 400)
+
+            activated = FakeHandler(
+                path=f"/api/admin/prompt-strategies/drafts/{draft['draft_id']}/activate",
+                method='POST',
+                headers={
+                    'Cookie': cookie,
+                    dashboard.ACTION_HEADER_NAME: '1',
+                    'Content-Type': 'application/json',
+                    'Content-Length': str(len(confirmation)),
+                },
+                body=confirmation,
+            )
+            activated.do_POST()
+            self.assertEqual(activated.status, 200)
+            version = json.loads(activated.wfile.getvalue().decode('utf-8'))['version']
+            self.assertEqual(version['status'], 'active')
+            self.assertEqual(
+                runtime_updates,
+                [{dashboard.ACTIVE_STRATEGY_ENV: 'preset_text'}],
+            )
+
+            repeated_activation = FakeHandler(
+                path=f"/api/admin/prompt-strategies/drafts/{draft['draft_id']}/activate",
+                method='POST',
+                headers={
+                    'Cookie': cookie,
+                    dashboard.ACTION_HEADER_NAME: '1',
+                    'Content-Type': 'application/json',
+                    'Content-Length': str(len(confirmation)),
+                },
+                body=confirmation,
+            )
+            repeated_activation.do_POST()
+            self.assertEqual(repeated_activation.status, 200)
+            repeated_version = json.loads(
+                repeated_activation.wfile.getvalue().decode('utf-8')
+            )['version']
+            self.assertEqual(repeated_version['version_id'], version['version_id'])
+            self.assertTrue(repeated_version['runtime_activation']['idempotent'])
+            self.assertEqual(
+                runtime_updates,
+                [{dashboard.ACTIVE_STRATEGY_ENV: 'preset_text'}],
+            )
+
+            listed = FakeHandler(
+                path='/api/admin/prompt-strategies',
+                headers={'Cookie': cookie},
+            )
+            listed.do_GET()
+            listed_payload = json.loads(listed.wfile.getvalue().decode('utf-8'))
+            self.assertEqual(listed_payload['active_version']['version_id'], version['version_id'])
+            self.assertTrue(listed_payload['capabilities'])
+        finally:
+            dashboard._request_prompt_refinement = original_requester
+            dashboard.persist_and_sync_business_updates = original_persist
+            if old_db is None:
+                os.environ.pop('DASHBOARD_PROMPT_STRATEGY_DB', None)
+            else:
+                os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = old_db
+
+        self.assertIn('<AdminPromptStrategy v-if="isStrategyGroup"', ADMIN_FRONTEND)
+        self.assertIn('AI 细化一次', ADMIN_FRONTEND)
+        self.assertIn('确认并激活冻结版本', ADMIN_FRONTEND)
+        self.assertIn(
+            'confirmed_plan_sha256: activeDraft.value.plan_sha256',
+            ADMIN_FRONTEND,
+        )
+        self.assertIn("['pending_confirmation', 'activating']", ADMIN_FRONTEND)
+
+    def test_prompt_strategy_activation_failure_keeps_previous_active_version(self):
+        old_db = os.environ.get('DASHBOARD_PROMPT_STRATEGY_DB')
+        original_persist = dashboard.persist_and_sync_business_updates
+        os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = str(
+            self.tmp_path / 'prompt-activation-failure.db'
+        )
+        try:
+            store = dashboard.prompt_strategy_store()
+            first_draft = store.create_draft('第一版')
+            store.save_refinement(
+                first_draft['draft_id'],
+                prompt_kdj_spec(),
+                model='test',
+                provider='test',
+            )
+            first = store.activate_draft(first_draft['draft_id'])
+
+            second_draft = store.create_draft('第二版')
+            second = store.save_refinement(
+                second_draft['draft_id'],
+                prompt_kdj_spec(),
+                model='test',
+                provider='test',
+            )
+            dashboard.persist_and_sync_business_updates = lambda _updates: (
+                (_ for _ in ()).throw(OSError('disk full'))
+            )
+
+            with self.assertRaisesRegex(RuntimeError, '运行配置写入失败'):
+                dashboard.activate_prompt_strategy_draft(
+                    second_draft['draft_id'],
+                    confirmed_plan_sha256=second['plan_sha256'],
+                )
+
+            self.assertEqual(store.active_version()['version_id'], first['version_id'])
+            self.assertEqual(
+                store.get_draft(second_draft['draft_id'])['status'],
+                'pending_confirmation',
+            )
+        finally:
+            dashboard.persist_and_sync_business_updates = original_persist
+            if old_db is None:
+                os.environ.pop('DASHBOARD_PROMPT_STRATEGY_DB', None)
+            else:
+                os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = old_db
 
     def test_incremental_snapshot_and_admin_share_the_dashboard_port(self):
         publisher = dashboard.public_snapshot_publisher()
@@ -5956,10 +6179,16 @@ process.stdout.write(JSON.stringify({{
         dashboard.validate_business_updates({
             'DASHBOARD_DISPLAY_CANDIDATE_LIMIT': '16',
             'DASHBOARD_TRADE_CANDIDATE_LIMIT': '8',
+            'DASHBOARD_PRESET_STRATEGY_CANDIDATE_LIMIT': '60',
         })
         for name in ('DASHBOARD_DISPLAY_CANDIDATE_LIMIT', 'DASHBOARD_TRADE_CANDIDATE_LIMIT'):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 dashboard.validate_business_updates({name: '0'})
+        for value in ('9', '101'):
+            with self.subTest(preset_limit=value), self.assertRaises(ValueError):
+                dashboard.validate_business_updates({
+                    'DASHBOARD_PRESET_STRATEGY_CANDIDATE_LIMIT': value,
+                })
 
     def test_stock_universe_setting_requires_known_non_empty_choices(self):
         dashboard.validate_business_updates({

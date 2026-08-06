@@ -28,6 +28,8 @@ except ImportError:  # pragma: no cover - legacy top-level import path
 
 SCHEMA_VERSION = 2
 DEFAULT_KLINE_COUNT = 120
+MAX_KLINE_COUNT = 500
+MAX_KLINE_MERGED_COUNT = MAX_KLINE_COUNT + 1
 DEFAULT_PREWARM_WORKERS = 12
 DEFAULT_HTTP_TIMEOUT_SECONDS = 15.0
 TENCENT_KLINE_URL = "https://ifzq.gtimg.cn/appstock/app/fqkline/get"
@@ -183,7 +185,10 @@ def fetch_tencent_daily_klines(
     normalized_symbol = re.sub(r"[^a-zA-Z0-9]", "", str(symbol or "")).lower()
     if not re.fullmatch(r"(?:sh|sz)\d{6}", normalized_symbol):
         return []
-    bounded_count = max(30, min(500, int(count or DEFAULT_KLINE_COUNT)))
+    bounded_count = max(
+        1,
+        min(MAX_KLINE_MERGED_COUNT, int(count or DEFAULT_KLINE_COUNT)),
+    )
     url = f"{TENCENT_KLINE_URL}?param={normalized_symbol},day,,,{bounded_count},qfq"
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
@@ -222,7 +227,7 @@ def store_kline_series(
         symbol = re.sub(r"[^a-zA-Z0-9]", "", str(raw_symbol or "")).lower()
         if not re.fullmatch(r"(?:sh|sz)\d{6}", symbol):
             continue
-        rows = normalize_kline_rows(raw_rows, limit=DEFAULT_KLINE_COUNT)
+        rows = normalize_kline_rows(raw_rows, limit=MAX_KLINE_COUNT)
         if not rows:
             continue
         normalized.append((
@@ -368,7 +373,7 @@ def load_cached_kline_symbols(
 
 def quote_trade_date(quote: Mapping[str, Any] | None) -> str:
     matched = re.search(
-        r"(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})",
+        r"(?P<year>\d{4})[-/]?(?P<month>\d{2})[-/]?(?P<day>\d{2})",
         str((quote or {}).get("quote_time") or ""),
     )
     if not matched:
@@ -379,9 +384,17 @@ def quote_trade_date(quote: Mapping[str, Any] | None) -> str:
 def merge_live_quote(
     historical_rows: Iterable[Mapping[str, Any]],
     quote: Mapping[str, Any] | None,
+    *,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """Append or replace today's bar without mutating cached completed history."""
-    rows = normalize_kline_rows(historical_rows, limit=DEFAULT_KLINE_COUNT)
+    source_rows = list(historical_rows)
+    row_limit = (
+        DEFAULT_KLINE_COUNT
+        if limit is None
+        else max(1, min(MAX_KLINE_MERGED_COUNT, int(limit)))
+    )
+    rows = normalize_kline_rows(source_rows, limit=row_limit)
     trade_date = quote_trade_date(quote)
     price = _finite_float((quote or {}).get("price"))
     if not trade_date or price is None or price <= 0:
@@ -392,6 +405,8 @@ def merge_live_quote(
     volume = _finite_float((quote or {}).get("volume")) or 0.0
     live = {
         "date": trade_date,
+        "bar_status": "live",
+        "observed_at": str((quote or {}).get("quote_time") or ""),
         "open": open_price,
         "close": price,
         "high": max(high, open_price, price),
@@ -402,7 +417,7 @@ def merge_live_quote(
         rows[-1] = live
     else:
         rows.append(live)
-    return rows[-DEFAULT_KLINE_COUNT:]
+    return rows[-row_limit:]
 
 
 def prewarm_completed_for_date(

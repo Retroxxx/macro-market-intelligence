@@ -5,6 +5,7 @@ import AdminAbout from './AdminAbout.vue'
 import AdminConnectionTests from './AdminConnectionTests.vue'
 import AdminEnvInput from './AdminEnvInput.vue'
 import AdminNotificationSettings from './AdminNotificationSettings.vue'
+import AdminPromptStrategy from './AdminPromptStrategy.vue'
 import { allowInfoPopoverClick } from '../utils/infoPopover.js'
 
 const props = defineProps({
@@ -40,6 +41,7 @@ const items = computed(() => {
 })
 const isNotificationGroup = computed(() => group.value?.name === '交易通知')
 const isAboutGroup = computed(() => group.value?.slug === 'about')
+const isStrategyGroup = computed(() => group.value?.slug === 'stock-strategy')
 const itemCountLabel = computed(() => (
   isNotificationGroup.value
     ? `${(props.config.notification_channels || []).length} 个渠道`
@@ -545,5 +547,6 @@ onBeforeUnmount(() => {
         </div>
       </section>
     </form>
+    <AdminPromptStrategy v-if="isStrategyGroup" />
   </div>
 </template>

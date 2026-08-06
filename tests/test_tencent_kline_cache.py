@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 
 from app.market_data import tencent_kline_cache as cache
@@ -99,6 +100,37 @@ class TencentKlineCacheTests(unittest.TestCase):
         self.assertEqual(merged[-1]["close"], 11.5)
         self.assertEqual(replaced[-1]["close"], 11.7)
         self.assertEqual(len(replaced), len(merged))
+
+        iso_merged = cache.merge_live_quote(
+            historical,
+            {**quote, "quote_time": "2026-07-29 10:05:01", "price": 11.6},
+        )
+        self.assertEqual(iso_merged[-1]["date"], "2026-07-29")
+        self.assertEqual(iso_merged[-1]["close"], 11.6)
+
+    def test_merge_keeps_five_hundred_closed_bars_plus_live_buffer(self):
+        start = date(2024, 1, 1)
+        historical = [
+            {
+                "date": (start + timedelta(days=index)).isoformat(),
+                "open": 10.0,
+                "close": 10.0,
+                "high": 10.2,
+                "low": 9.8,
+                "volume": 1000,
+            }
+            for index in range(500)
+        ]
+        quote_day = (start + timedelta(days=500)).strftime("%Y%m%d")
+
+        merged = cache.merge_live_quote(
+            historical,
+            {"quote_time": quote_day + "100000", "price": 10.1},
+            limit=501,
+        )
+
+        self.assertEqual(len(merged), 501)
+        self.assertEqual(sum(row.get("bar_status") == "live" for row in merged), 1)
 
     def test_prewarm_records_coverage_and_keeps_successes(self):
         def fetcher(symbol, _count):

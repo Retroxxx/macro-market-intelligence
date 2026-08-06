@@ -30,6 +30,7 @@ from dashboard_json_cache import (
     write_json_cache,
 )
 from core.process_lease import FileLease
+from core.model_api import build_model_request, request_model
 from dashboard import practice_payload as practice_payload_impl
 from dashboard import practice_market_summary as practice_market_summary_impl
 from dashboard.niuone_mainline import build_niuone_mainline_view
@@ -46,6 +47,7 @@ from dashboard.model_connectivity import (
     model_test_metadata,
     model_test_override_names,
     model_test_setting_names,
+    resolve_model_test_config,
     test_model_connection,
 )
 from dashboard.apis.iwencai_service import (
@@ -128,6 +130,9 @@ from screening.stock_universe import (
     normalize_stock_universe,
     selected_stock_universe,
 )
+from storage.prompt_strategies import PromptStrategyStore
+from strategies.prompt_refinement import refine_prompt_once
+from strategies.rules import DEFAULT_FEATURE_REGISTRY
 from strategies.registry import (
     ACTIVE_STRATEGY_ENV,
     PERSONA_STRATEGY_ENV,
@@ -138,6 +143,7 @@ from strategies.registry import (
     STRATEGY_SOURCE_BUILTIN,
     STRATEGY_SOURCE_ENV,
     STRATEGY_SOURCE_OPTIONS,
+    STRATEGY_SOURCE_PRESET_TEXT,
     active_strategy_suite,
     decode_preset_strategy_text,
     decode_trade_discipline_text,
@@ -507,6 +513,17 @@ MODEL_TEST_TIMEOUT_SECONDS = max(
 )
 MODEL_TEST_MAX_CONCURRENCY = 2
 MODEL_TEST_SEMAPHORE = threading.BoundedSemaphore(MODEL_TEST_MAX_CONCURRENCY)
+PROMPT_REFINEMENT_MAX_CONCURRENCY = max(
+    1,
+    min(2, int(os.environ.get("DASHBOARD_PROMPT_REFINEMENT_MAX_CONCURRENCY", "1") or "1")),
+)
+PROMPT_REFINEMENT_TIMEOUT_SECONDS = max(
+    10,
+    min(60, int(os.environ.get("DASHBOARD_PROMPT_REFINEMENT_TIMEOUT_SECONDS", "45") or "45")),
+)
+PROMPT_REFINEMENT_SEMAPHORE = threading.BoundedSemaphore(
+    PROMPT_REFINEMENT_MAX_CONCURRENCY
+)
 IWENCAI_TEST_MAX_CONCURRENCY = 2
 IWENCAI_TEST_SEMAPHORE = threading.BoundedSemaphore(IWENCAI_TEST_MAX_CONCURRENCY)
 RATE_LIMIT_BUCKETS: dict[tuple[str, str], tuple[float, int]] = {}
@@ -567,6 +584,7 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_PUSH_HISTORY_DB", "label": "消息历史 DB", "group": "基础路径", "kind": "path", "default": str(DASHBOARD_HOME / "push_history.db"), "effect": "restart"},
     {"name": "DASHBOARD_PORTFOLIO_STATE", "label": "模拟账户状态文件", "group": "基础路径", "kind": "path", "default": str(DASHBOARD_HOME / "cron" / "output" / "niuniu_practice_portfolio.json"), "effect": "restart"},
     {"name": "DASHBOARD_NIUNIU_DB", "label": "实战页面 DB", "group": "基础路径", "kind": "path", "default": str(DASHBOARD_HOME / "niuniu.db"), "effect": "restart"},
+    {"name": "DASHBOARD_PROMPT_STRATEGY_DB", "label": "文字策略版本与审计 DB", "group": "基础路径", "kind": "path", "default": str(DASHBOARD_HOME / "prompt_strategies.db"), "effect": "restart"},
     {"name": "DASHBOARD_TRADER_SCRIPT", "label": "实战页面脚本", "group": "基础路径", "kind": "path", "default": str(ENTRYPOINT_DIR / "niuniu_practice_trader.py"), "effect": "restart"},
     {"name": "DASHBOARD_B1_SCANNER", "label": "实战选股扫描脚本", "group": "基础路径", "kind": "path", "default": str(ENTRYPOINT_DIR / "multi_strategy_screen.py"), "effect": "restart"},
     {"name": "DASHBOARD_CN_STOCK_TOOLS", "label": "A股行情工具脚本", "group": "基础路径", "kind": "path", "default": str(ENTRYPOINT_DIR / "cn_stock_tools.py"), "effect": "restart"},
@@ -624,6 +642,7 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": STOCK_UNIVERSE_ENV, "label": "选股范围（限制最终候选与新买入）", "group": "选股与买卖设置", "kind": "stock_universe", "default": DEFAULT_STOCK_UNIVERSE, "effect": "runtime"},
     {"name": "DASHBOARD_DISPLAY_CANDIDATE_LIMIT", "label": "候选池展示数量", "group": "选股与买卖设置", "kind": "int", "default": "10", "effect": "runtime"},
     {"name": "DASHBOARD_TRADE_CANDIDATE_LIMIT", "label": "买卖决策候选数量", "group": "选股与买卖设置", "kind": "int", "default": "10", "effect": "runtime"},
+    {"name": "DASHBOARD_PRESET_STRATEGY_CANDIDATE_LIMIT", "label": "文字策略中性候选数量", "group": "选股与交易策略", "kind": "int", "default": "60", "effect": "runtime", "min": "10", "max": "100"},
     {"name": "DASHBOARD_B3_EXIT_TIME", "label": "B3开盘离场检查时间", "group": "选股与买卖设置", "kind": "time", "default": "09:37", "effect": "runtime"},
     {"name": "DASHBOARD_TIME_EXIT_TIME", "label": "尾盘离场检查时间", "group": "选股与买卖设置", "kind": "time", "default": "14:45", "effect": "runtime"},
     {"name": "DASHBOARD_NIUONE_FORWARD_PREFLIGHT_CRON", "label": "牛牛严格前向开盘前协议预检", "group": "选股与买卖设置", "kind": "cron_time", "default": "5 9 * * 1-5", "effect": "next_run"},
@@ -631,7 +650,7 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_NIUONE_FORWARD_CRON", "label": "牛牛严格前向评估时间", "group": "选股与买卖设置", "kind": "cron_time", "default": "20 15 * * 1-5", "effect": "next_run"},
     {"name": NIUONE_FORWARD_COHORT_START_ENV, "label": "牛牛严格前向队列起始日", "group": "选股与买卖设置", "kind": "text", "default": DEFAULT_NIUONE_FORWARD_COHORT_START, "effect": "next_run"},
     {"name": ACTIVE_STRATEGY_ENV, "label": "当前独立策略", "group": "选股与交易策略", "kind": "strategy_suite", "default": default_enabled_persona_strategies_value(), "effect": "runtime"},
-    {"name": PRESET_STRATEGY_TEXT_ENV, "label": "预设文字策略", "group": "选股与交易策略", "kind": "preset_strategy_text", "default": "", "effect": "runtime"},
+    {"name": PRESET_STRATEGY_TEXT_ENV, "label": "旧版预设文字（兼容）", "group": "选股与交易策略", "kind": "preset_strategy_text", "default": "", "effect": "runtime"},
     {"name": "DASHBOARD_B1_SCAN_TIMEOUT_SECONDS", "label": "实战选股扫描超时秒数", "group": "任务调度", "kind": "int", "default": "480", "effect": "restart", "min": "60", "max": "1800"},
     {"name": "DASHBOARD_B1_SCAN_WORKERS", "label": "实战选股并发数", "group": "任务调度", "kind": "int", "default": "6", "effect": "restart", "min": "1", "max": "16"},
     {"name": "DASHBOARD_TENCENT_QUOTE_STAGE_TIMEOUT_SECONDS", "label": "腾讯全市场行情阶段总超时秒数", "group": "任务调度", "kind": "int", "default": "90", "effect": "restart", "min": "15", "max": "300"},
@@ -654,6 +673,8 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
 
     {"name": "DASHBOARD_DECISION_MAX_TOKENS", "label": "决策最大输出长度", "group": "买卖决策模型", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_TIMEOUT", "label": "决策请求超时", "group": "买卖决策模型", "kind": "int", "default": "180", "effect": "next_run"},
+    {"name": "DASHBOARD_PROMPT_REFINEMENT_MAX_CONCURRENCY", "label": "文字策略细化并发数", "group": "买卖决策模型", "kind": "int", "default": "1", "effect": "restart", "min": "1", "max": "2"},
+    {"name": "DASHBOARD_PROMPT_REFINEMENT_TIMEOUT_SECONDS", "label": "文字策略细化超时秒数", "group": "买卖决策模型", "kind": "int", "default": "45", "effect": "restart", "min": "10", "max": "60"},
     {"name": "DASHBOARD_DECISION_INTELLIGENCE_ENABLED", "label": "启用综合决策参考", "group": "综合决策参考", "kind": "bool", "default": "1", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS", "label": "决策参考缓存秒数", "group": "综合决策参考", "kind": "int", "default": "75", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS", "label": "单类参考数据上限", "group": "综合决策参考", "kind": "int", "default": "5", "effect": "next_run"},
@@ -856,6 +877,7 @@ ADMIN_VISIBLE_ENV_NAMES = [
     STOCK_UNIVERSE_ENV,
     "DASHBOARD_DISPLAY_CANDIDATE_LIMIT",
     "DASHBOARD_TRADE_CANDIDATE_LIMIT",
+    "DASHBOARD_PRESET_STRATEGY_CANDIDATE_LIMIT",
     "DASHBOARD_B3_EXIT_TIME",
     "DASHBOARD_TIME_EXIT_TIME",
     "DASHBOARD_NIUONE_FORWARD_PREFLIGHT_CRON",
@@ -6153,9 +6175,13 @@ def validate_business_updates(updates: dict[str, str]) -> None:
             "DASHBOARD_MORNING_MAX_OPEN_POSITIONS",
             "DASHBOARD_DISPLAY_CANDIDATE_LIMIT",
             "DASHBOARD_TRADE_CANDIDATE_LIMIT",
+            "DASHBOARD_PRESET_STRATEGY_CANDIDATE_LIMIT",
         } and str(value or "").strip():
-            if int(value) <= 0:
+            number = int(value)
+            if number <= 0:
                 raise ValueError(f"{name} 必须大于 0")
+            if name == "DASHBOARD_PRESET_STRATEGY_CANDIDATE_LIMIT" and not 10 <= number <= 100:
+                raise ValueError("文字策略中性候选数量必须在 10 到 100 之间")
         elif name == "DASHBOARD_INDUSTRY_FLOW_PLAYBACK_SPEED":
             normalize_env_update(name, value, "playback_speed")
         elif name == "DASHBOARD_INDUSTRY_FLOW_SIDE_LIMIT" and str(value or "").strip():
@@ -6301,6 +6327,7 @@ def sync_business_runtime_settings(
         PRESET_STRATEGY_TEXT_ENV,
         "DASHBOARD_DISPLAY_CANDIDATE_LIMIT",
         "DASHBOARD_TRADE_CANDIDATE_LIMIT",
+        "DASHBOARD_PRESET_STRATEGY_CANDIDATE_LIMIT",
         STOCK_UNIVERSE_ENV,
     }:
         B1_CANDIDATE_REFRESH_LAST_TS = 0.0
@@ -6475,6 +6502,178 @@ def send_model_connection_test(
         return test_model_connection(target_id, settings, **kwargs)
     finally:
         MODEL_TEST_SEMAPHORE.release()
+
+
+def prompt_strategy_store() -> PromptStrategyStore:
+    return PromptStrategyStore()
+
+
+def build_prompt_strategy_admin_payload() -> dict[str, Any]:
+    store = prompt_strategy_store()
+    return {
+        "active_version": store.active_version(),
+        "runtime_enabled": active_strategy_suite() == STRATEGY_SOURCE_PRESET_TEXT,
+        "versions": store.list_versions(limit=50),
+        "drafts": store.list_drafts(limit=50),
+        "capabilities": DEFAULT_FEATURE_REGISTRY.capability_catalog(),
+    }
+
+
+def create_prompt_strategy_draft(raw_prompt: str) -> dict[str, Any]:
+    return prompt_strategy_store().create_draft(raw_prompt)
+
+
+def _request_prompt_refinement(messages: list[dict[str, str]]) -> str:
+    if not PROMPT_REFINEMENT_SEMAPHORE.acquire(blocking=False):
+        raise RuntimeError("当前有文字策略正在细化，请稍后重试")
+    try:
+        settings, fallback = model_test_settings_snapshot("decision-model")
+        config = resolve_model_test_config(
+            "decision-model",
+            settings,
+            provider_fallback=fallback,
+        )
+        missing = []
+        if not config.model:
+            missing.append("模型")
+        if not config.base_url:
+            missing.append("API 地址")
+        if not config.api_key:
+            missing.append("API Key")
+        if missing:
+            raise ValueError("请先配置买卖决策" + "、".join(missing))
+        try:
+            request = build_model_request(
+                config.base_url,
+                config.model,
+                messages,
+                max_tokens=7000,
+                api_mode=config.api_mode,
+                reasoning={"effort": "low"},
+                stream=False,
+                extra_payload={"stream": False},
+            )
+            parsed = request_model(
+                request,
+                config.api_key,
+                timeout=PROMPT_REFINEMENT_TIMEOUT_SECONDS,
+            )
+            content = str(parsed.content or "").strip()
+            if not content:
+                raise ValueError("模型未返回可用文字策略")
+            return content
+        except Exception as exc:
+            raise RuntimeError(
+                f"文字策略模型细化失败（{type(exc).__name__}）"
+            ) from exc
+    finally:
+        PROMPT_REFINEMENT_SEMAPHORE.release()
+
+
+def refine_prompt_strategy_draft(
+    draft_id: str,
+    *,
+    requester=None,
+) -> dict[str, Any]:
+    store = prompt_strategy_store()
+    draft = store.claim_refinement(draft_id)
+    request_func = requester or _request_prompt_refinement
+    try:
+        result = refine_prompt_once(
+            str(draft.get("raw_prompt") or ""),
+            request_func,
+        )
+        if requester is None:
+            settings, fallback = model_test_settings_snapshot("decision-model")
+            config = resolve_model_test_config(
+                "decision-model",
+                settings,
+                provider_fallback=fallback,
+            )
+            model = config.model
+            provider = "decision-model"
+        else:
+            model = "injected-requester"
+            provider = "test"
+        return store.save_refinement(
+            draft_id,
+            result.refined_spec,
+            model=model,
+            provider=provider,
+            refinement_prompt_sha256=result.refinement_prompt_sha256,
+        )
+    except Exception:
+        store.release_refinement_claim(draft_id)
+        raise
+
+
+def activate_prompt_strategy_draft(
+    draft_id: str,
+    *,
+    confirmed_plan_sha256: str,
+) -> dict[str, Any]:
+    store = prompt_strategy_store()
+    draft = store.get_draft(draft_id)
+    if draft is None:
+        raise ValueError("文字策略草案不存在")
+    expected = str(draft.get("plan_sha256") or "")
+    if not expected or str(confirmed_plan_sha256 or "") != expected:
+        raise ValueError("确认的文字策略计划指纹与待激活版本不一致")
+    if str(draft.get("status") or "") == "activated":
+        existing = store.get_version(str(draft.get("activated_version_id") or ""))
+        if existing is not None and str(existing.get("status") or "") == "active":
+            return {
+                **existing,
+                "runtime_activation": {
+                    "ok": True,
+                    "changed": False,
+                    "idempotent": True,
+                },
+            }
+        raise ValueError("该文字策略草案已激活且对应版本已退休")
+    previous_suite = active_strategy_suite()
+    prepared = store.prepare_activation(draft_id)
+    version_id = str(prepared.get("version_id") or "")
+    try:
+        runtime = persist_and_sync_business_updates({
+            ACTIVE_STRATEGY_ENV: STRATEGY_SOURCE_PRESET_TEXT,
+        })
+    except Exception as exc:
+        store.fail_activation(version_id)
+        raise RuntimeError(
+            f"文字策略运行配置写入失败：{type(exc).__name__}"
+        ) from exc
+    try:
+        version = store.commit_activation(version_id)
+    except Exception as activation_exc:
+        store.fail_activation(version_id)
+        try:
+            persist_and_sync_business_updates({ACTIVE_STRATEGY_ENV: previous_suite})
+        except Exception as rollback_exc:
+            raise RuntimeError(
+                "文字策略版本提交失败，且运行策略配置回滚失败："
+                f"{type(rollback_exc).__name__}"
+            ) from activation_exc
+        raise RuntimeError(
+            f"文字策略版本提交失败：{type(activation_exc).__name__}"
+        ) from activation_exc
+    return {**version, "runtime_activation": runtime}
+
+
+def prompt_strategy_evaluations(
+    version_id: str,
+    *,
+    code: str = "",
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    version = prompt_strategy_store().get_version(version_id)
+    if version is None:
+        raise ValueError("文字策略版本不存在")
+    return prompt_strategy_store().list_evaluations(
+        version_id,
+        code=code,
+        limit=limit,
+    )
 
 
 def iwencai_test_settings_snapshot(
