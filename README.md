@@ -1,7 +1,5 @@
 <img width="1200" alt="NiuOne 牛牛1号" src="docs/assets/readme/niuone.webp" />
 
-# NiuOne · 牛牛1号
-
 简体中文 | [English](README_EN.md)
 
 <p align="left">

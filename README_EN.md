@@ -1,6 +1,4 @@
-<img width="1200" alt="NiuOne logo" src="docs/assets/readme/niuone.webp" />
-
-# NiuOne · 牛牛1号
+<img width="1200" alt="NiuOne 牛牛1号" src="docs/assets/readme/niuone.webp" />
 
 [简体中文](README.md) | English
 
