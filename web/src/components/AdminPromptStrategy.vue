@@ -8,6 +8,7 @@ const audits = ref([])
 const phase = ref('loading')
 const message = ref('')
 const confirmed = ref(false)
+const streamedOutput = ref('')
 
 const activeVersion = computed(() => payload.value?.active_version || null)
 const runtimeEnabled = computed(() => payload.value?.runtime_enabled === true)
@@ -36,6 +37,79 @@ async function requestJson(url, options = {}) {
   return result
 }
 
+async function requestEventStream(url, options = {}) {
+  const response = await fetch(url, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+    ...options,
+  })
+  if (!response.ok) {
+    const result = await response.json().catch(() => null)
+    throw new Error(result?.error || '请求失败')
+  }
+  if (!response.body) throw new Error('浏览器不支持模型流式输出')
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let completedDraft = null
+  let streamError = ''
+
+  function consumeEvent(block) {
+    if (!block.trim()) return
+    let event = 'message'
+    const dataLines = []
+    block.split('\n').forEach(line => {
+      if (line.startsWith('event:')) event = line.slice(6).trim()
+      if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
+    })
+    if (!dataLines.length) return
+    let data
+    try {
+      data = JSON.parse(dataLines.join('\n'))
+    } catch {
+      streamError = '模型流式响应无法解析'
+      return
+    }
+    if (event === 'started') {
+      message.value = '模型已接收策略，正在生成结构化规则…'
+    } else if (event === 'delta') {
+      streamedOutput.value += String(data?.text || '')
+      message.value = `模型生成中，已接收 ${streamedOutput.value.length} 个字符…`
+    } else if (event === 'complete') {
+      completedDraft = data?.draft || null
+    } else if (event === 'error') {
+      streamError = String(data?.error || '文字策略细化失败')
+    }
+  }
+
+  function consumeBuffer(flush = false) {
+    buffer = buffer.replace(/\r\n/g, '\n')
+    let boundary = buffer.indexOf('\n\n')
+    while (boundary >= 0) {
+      consumeEvent(buffer.slice(0, boundary))
+      buffer = buffer.slice(boundary + 2)
+      boundary = buffer.indexOf('\n\n')
+    }
+    if (flush && buffer.trim()) {
+      consumeEvent(buffer)
+      buffer = ''
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    consumeBuffer()
+  }
+  buffer += decoder.decode()
+  consumeBuffer(true)
+  if (streamError) throw new Error(streamError)
+  if (!completedDraft) throw new Error('模型流式响应未正常完成')
+  return completedDraft
+}
+
 async function refresh() {
   try {
     payload.value = await requestJson('/api/admin/prompt-strategies')
@@ -59,6 +133,7 @@ async function refine() {
   phase.value = 'busy'
   message.value = '正在创建草案并调用模型细化一次…'
   confirmed.value = false
+  streamedOutput.value = ''
   try {
     const created = await requestJson('/api/admin/prompt-strategies/drafts', {
       method: 'POST',
@@ -68,18 +143,18 @@ async function refine() {
       },
       body: JSON.stringify({ raw_prompt: rawPrompt.value }),
     })
-    const refined = await requestJson(
+    const refinedDraft = await requestEventStream(
       `/api/admin/prompt-strategies/drafts/${encodeURIComponent(created.draft.draft_id)}/refine`,
       {
         method: 'POST',
         headers: { 'X-NiuOne-Action': '1' },
       },
     )
-    activeDraft.value = refined.draft
-    phase.value = refined.draft.status === 'pending_confirmation' ? 'review' : 'error'
-    const refinementMessage = refined.draft.status === 'pending_confirmation'
+    activeDraft.value = refinedDraft
+    phase.value = refinedDraft.status === 'pending_confirmation' ? 'review' : 'error'
+    const refinementMessage = refinedDraft.status === 'pending_confirmation'
       ? '细化与本地编译已完成。请核对规则、假设、歧义和依赖后再激活。'
-      : `本地编译未通过：${(refined.draft.validation_errors || []).join('；')}`
+      : `本地编译未通过：${(refinedDraft.validation_errors || []).join('；')}`
     await refresh()
     phase.value = ['pending_confirmation', 'activating'].includes(activeDraft.value?.status)
       ? 'review'
@@ -112,6 +187,7 @@ async function activate() {
     activeDraft.value = null
     confirmed.value = false
     rawPrompt.value = ''
+    streamedOutput.value = ''
     await refresh()
     phase.value = 'idle'
     message.value = `版本 r${result.version.revision} 已激活；运行期将只执行冻结计划。`
@@ -176,6 +252,15 @@ onMounted(refresh)
       >{{ phase === 'busy' ? '处理中…' : 'AI 细化一次' }}</button>
     </div>
     <p class="prompt-status" :class="phase" role="status">{{ message }}</p>
+
+    <div v-if="streamedOutput || phase === 'busy'" class="prompt-model-output">
+      <div class="prompt-model-output-head">
+        <h3>模型实时输出</h3>
+        <span v-if="phase === 'busy'">生成中</span>
+        <span v-else>已结束</span>
+      </div>
+      <pre>{{ streamedOutput || '等待模型返回内容…' }}</pre>
+    </div>
 
     <div v-if="activeDraft" class="prompt-review">
       <h3>待确认的结构化规则</h3>
@@ -254,6 +339,11 @@ textarea { box-sizing: border-box; width: 100%; resize: vertical; border: 1px so
 .prompt-create-row span { color: var(--muted, #64748b); font-size: .82rem; }
 .prompt-status { min-height: 1.5em; color: var(--muted, #64748b); }
 .prompt-status.error { color: #b91c1c; }
+.prompt-model-output { margin-top: 16px; }
+.prompt-model-output-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.prompt-model-output-head h3 { margin: 0 0 8px; }
+.prompt-model-output-head span { color: var(--muted, #64748b); font-size: .82rem; }
+.prompt-model-output pre { min-height: 96px; margin-top: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .prompt-review { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--line, #d9e0e8); }
 .prompt-review dl { display: grid; gap: 8px; }
 .prompt-review dl div { display: grid; grid-template-columns: 100px 1fr; gap: 12px; }

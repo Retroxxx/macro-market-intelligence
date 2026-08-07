@@ -9,6 +9,7 @@ from .model_api import (
     parse_model_response,
     request_model,
     responses_output_text,
+    stream_model_response,
     uses_responses_api,
 )
 from .paths import (
@@ -33,6 +34,7 @@ __all__ = [
     "read_json_cache",
     "request_model",
     "responses_output_text",
+    "stream_model_response",
     "uses_responses_api",
     "write_json_cache",
 ]

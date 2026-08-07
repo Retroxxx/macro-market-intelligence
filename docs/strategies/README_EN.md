@@ -220,13 +220,13 @@ Prefer maintaining the active independent strategy, text rules, and simulation d
 | `DASHBOARD_ACTIVE_STRATEGY` | Active independent strategy: `base`, `zettaranc`, `li_daxiao_bottom`, `sector_tide`, `niuone`, or `preset_text` |
 | `DASHBOARD_PROMPT_STRATEGY_DB` | Private SQLite path for frozen versions, append-only audits, and position bindings |
 | `DASHBOARD_PROMPT_REFINEMENT_MAX_CONCURRENCY` | Maximum creation-time AI-refinement concurrency, limited to 1–2 |
-| `DASHBOARD_PROMPT_REFINEMENT_TIMEOUT_SECONDS` | Creation-time AI-refinement timeout, limited to 10–60 seconds |
 | `DASHBOARD_PRESET_STRATEGY_TEXT` | Legacy compatibility text used only when no frozen version is active; create new strategies through the admin closed loop |
 | `DASHBOARD_PRESET_STRATEGY_CANDIDATE_LIMIT` | Legacy compatibility candidate cap; new caps are frozen into each version |
 | `DASHBOARD_STOCK_UNIVERSE` | Final-candidate and new-BUY scope: `st`, `chi_next`, `star_market`, and `main_board`; defaults to Main Board; NiuOne's full reference universe does not expand it |
 | `DASHBOARD_TRADE_DISCIPLINE_TEXT` | Additional simulation discipline |
 
 When `preset_text` is active and an activated frozen version exists, scanning and simulated trading prefer the new local closed loop. The old text path remains only as a compatibility fallback when no frozen version is active. Pre-upgrade holdings that have no new version binding are not guessed, migrated, or rewritten.
+During creation, the admin page shows model output as it arrives and only allows confirmation after the complete output passes local compilation. The request reuses the buy/sell decision model's `DASHBOARD_DECISION_TIMEOUT`; there is no separate prompt-strategy timeout setting.
 
 When NiuOne is active, the scanner uses every supported non-ST Shanghai/Shenzhen A-share (Main Board, ChiNext, and STAR Market) as its market and mainline reference universe. It fetches the complete quote set and sends every reference stock into uncapped K-line analysis, with no prefilter based on turnover amount, daily return, or limit-up-like movement. Final displayed candidates and new BUYs remain strictly limited by `DASHBOARD_STOCK_UNIVERSE` and require only a usable simulated-execution price. Existing positions may still execute stop-loss, take-profit, and other SELL controls after falling outside the setting, so changing the universe cannot trap a position. ST names enter final trading only when explicitly selected. Beijing Stock Exchange names remain excluded because the current quote, board-limit, and trading-permission models do not support them yet.
 

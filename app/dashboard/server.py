@@ -15,7 +15,7 @@ import time
 import subprocess
 import sys
 import threading
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -30,7 +30,7 @@ from dashboard_json_cache import (
     write_json_cache,
 )
 from core.process_lease import FileLease
-from core.model_api import build_model_request, request_model
+from core.model_api import build_model_request, stream_model_response
 from dashboard import practice_payload as practice_payload_impl
 from dashboard import practice_market_summary as practice_market_summary_impl
 from dashboard.niuone_mainline import build_niuone_mainline_view
@@ -44,6 +44,7 @@ from dashboard.iwencai_connectivity import (
 )
 from dashboard.model_connectivity import (
     MODEL_TEST_TARGET_BY_ID,
+    ResolvedModelTestConfig,
     model_test_metadata,
     model_test_override_names,
     model_test_setting_names,
@@ -131,7 +132,11 @@ from screening.stock_universe import (
     selected_stock_universe,
 )
 from storage.prompt_strategies import PromptStrategyStore
-from strategies.prompt_refinement import refine_prompt_once
+from strategies.prompt_refinement import (
+    build_refinement_messages,
+    finalize_prompt_refinement,
+    refine_prompt_once,
+)
 from strategies.rules import DEFAULT_FEATURE_REGISTRY
 from strategies.registry import (
     ACTIVE_STRATEGY_ENV,
@@ -517,10 +522,6 @@ PROMPT_REFINEMENT_MAX_CONCURRENCY = max(
     1,
     min(2, int(os.environ.get("DASHBOARD_PROMPT_REFINEMENT_MAX_CONCURRENCY", "1") or "1")),
 )
-PROMPT_REFINEMENT_TIMEOUT_SECONDS = max(
-    10,
-    min(60, int(os.environ.get("DASHBOARD_PROMPT_REFINEMENT_TIMEOUT_SECONDS", "45") or "45")),
-)
 PROMPT_REFINEMENT_SEMAPHORE = threading.BoundedSemaphore(
     PROMPT_REFINEMENT_MAX_CONCURRENCY
 )
@@ -674,7 +675,6 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_DECISION_MAX_TOKENS", "label": "决策最大输出长度", "group": "买卖决策模型", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_TIMEOUT", "label": "决策请求超时", "group": "买卖决策模型", "kind": "int", "default": "180", "effect": "next_run"},
     {"name": "DASHBOARD_PROMPT_REFINEMENT_MAX_CONCURRENCY", "label": "文字策略细化并发数", "group": "买卖决策模型", "kind": "int", "default": "1", "effect": "restart", "min": "1", "max": "2"},
-    {"name": "DASHBOARD_PROMPT_REFINEMENT_TIMEOUT_SECONDS", "label": "文字策略细化超时秒数", "group": "买卖决策模型", "kind": "int", "default": "45", "effect": "restart", "min": "10", "max": "60"},
     {"name": "DASHBOARD_DECISION_INTELLIGENCE_ENABLED", "label": "启用综合决策参考", "group": "综合决策参考", "kind": "bool", "default": "1", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS", "label": "决策参考缓存秒数", "group": "综合决策参考", "kind": "int", "default": "75", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS", "label": "单类参考数据上限", "group": "综合决策参考", "kind": "int", "default": "5", "effect": "next_run"},
@@ -6523,25 +6523,41 @@ def create_prompt_strategy_draft(raw_prompt: str) -> dict[str, Any]:
     return prompt_strategy_store().create_draft(raw_prompt)
 
 
-def _request_prompt_refinement(messages: list[dict[str, str]]) -> str:
+def _prompt_refinement_config() -> ResolvedModelTestConfig:
+    settings, fallback = model_test_settings_snapshot("decision-model")
+    config = resolve_model_test_config(
+        "decision-model",
+        settings,
+        provider_fallback=fallback,
+    )
+    missing = []
+    if not config.model:
+        missing.append("模型")
+    if not config.base_url:
+        missing.append("API 地址")
+    if not config.api_key:
+        missing.append("API Key")
+    if missing:
+        raise ValueError("请先配置买卖决策" + "、".join(missing))
+    return config
+
+
+def _prompt_refinement_timeout_seconds() -> int:
+    """Use the decision model's existing timeout instead of a parallel setting."""
+
+    return _bounded_int_value(
+        os.environ.get("DASHBOARD_DECISION_TIMEOUT", "180"),
+        180,
+        10,
+        1800,
+    )
+
+
+def _stream_prompt_refinement(messages: list[dict[str, str]]) -> Iterator[str]:
     if not PROMPT_REFINEMENT_SEMAPHORE.acquire(blocking=False):
         raise RuntimeError("当前有文字策略正在细化，请稍后重试")
     try:
-        settings, fallback = model_test_settings_snapshot("decision-model")
-        config = resolve_model_test_config(
-            "decision-model",
-            settings,
-            provider_fallback=fallback,
-        )
-        missing = []
-        if not config.model:
-            missing.append("模型")
-        if not config.base_url:
-            missing.append("API 地址")
-        if not config.api_key:
-            missing.append("API Key")
-        if missing:
-            raise ValueError("请先配置买卖决策" + "、".join(missing))
+        config = _prompt_refinement_config()
         try:
             request = build_model_request(
                 config.base_url,
@@ -6550,24 +6566,101 @@ def _request_prompt_refinement(messages: list[dict[str, str]]) -> str:
                 max_tokens=7000,
                 api_mode=config.api_mode,
                 reasoning={"effort": "low"},
-                stream=False,
-                extra_payload={"stream": False},
+                stream=True,
+                extra_payload={"stream": True},
             )
-            parsed = request_model(
+            yielded = False
+            for content in stream_model_response(
                 request,
                 config.api_key,
-                timeout=PROMPT_REFINEMENT_TIMEOUT_SECONDS,
-            )
-            content = str(parsed.content or "").strip()
-            if not content:
+                timeout=_prompt_refinement_timeout_seconds(),
+            ):
+                text = str(content or "")
+                if not text:
+                    continue
+                yielded = True
+                yield text
+            if not yielded:
                 raise ValueError("模型未返回可用文字策略")
-            return content
         except Exception as exc:
             raise RuntimeError(
                 f"文字策略模型细化失败（{type(exc).__name__}）"
             ) from exc
     finally:
         PROMPT_REFINEMENT_SEMAPHORE.release()
+
+
+def _request_prompt_refinement(messages: list[dict[str, str]]) -> str:
+    return "".join(_stream_prompt_refinement(messages)).strip()
+
+
+def _prompt_refinement_identity(*, injected: bool) -> tuple[str, str]:
+    if injected:
+        return "injected-requester", "test"
+    return _prompt_refinement_config().model, "decision-model"
+
+
+def _prompt_refinement_stream_event(event: str, payload: Mapping[str, Any]) -> str:
+    data = json.dumps(dict(payload), ensure_ascii=False, separators=(",", ":"))
+    return f"event: {event}\ndata: {data}\n\n"
+
+
+def _prompt_refinement_public_error(exc: Exception) -> str:
+    if isinstance(exc, (ValueError, RuntimeError)) and str(exc).strip():
+        return str(exc).strip()
+    return f"文字策略细化失败（{type(exc).__name__}）"
+
+
+def stream_refine_prompt_strategy_draft(
+    draft_id: str,
+    *,
+    requester=None,
+) -> Iterator[str]:
+    """Stream one model refinement, then compile and persist the complete output."""
+
+    store = prompt_strategy_store()
+    claimed = False
+    try:
+        draft = store.claim_refinement(draft_id)
+        claimed = True
+        messages = build_refinement_messages(str(draft.get("raw_prompt") or ""))
+        yield _prompt_refinement_stream_event(
+            "started",
+            {"draft_id": str(draft.get("draft_id") or draft_id)},
+        )
+        parts: list[str] = []
+        stream_request = requester or _stream_prompt_refinement
+        for content in stream_request(messages):
+            text = str(content or "")
+            if not text:
+                continue
+            parts.append(text)
+            yield _prompt_refinement_stream_event("delta", {"text": text})
+        complete_response = "".join(parts).strip()
+        if not complete_response:
+            raise ValueError("模型未返回可用文字策略")
+        result = finalize_prompt_refinement(messages, complete_response)
+        model, provider = _prompt_refinement_identity(injected=requester is not None)
+        saved = store.save_refinement(
+            draft_id,
+            result.refined_spec,
+            model=model,
+            provider=provider,
+            refinement_prompt_sha256=result.refinement_prompt_sha256,
+        )
+        claimed = False
+        yield _prompt_refinement_stream_event("complete", {"draft": saved})
+    except Exception as exc:
+        if claimed:
+            store.release_refinement_claim(draft_id)
+            claimed = False
+        yield _prompt_refinement_stream_event(
+            "error",
+            {"error": _prompt_refinement_public_error(exc)},
+        )
+    finally:
+        if claimed:
+            store.release_refinement_claim(draft_id)
 
 
 def refine_prompt_strategy_draft(
@@ -6583,18 +6676,7 @@ def refine_prompt_strategy_draft(
             str(draft.get("raw_prompt") or ""),
             request_func,
         )
-        if requester is None:
-            settings, fallback = model_test_settings_snapshot("decision-model")
-            config = resolve_model_test_config(
-                "decision-model",
-                settings,
-                provider_fallback=fallback,
-            )
-            model = config.model
-            provider = "decision-model"
-        else:
-            model = "injected-requester"
-            provider = "test"
+        model, provider = _prompt_refinement_identity(injected=requester is not None)
         return store.save_refinement(
             draft_id,
             result.refined_spec,

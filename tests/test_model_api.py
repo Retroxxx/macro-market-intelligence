@@ -12,13 +12,14 @@ from app.core.model_api import (
     build_model_request,
     parse_model_response,
     request_model,
+    stream_model_response,
     uses_responses_api,
 )
 
 
 class _Response:
     def __init__(self, body: str, content_type: str = "application/json") -> None:
-        self._body = body.encode("utf-8")
+        self._body = io.BytesIO(body.encode("utf-8"))
         self.headers = {"Content-Type": content_type}
 
     def __enter__(self):
@@ -28,7 +29,10 @@ class _Response:
         return False
 
     def read(self) -> bytes:
-        return self._body
+        return self._body.read()
+
+    def readline(self) -> bytes:
+        return self._body.readline()
 
 
 class ModelApiTests(unittest.TestCase):
@@ -153,6 +157,82 @@ class ModelApiTests(unittest.TestCase):
         self.assertEqual(parsed_sse.content, "live result")
         self.assertIn("search_events=1", parsed_sse.detail)
 
+    def test_stream_chat_response_yields_deltas_and_requests_sse(self):
+        request = build_model_request(
+            "https://model.example/v1",
+            "legacy-model",
+            [{"role": "user", "content": "hello"}],
+            max_tokens=100,
+            api_mode="chat",
+            stream=True,
+        )
+        captured = {}
+
+        def opener(req, timeout=0):
+            captured["payload"] = json.loads(req.data.decode("utf-8"))
+            captured["accept"] = req.headers.get("Accept")
+            captured["timeout"] = timeout
+            return _Response(
+                'data: {"choices":[{"delta":{"content":"live "}}]}\n\n'
+                'data: {"choices":[{"delta":{"content":"json"}}]}\n\n'
+                "data: [DONE]\n\n",
+                "text/event-stream",
+            )
+
+        chunks = list(
+            stream_model_response(request, "secret", timeout=17, opener=opener)
+        )
+
+        self.assertEqual(chunks, ["live ", "json"])
+        self.assertTrue(captured["payload"]["stream"])
+        self.assertIn("text/event-stream", captured["accept"])
+        self.assertEqual(captured["timeout"], 17)
+
+    def test_stream_responses_api_avoids_completed_text_duplication(self):
+        request = build_model_request(
+            "https://model.example/v1",
+            "gateway-model",
+            [{"role": "user", "content": "hello"}],
+            api_mode="responses",
+            stream=True,
+        )
+
+        def opener(_req, timeout=0):
+            return _Response(
+                'data: {"type":"response.output_text.delta","delta":"part 1"}\n\n'
+                'data: {"type":"response.output_text.delta","delta":" part 2"}\n\n'
+                'data: {"type":"response.completed","response":{"output":'
+                '[{"content":[{"type":"output_text","text":"part 1 part 2"}]}]}}\n\n',
+                "text/event-stream",
+            )
+
+        self.assertEqual(
+            list(stream_model_response(request, "secret", timeout=5, opener=opener)),
+            ["part 1", " part 2"],
+        )
+
+    def test_stream_falls_back_to_complete_json_when_gateway_ignores_stream(self):
+        request = build_model_request(
+            "https://model.example/v1",
+            "legacy-model",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+            stream=True,
+        )
+
+        chunks = list(
+            stream_model_response(
+                request,
+                "secret",
+                timeout=5,
+                opener=lambda *_args, **_kwargs: _Response(
+                    '{"choices":[{"message":{"content":"complete json"}}]}'
+                ),
+            )
+        )
+
+        self.assertEqual(chunks, ["complete json"])
+
     def test_parse_failures_use_dedicated_exception(self):
         for raw in ("", "<html>gateway error</html>", "[]"):
             with self.subTest(raw=raw):
@@ -218,6 +298,7 @@ class ModelApiTests(unittest.TestCase):
         self.assertEqual(len(payloads), 1)
         self.assertIn("max_output_tokens", payloads[0])
         self.assertIn(b"Invalid parameter", raised.exception.read())
+        raised.exception.close()
 
 
 if __name__ == "__main__":

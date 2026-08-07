@@ -224,13 +224,13 @@ Dashboard 的“题材强度”栏目（`/niuone-mainline`）是独立于交易�
 | `DASHBOARD_ACTIVE_STRATEGY` | 当前独立策略：`base`、`zettaranc`、`li_daxiao_bottom`、`sector_tide`、`niuone` 或 `preset_text` |
 | `DASHBOARD_PROMPT_STRATEGY_DB` | 冻结版本、追加式审计和持仓绑定的私有 SQLite 路径 |
 | `DASHBOARD_PROMPT_REFINEMENT_MAX_CONCURRENCY` | 创建阶段 AI 细化的最大并发数，限 1～2 |
-| `DASHBOARD_PROMPT_REFINEMENT_TIMEOUT_SECONDS` | 创建阶段 AI 细化超时，限 10～60 秒 |
 | `DASHBOARD_PRESET_STRATEGY_TEXT` | 无激活冻结版本时的旧版兼容文字，新策略应使用管理页闭环 |
 | `DASHBOARD_PRESET_STRATEGY_CANDIDATE_LIMIT` | 旧版兼容候选上限；新版上限冻结在策略版本内 |
 | `DASHBOARD_STOCK_UNIVERSE` | 最终候选和新买入范围，多选值为 `st`、`chi_next`、`star_market`、`main_board`；默认仅主板；牛牛的全量参考池不会扩大该交易范围 |
 | `DASHBOARD_TRADE_DISCIPLINE_TEXT` | 额外模拟纪律 |
 
 当 `preset_text` 激活且存在冻结版本时，扫描和模拟交易优先使用新闭环；旧文字只作无冻结版本时的兼容回退。升级前已有且没有新版本绑定的历史持仓不会被猜测迁移或改写。
+创建阶段会在管理页实时展示模型输出，完整输出通过本地编译后才可确认激活；模型请求复用买卖决策的 `DASHBOARD_DECISION_TIMEOUT`，不维护独立的文字策略超时配置。
 
 启用牛牛战法时，扫描器会把当前系统支持的沪深非 ST A 股全量范围（主板、创业板、科创板）作为市场与主线参考池：全量获取实时行情，并让参考池中的每只股票进入不设数量上限的 K 线深度分析，不再按成交额、当日涨幅或涨停幅度做前置过滤。最终展示候选和新买入仍严格受 `DASHBOARD_STOCK_UNIVERSE` 限制，并只要求存在可用于模拟成交的有效价格；已有持仓即使后来超出设置范围，仍允许执行止损、止盈和其他卖出风控，避免切换范围后无法退出。ST 仅在设置显式选择时才可进入最终交易范围。北交所尚未接入当前行情、板块涨跌幅和交易权限模型，因此不在参考池内。
 

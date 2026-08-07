@@ -95,7 +95,15 @@ def refine_prompt_once(
     if not normalized:
         raise ValueError("文字策略Prompt不能为空")
     messages = build_refinement_messages(normalized, registry=registry)
-    response = requester(messages)
+    return finalize_prompt_refinement(messages, requester(messages))
+
+
+def finalize_prompt_refinement(
+    messages: list[dict[str, str]],
+    response: str | Mapping[str, Any],
+) -> PromptRefinement:
+    """Validate a complete streamed or non-streamed refinement response."""
+
     return PromptRefinement(
         refined_spec=parse_refinement_json(response),
         refinement_prompt_sha256=sha256_text(canonical_json(messages)),

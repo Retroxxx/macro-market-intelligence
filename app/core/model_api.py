@@ -14,7 +14,7 @@ import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator
 
 
 UrlOpen = Callable[..., Any]
@@ -332,6 +332,91 @@ def _request_once(
     return parse_model_response(raw, content_type)
 
 
+def _stream_response_text(response: Any) -> Iterator[str]:
+    """Yield visible text from an upstream JSON or SSE model response."""
+
+    content_type = _response_content_type(response)
+    if "text/event-stream" not in content_type.lower():
+        raw = response.read().decode("utf-8", "ignore")
+        parsed = parse_model_response(raw, content_type)
+        if parsed.content:
+            yield parsed.content
+        return
+
+    emitted = False
+    while True:
+        raw_line = response.readline()
+        if not raw_line:
+            break
+        if isinstance(raw_line, bytes):
+            line = raw_line.decode("utf-8", "ignore")
+        else:
+            line = str(raw_line)
+        stripped = line.strip()
+        if not stripped.startswith("data:"):
+            continue
+        payload = stripped[5:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            obj = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+
+        piece = ""
+        choice = (obj.get("choices") or [{}])[0]
+        if isinstance(choice, dict):
+            delta = choice.get("delta") or {}
+            message = choice.get("message") or {}
+            if isinstance(delta, dict):
+                piece = _content_text(delta.get("content"))
+            if not piece and isinstance(message, dict):
+                piece = _content_text(message.get("content"))
+
+        event_type = str(obj.get("type") or "")
+        if event_type == "response.output_text.delta":
+            piece = _content_text(obj.get("delta"))
+        elif event_type == "response.output_text.done" and not emitted:
+            piece = _content_text(obj.get("text"))
+        elif (
+            event_type == "response.completed"
+            and not emitted
+            and isinstance(obj.get("response"), dict)
+        ):
+            piece = responses_output_text(obj["response"])
+
+        if piece:
+            emitted = True
+            yield piece
+
+
+def _stream_once(
+    request: ModelRequest,
+    api_key: str,
+    *,
+    timeout: float,
+    opener: UrlOpen,
+    ssl_context: Any = None,
+) -> Iterator[str]:
+    req = urllib.request.Request(
+        request.endpoint,
+        data=json.dumps(request.payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": "Bearer " + api_key,
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream, application/json",
+            "User-Agent": "NiuOne/1.0",
+        },
+    )
+    kwargs: dict[str, Any] = {"timeout": timeout}
+    if ssl_context is not None:
+        kwargs["context"] = ssl_context
+    with opener(req, **kwargs) as response:
+        yield from _stream_response_text(response)
+
+
 def _unsupported_output_limit(error_body: str) -> bool:
     text = str(error_body or "").lower()
     if "max_output_tokens" not in text:
@@ -378,6 +463,7 @@ def request_model(
         if not _unsupported_output_limit(error_body):
             # Preserve the response body for module-specific diagnostics after
             # inspecting it for the narrow compatibility fallback.
+            exc.close()
             raise urllib.error.HTTPError(
                 exc.url,
                 exc.code,
@@ -385,10 +471,58 @@ def request_model(
                 exc.hdrs,
                 io.BytesIO(error_body.encode("utf-8")),
             ) from exc
+        exc.close()
         fallback_payload = dict(request.payload)
         fallback_payload.pop("max_output_tokens", None)
         fallback = ModelRequest(request.endpoint, fallback_payload, request.api_mode)
         return _request_once(
+            fallback,
+            api_key,
+            timeout=timeout,
+            opener=opener,
+            ssl_context=ssl_context,
+        )
+
+
+def stream_model_response(
+    request: ModelRequest,
+    api_key: str,
+    *,
+    timeout: float,
+    opener: UrlOpen = urllib.request.urlopen,
+    ssl_context: Any = None,
+) -> Iterator[str]:
+    """Stream visible model text with the same narrow compatibility fallback."""
+
+    try:
+        yield from _stream_once(
+            request,
+            api_key,
+            timeout=timeout,
+            opener=opener,
+            ssl_context=ssl_context,
+        )
+    except urllib.error.HTTPError as exc:
+        if exc.code != 400 or "max_output_tokens" not in request.payload:
+            raise
+        try:
+            error_body = exc.read().decode("utf-8", "ignore")
+        except Exception:
+            error_body = ""
+        if not _unsupported_output_limit(error_body):
+            exc.close()
+            raise urllib.error.HTTPError(
+                exc.url,
+                exc.code,
+                exc.msg,
+                exc.hdrs,
+                io.BytesIO(error_body.encode("utf-8")),
+            ) from exc
+        exc.close()
+        fallback_payload = dict(request.payload)
+        fallback_payload.pop("max_output_tokens", None)
+        fallback = ModelRequest(request.endpoint, fallback_payload, request.api_mode)
+        yield from _stream_once(
             fallback,
             api_key,
             timeout=timeout,

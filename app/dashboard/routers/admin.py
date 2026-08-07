@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 
@@ -237,27 +237,13 @@ def create_admin_router(
         rejected = await access.require_action(request)
         if rejected is not None:
             return rejected
-        try:
-            draft = await run_in_threadpool(
-                services.refine_prompt_strategy_draft,
-                draft_id,
-            )
-        except ValueError as exc:
-            return JSONResponse(
-                {"error": str(exc)},
-                status_code=400,
-                headers={"Cache-Control": "no-store"},
-            )
-        except RuntimeError as exc:
-            return JSONResponse(
-                {"error": str(exc)},
-                status_code=503,
-                headers={"Cache-Control": "no-store"},
-            )
-        return json_response(
-            request,
-            {"ok": True, "draft": draft},
-            cache_control="no-store",
+        return StreamingResponse(
+            services.stream_refine_prompt_strategy_draft(draft_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-store, no-transform",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     @router.post("/api/admin/prompt-strategies/drafts/{draft_id}/activate")

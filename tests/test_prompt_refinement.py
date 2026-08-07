@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -10,6 +11,7 @@ sys.path.insert(0, str(APP))
 
 from strategies.prompt_refinement import (  # noqa: E402
     build_refinement_messages,
+    finalize_prompt_refinement,
     parse_refinement_json,
     refine_prompt_once,
 )
@@ -46,6 +48,18 @@ class PromptRefinementTests(unittest.TestCase):
         self.assertEqual(parsed, {"schema_version": 1})
         with self.assertRaisesRegex(ValueError, "JSON 对象"):
             parse_refinement_json("[1, 2, 3]")
+
+    def test_streamed_parts_can_be_finalized_with_the_original_prompt_hash(self):
+        messages = build_refinement_messages("kdj<0买入，kdj>15卖出")
+        response = json.dumps(
+            {"strategy_spec": kdj_spec()},
+            ensure_ascii=False,
+        )
+
+        result = finalize_prompt_refinement(messages, response)
+
+        self.assertEqual(result.refined_spec["strategy_id"], "kdj-rebound")
+        self.assertEqual(len(result.refinement_prompt_sha256), 64)
 
 
 if __name__ == "__main__":

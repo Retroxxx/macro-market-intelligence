@@ -367,15 +367,19 @@ class DashboardAuthTests(unittest.TestCase):
     def test_prompt_strategy_admin_api_creates_refines_and_freezes_version(self):
         cookie = self.admin_cookie()
         old_db = os.environ.get('DASHBOARD_PROMPT_STRATEGY_DB')
-        original_requester = dashboard._request_prompt_refinement
+        original_streamer = dashboard._stream_prompt_refinement
         original_persist = dashboard.persist_and_sync_business_updates
         runtime_updates = []
         os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = str(
             self.tmp_path / 'prompt-strategies.db'
         )
-        dashboard._request_prompt_refinement = lambda messages: {
-            'strategy_spec': prompt_kdj_spec(),
-        }
+        model_output = json.dumps(
+            {'strategy_spec': prompt_kdj_spec()},
+            ensure_ascii=False,
+        )
+        dashboard._stream_prompt_refinement = lambda messages: iter(
+            (model_output[:80], model_output[80:])
+        )
         dashboard.persist_and_sync_business_updates = lambda updates: (
             runtime_updates.append(dict(updates))
             or {'ok': True, 'changed': True, 'runtime': {'ok': True}}
@@ -407,7 +411,29 @@ class DashboardAuthTests(unittest.TestCase):
             )
             refined.do_POST()
             self.assertEqual(refined.status, 200)
-            refined_payload = json.loads(refined.wfile.getvalue().decode('utf-8'))
+            self.assertIn('text/event-stream', refined.header('content-type'))
+            events = []
+            for block in refined.wfile.getvalue().decode('utf-8').split('\n\n'):
+                if not block.strip():
+                    continue
+                event_name = next(
+                    line[6:].strip()
+                    for line in block.splitlines()
+                    if line.startswith('event:')
+                )
+                data_text = '\n'.join(
+                    line[5:].lstrip()
+                    for line in block.splitlines()
+                    if line.startswith('data:')
+                )
+                events.append((event_name, json.loads(data_text)))
+            self.assertEqual(
+                ''.join(data['text'] for event, data in events if event == 'delta'),
+                model_output,
+            )
+            refined_payload = next(
+                data for event, data in events if event == 'complete'
+            )
             self.assertEqual(refined_payload['draft']['status'], 'pending_confirmation')
             self.assertTrue(refined_payload['draft']['plan_sha256'])
 
@@ -483,7 +509,7 @@ class DashboardAuthTests(unittest.TestCase):
             self.assertEqual(listed_payload['active_version']['version_id'], version['version_id'])
             self.assertTrue(listed_payload['capabilities'])
         finally:
-            dashboard._request_prompt_refinement = original_requester
+            dashboard._stream_prompt_refinement = original_streamer
             dashboard.persist_and_sync_business_updates = original_persist
             if old_db is None:
                 os.environ.pop('DASHBOARD_PROMPT_STRATEGY_DB', None)
@@ -492,12 +518,57 @@ class DashboardAuthTests(unittest.TestCase):
 
         self.assertIn('<AdminPromptStrategy v-if="isStrategyGroup"', ADMIN_FRONTEND)
         self.assertIn('AI 细化一次', ADMIN_FRONTEND)
+        self.assertIn('模型实时输出', ADMIN_FRONTEND)
+        self.assertIn('response.body.getReader()', ADMIN_FRONTEND)
         self.assertIn('确认并激活冻结版本', ADMIN_FRONTEND)
         self.assertIn(
             'confirmed_plan_sha256: activeDraft.value.plan_sha256',
             ADMIN_FRONTEND,
         )
         self.assertIn("['pending_confirmation', 'activating']", ADMIN_FRONTEND)
+
+    def test_prompt_refinement_reuses_decision_timeout_and_releases_failed_draft(self):
+        old_db = os.environ.get('DASHBOARD_PROMPT_STRATEGY_DB')
+        old_timeout = os.environ.get('DASHBOARD_DECISION_TIMEOUT')
+        os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = str(
+            self.tmp_path / 'prompt-stream-error.db'
+        )
+        os.environ['DASHBOARD_DECISION_TIMEOUT'] = '321'
+        try:
+            self.assertNotIn(
+                'DASHBOARD_PROMPT_REFINEMENT_TIMEOUT_SECONDS',
+                dashboard.ENV_CONFIG_BY_NAME,
+            )
+            self.assertEqual(dashboard._prompt_refinement_timeout_seconds(), 321)
+            draft = dashboard.create_prompt_strategy_draft('kdj<0买入，kdj>15卖出')
+
+            def timeout_stream(_messages):
+                raise TimeoutError('upstream timeout')
+                yield ''  # pragma: no cover
+
+            body = ''.join(
+                dashboard.stream_refine_prompt_strategy_draft(
+                    draft['draft_id'],
+                    requester=timeout_stream,
+                )
+            )
+
+            self.assertIn('event: started', body)
+            self.assertIn('event: error', body)
+            self.assertIn('TimeoutError', body)
+            self.assertEqual(
+                dashboard.prompt_strategy_store().get_draft(draft['draft_id'])['status'],
+                'draft',
+            )
+        finally:
+            if old_db is None:
+                os.environ.pop('DASHBOARD_PROMPT_STRATEGY_DB', None)
+            else:
+                os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = old_db
+            if old_timeout is None:
+                os.environ.pop('DASHBOARD_DECISION_TIMEOUT', None)
+            else:
+                os.environ['DASHBOARD_DECISION_TIMEOUT'] = old_timeout
 
     def test_prompt_strategy_activation_failure_keeps_previous_active_version(self):
         old_db = os.environ.get('DASHBOARD_PROMPT_STRATEGY_DB')
