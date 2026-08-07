@@ -411,6 +411,7 @@ class DashboardAuthTests(unittest.TestCase):
         cookie = self.admin_cookie()
         old_db = os.environ.get('DASHBOARD_PROMPT_STRATEGY_DB')
         original_streamer = dashboard._stream_prompt_refinement
+        original_identity = dashboard._prompt_refinement_identity
         original_persist = dashboard.persist_and_sync_business_updates
         runtime_updates = []
         os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = str(
@@ -422,6 +423,10 @@ class DashboardAuthTests(unittest.TestCase):
         )
         dashboard._stream_prompt_refinement = lambda messages: iter(
             (model_output[:80], model_output[80:])
+        )
+        dashboard._prompt_refinement_identity = lambda **_kwargs: (
+            'test-model',
+            'test',
         )
         dashboard.persist_and_sync_business_updates = lambda updates: (
             runtime_updates.append(dict(updates))
@@ -474,9 +479,15 @@ class DashboardAuthTests(unittest.TestCase):
                 ''.join(data['text'] for event, data in events if event == 'delta'),
                 model_output,
             )
-            refined_payload = next(
+            complete_events = [
                 data for event, data in events if event == 'complete'
+            ]
+            self.assertEqual(
+                len(complete_events),
+                1,
+                msg=f"unexpected refinement events: {events!r}",
             )
+            refined_payload = complete_events[0]
             self.assertEqual(refined_payload['draft']['status'], 'pending_confirmation')
             self.assertTrue(refined_payload['draft']['plan_sha256'])
 
@@ -553,6 +564,7 @@ class DashboardAuthTests(unittest.TestCase):
             self.assertTrue(listed_payload['capabilities'])
         finally:
             dashboard._stream_prompt_refinement = original_streamer
+            dashboard._prompt_refinement_identity = original_identity
             dashboard.persist_and_sync_business_updates = original_persist
             if old_db is None:
                 os.environ.pop('DASHBOARD_PROMPT_STRATEGY_DB', None)
