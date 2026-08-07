@@ -11,7 +11,11 @@ from typing import Any
 
 PROMPT_STRATEGY_SPEC_SCHEMA_VERSION = 1
 PROMPT_EXECUTION_PLAN_SCHEMA_VERSION = 1
-PROMPT_RULE_ENGINE_VERSION = "prompt-rules-v2"
+PROMPT_RULE_ENGINE_VERSION = "prompt-rules-v3"
+SUPPORTED_PROMPT_RULE_ENGINE_VERSIONS = frozenset({
+    "prompt-rules-v2",
+    PROMPT_RULE_ENGINE_VERSION,
+})
 
 RULE_STAGES = ("selection", "entry", "exit")
 BAR_STATUSES = frozenset({"closed", "live"})

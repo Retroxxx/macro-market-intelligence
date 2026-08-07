@@ -21,6 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+import urllib.error
 import urllib.request
 
 from a_share_calendar import is_a_share_trading_day as calendar_is_a_share_trading_day, trading_day_status
@@ -30,7 +31,7 @@ from dashboard_json_cache import (
     write_json_cache,
 )
 from core.process_lease import FileLease
-from core.model_api import build_model_request, stream_model_response
+from core.model_api import build_model_request, request_model, stream_model_response
 from dashboard import practice_payload as practice_payload_impl
 from dashboard import practice_market_summary as practice_market_summary_impl
 from dashboard.niuone_mainline import build_niuone_mainline_view
@@ -133,11 +134,14 @@ from screening.stock_universe import (
 )
 from storage.prompt_strategies import PromptStrategyStore
 from strategies.prompt_refinement import (
+    PromptRefinementContractError,
+    PromptRefinementCoverageError,
+    PromptRefinementParseError,
     build_refinement_messages,
     finalize_prompt_refinement,
     refine_prompt_once,
 )
-from strategies.rules import DEFAULT_FEATURE_REGISTRY
+from strategies.rules import DEFAULT_FEATURE_REGISTRY, compile_strategy_spec
 from strategies.registry import (
     ACTIVE_STRATEGY_ENV,
     PERSONA_STRATEGY_ENV,
@@ -525,6 +529,7 @@ PROMPT_REFINEMENT_MAX_CONCURRENCY = max(
 PROMPT_REFINEMENT_SEMAPHORE = threading.BoundedSemaphore(
     PROMPT_REFINEMENT_MAX_CONCURRENCY
 )
+PROMPT_REFINEMENT_MAX_ATTEMPTS = 2
 IWENCAI_TEST_MAX_CONCURRENCY = 2
 IWENCAI_TEST_SEMAPHORE = threading.BoundedSemaphore(IWENCAI_TEST_MAX_CONCURRENCY)
 RATE_LIMIT_BUCKETS: dict[tuple[str, str], tuple[float, int]] = {}
@@ -6553,6 +6558,62 @@ def _prompt_refinement_timeout_seconds() -> int:
     )
 
 
+class PromptRefinementStreamError(RuntimeError):
+    """Safe, classified upstream failure for one refinement stream attempt."""
+
+    def __init__(self, message: str, *, code: str, retryable: bool) -> None:
+        super().__init__(message)
+        self.code = str(code or "stream_failed")
+        self.retryable = bool(retryable)
+
+
+def _classify_prompt_refinement_stream_error(
+    exc: Exception,
+) -> PromptRefinementStreamError:
+    if isinstance(exc, urllib.error.HTTPError):
+        status = int(exc.code)
+        retryable = status in {408, 409, 425, 429} or 500 <= status <= 599
+        message = (
+            f"文字策略模型服务暂时不可用（HTTP {status}）"
+            if retryable
+            else f"文字策略模型请求被拒绝（HTTP {status}）"
+        )
+        return PromptRefinementStreamError(
+            message,
+            code=f"http_{status}",
+            retryable=retryable,
+        )
+    if isinstance(exc, TimeoutError):
+        return PromptRefinementStreamError(
+            "文字策略模型响应超时",
+            code="timeout",
+            retryable=True,
+        )
+    if isinstance(exc, ValueError):
+        if str(exc) == "模型未返回可用文字策略":
+            return PromptRefinementStreamError(
+                "文字策略模型没有返回可用文本",
+                code="empty_response",
+                retryable=True,
+            )
+        return PromptRefinementStreamError(
+            "文字策略模型流式连接在输出完成前中断",
+            code="stream_interrupted",
+            retryable=True,
+        )
+    if isinstance(exc, (OSError, urllib.error.URLError)):
+        return PromptRefinementStreamError(
+            "文字策略模型连接中断",
+            code="connection_interrupted",
+            retryable=True,
+        )
+    return PromptRefinementStreamError(
+        f"文字策略模型细化失败（{type(exc).__name__}）",
+        code="unexpected_stream_error",
+        retryable=False,
+    )
+
+
 def _stream_prompt_refinement(messages: list[dict[str, str]]) -> Iterator[str]:
     if not PROMPT_REFINEMENT_SEMAPHORE.acquire(blocking=False):
         raise RuntimeError("当前有文字策略正在细化，请稍后重试")
@@ -6583,15 +6644,62 @@ def _stream_prompt_refinement(messages: list[dict[str, str]]) -> Iterator[str]:
             if not yielded:
                 raise ValueError("模型未返回可用文字策略")
         except Exception as exc:
-            raise RuntimeError(
-                f"文字策略模型细化失败（{type(exc).__name__}）"
-            ) from exc
+            raise _classify_prompt_refinement_stream_error(exc) from exc
+    finally:
+        PROMPT_REFINEMENT_SEMAPHORE.release()
+
+
+def _complete_prompt_refinement(messages: list[dict[str, str]]) -> str:
+    """Use one complete-response request as a fallback for a broken SSE stream."""
+
+    if not PROMPT_REFINEMENT_SEMAPHORE.acquire(blocking=False):
+        raise RuntimeError("当前有文字策略正在细化，请稍后重试")
+    try:
+        config = _prompt_refinement_config()
+        try:
+            request = build_model_request(
+                config.base_url,
+                config.model,
+                messages,
+                max_tokens=7000,
+                api_mode=config.api_mode,
+                reasoning={"effort": "low"},
+                stream=False,
+                extra_payload={"stream": False},
+            )
+            parsed = request_model(
+                request,
+                config.api_key,
+                timeout=_prompt_refinement_timeout_seconds(),
+            )
+            content = str(parsed.content or "").strip()
+            if not content:
+                raise ValueError("模型未返回可用文字策略")
+            return content
+        except Exception as exc:
+            raise _classify_prompt_refinement_stream_error(exc) from exc
     finally:
         PROMPT_REFINEMENT_SEMAPHORE.release()
 
 
 def _request_prompt_refinement(messages: list[dict[str, str]]) -> str:
-    return "".join(_stream_prompt_refinement(messages)).strip()
+    last_error: Exception | None = None
+    for attempt in range(PROMPT_REFINEMENT_MAX_ATTEMPTS):
+        try:
+            response = (
+                "".join(_stream_prompt_refinement(messages)).strip()
+                if attempt == 0
+                else _complete_prompt_refinement(messages)
+            )
+            if response:
+                return response
+        except PromptRefinementStreamError as exc:
+            last_error = exc
+            if not exc.retryable or attempt + 1 >= PROMPT_REFINEMENT_MAX_ATTEMPTS:
+                break
+    if last_error is not None:
+        raise RuntimeError(f"{last_error}；已自动重试一次") from last_error
+    raise RuntimeError("文字策略模型没有返回可用文本；已自动重试一次")
 
 
 def _prompt_refinement_identity(*, injected: bool) -> tuple[str, str]:
@@ -6606,6 +6714,10 @@ def _prompt_refinement_stream_event(event: str, payload: Mapping[str, Any]) -> s
 
 
 def _prompt_refinement_public_error(exc: Exception) -> str:
+    if isinstance(exc, PromptRefinementParseError):
+        return str(exc).strip()
+    if isinstance(exc, TimeoutError):
+        return "文字策略模型响应超时，请重试"
     if isinstance(exc, (ValueError, RuntimeError)) and str(exc).strip():
         return str(exc).strip()
     return f"文字策略细化失败（{type(exc).__name__}）"
@@ -6628,18 +6740,128 @@ def stream_refine_prompt_strategy_draft(
             "started",
             {"draft_id": str(draft.get("draft_id") or draft_id)},
         )
-        parts: list[str] = []
         stream_request = requester or _stream_prompt_refinement
-        for content in stream_request(messages):
-            text = str(content or "")
-            if not text:
-                continue
-            parts.append(text)
-            yield _prompt_refinement_stream_event("delta", {"text": text})
-        complete_response = "".join(parts).strip()
-        if not complete_response:
-            raise ValueError("模型未返回可用文字策略")
-        result = finalize_prompt_refinement(messages, complete_response)
+        max_attempts = PROMPT_REFINEMENT_MAX_ATTEMPTS if requester is None else 1
+        result = None
+        last_error: Exception | None = None
+        attempt_messages = messages
+        for attempt in range(max_attempts):
+            if attempt:
+                retry_message = (
+                    "模型上一次遗漏了可执行条件，正在要求模型完整重写一次…"
+                    if isinstance(last_error, PromptRefinementCoverageError)
+                    else "模型上一次输出的结构不符合规则，正在要求模型修正一次…"
+                    if isinstance(last_error, PromptRefinementContractError)
+                    else "模型流式输出未完整结束，正在自动重试一次…"
+                )
+                yield _prompt_refinement_stream_event(
+                    "reset",
+                    {
+                        "attempt": attempt + 1,
+                        "message": retry_message,
+                    },
+                )
+            parts: list[str] = []
+            try:
+                use_complete_fallback = (
+                    requester is None
+                    and attempt > 0
+                    and not isinstance(
+                        last_error,
+                        (
+                            PromptRefinementCoverageError,
+                            PromptRefinementContractError,
+                        ),
+                    )
+                )
+                contents = (
+                    (_complete_prompt_refinement(attempt_messages),)
+                    if use_complete_fallback
+                    else stream_request(attempt_messages)
+                )
+                for content in contents:
+                    text = str(content or "")
+                    if not text:
+                        continue
+                    parts.append(text)
+                    yield _prompt_refinement_stream_event("delta", {"text": text})
+                complete_response = "".join(parts).strip()
+                if not complete_response:
+                    raise PromptRefinementStreamError(
+                        "文字策略模型没有返回可用文本",
+                        code="empty_response",
+                        retryable=True,
+                    )
+                candidate_result = finalize_prompt_refinement(
+                    attempt_messages,
+                    complete_response,
+                )
+                try:
+                    compile_strategy_spec(candidate_result.refined_spec)
+                except ValueError as exc:
+                    if attempt + 1 < max_attempts:
+                        validation_errors = list(
+                            getattr(exc, "errors", ()) or (str(exc),)
+                        )
+                        raise PromptRefinementContractError(
+                            "模型结构化规则未通过本地编译："
+                            + "；".join(validation_errors)[:1200]
+                        ) from exc
+                result = candidate_result
+                break
+            except Exception as exc:
+                last_error = exc
+                retryable = (
+                    isinstance(
+                        exc,
+                        (
+                            PromptRefinementParseError,
+                            PromptRefinementCoverageError,
+                            PromptRefinementContractError,
+                        ),
+                    )
+                    or (
+                        isinstance(exc, PromptRefinementStreamError)
+                        and exc.retryable
+                    )
+                )
+                if (
+                    isinstance(
+                        exc,
+                        (
+                            PromptRefinementCoverageError,
+                            PromptRefinementContractError,
+                        ),
+                    )
+                    and attempt + 1 < max_attempts
+                ):
+                    correction = (
+                        "上一次结果遗漏了 capability_catalog 已支持的明确条件。"
+                        if isinstance(exc, PromptRefinementCoverageError)
+                        else "上一次结果未通过本地结构校验。"
+                    )
+                    attempt_messages = [
+                        *messages,
+                        {
+                            "role": "user",
+                            "content": (
+                                correction
+                                + "请重新输出一个完整 JSON；selection 与 entry 必须保留"
+                                "用户要求的全部今日/昨日 OHLCV 比较，使用 market.value "
+                                "和 offset_bars=0/1，且 position 必须使用 type/value/allow_add 格式。"
+                                "上一次本地校验结果："
+                                + str(exc)[:1200]
+                            ),
+                        },
+                    ]
+                if retryable and attempt + 1 >= max_attempts and max_attempts > 1:
+                    raise RuntimeError(
+                        f"{_prompt_refinement_public_error(exc)}；自动重试后仍失败"
+                    ) from exc
+                if not retryable or attempt + 1 >= max_attempts:
+                    raise
+        if result is None:
+            raise last_error or RuntimeError("文字策略模型细化未完成")
         model, provider = _prompt_refinement_identity(injected=requester is not None)
         saved = store.save_refinement(
             draft_id,

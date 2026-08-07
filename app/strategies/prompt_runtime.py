@@ -131,6 +131,7 @@ def stage_feature_requests(plan: Mapping[str, Any], stage: str) -> list[FeatureR
             parameters=dict(item.get("parameters") or {}),
             timeframe=str(item.get("timeframe") or "1d"),
             feature_version=str(item.get("feature_version") or ""),
+            offset_bars=item.get("offset_bars", 0),
         )
         for item in raw_requests
         if isinstance(item, Mapping)

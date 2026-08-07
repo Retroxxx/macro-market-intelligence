@@ -138,6 +138,7 @@ def _parse_feature_request(
         field=raw_field,
         parameters=dict(value.get("parameters") or {}),
         timeframe=str(value.get("timeframe") or default_timeframe),
+        offset_bars=value.get("offset_bars", 0),
     )
     try:
         definition, normalized, fact_key = normalize_feature_request(registry, request)
@@ -149,8 +150,12 @@ def _parse_feature_request(
         "field": normalized.field,
         "parameters": dict(normalized.parameters),
         "timeframe": normalized.timeframe,
+        "offset_bars": normalized.offset_bars,
         "fact_key": fact_key,
-        "min_bars": definition.required_bars(normalized.parameters),
+        "min_bars": (
+            definition.required_bars(normalized.parameters)
+            + normalized.offset_bars
+        ),
     }
     node = {
         "type": "feature",
@@ -183,7 +188,15 @@ def _normalize_node(
     if node_type == "feature":
         _reject_unknown_keys(
             raw,
-            {"type", "feature_id", "name", "field", "parameters", "timeframe"},
+            {
+                "type",
+                "feature_id",
+                "name",
+                "field",
+                "parameters",
+                "timeframe",
+                "offset_bars",
+            },
             path=path,
         )
         node, request = _parse_feature_request(

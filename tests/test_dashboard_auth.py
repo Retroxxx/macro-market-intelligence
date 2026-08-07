@@ -181,6 +181,49 @@ def prompt_kdj_spec():
     }
 
 
+def prompt_outside_bar_spec():
+    def market(field_name, offset):
+        return {
+            'type': 'feature',
+            'feature_id': 'market.value',
+            'field': 'value',
+            'parameters': {'field': field_name},
+            'timeframe': '1d',
+            'offset_bars': offset,
+        }
+
+    outside = {
+        'type': 'all',
+        'rule_id': 'outside',
+        'children': [
+            {
+                'type': 'compare',
+                'rule_id': 'lower-low',
+                'left': market('low', 0),
+                'operator': 'lt',
+                'right': market('low', 1),
+            },
+            {
+                'type': 'compare',
+                'rule_id': 'higher-high',
+                'left': market('high', 0),
+                'operator': 'gt',
+                'right': market('high', 1),
+            },
+        ],
+    }
+    result = prompt_kdj_spec()
+    result.update({
+        'strategy_id': 'outside-bar',
+        'rules': {
+            'selection': outside,
+            'entry': outside,
+            'exit': result['rules']['exit'],
+        },
+    })
+    return result
+
+
 class FakeHandler:
     """Temporary response-shaped wrapper around the production ASGI app."""
 
@@ -520,6 +563,7 @@ class DashboardAuthTests(unittest.TestCase):
         self.assertIn('AI 细化一次', ADMIN_FRONTEND)
         self.assertIn('模型实时输出', ADMIN_FRONTEND)
         self.assertIn('response.body.getReader()', ADMIN_FRONTEND)
+        self.assertIn("event === 'reset'", ADMIN_FRONTEND)
         self.assertIn('确认并激活冻结版本', ADMIN_FRONTEND)
         self.assertIn(
             'confirmed_plan_sha256: activeDraft.value.plan_sha256',
@@ -555,7 +599,8 @@ class DashboardAuthTests(unittest.TestCase):
 
             self.assertIn('event: started', body)
             self.assertIn('event: error', body)
-            self.assertIn('TimeoutError', body)
+            self.assertIn('文字策略模型响应超时，请重试', body)
+            self.assertNotIn('TimeoutError', body)
             self.assertEqual(
                 dashboard.prompt_strategy_store().get_draft(draft['draft_id'])['status'],
                 'draft',
@@ -569,6 +614,154 @@ class DashboardAuthTests(unittest.TestCase):
                 os.environ.pop('DASHBOARD_DECISION_TIMEOUT', None)
             else:
                 os.environ['DASHBOARD_DECISION_TIMEOUT'] = old_timeout
+
+    def test_prompt_refinement_resets_partial_output_and_falls_back_once(self):
+        old_db = os.environ.get('DASHBOARD_PROMPT_STRATEGY_DB')
+        original_streamer = dashboard._stream_prompt_refinement
+        original_complete = dashboard._complete_prompt_refinement
+        original_identity = dashboard._prompt_refinement_identity
+        os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = str(
+            self.tmp_path / 'prompt-stream-retry.db'
+        )
+        model_output = json.dumps(
+            {'strategy_spec': prompt_kdj_spec()},
+            ensure_ascii=False,
+        )
+        calls = []
+        fallback_calls = []
+
+        def flaky_stream(_messages):
+            calls.append(len(calls) + 1)
+            if len(calls) == 1:
+                yield '{"strategy_spec":{"schema_version":1'
+                raise dashboard.PromptRefinementStreamError(
+                    '文字策略模型流式连接在输出完成前中断',
+                    code='stream_interrupted',
+                    retryable=True,
+                )
+
+        def complete_fallback(_messages):
+            fallback_calls.append(True)
+            return model_output
+
+        dashboard._stream_prompt_refinement = flaky_stream
+        dashboard._complete_prompt_refinement = complete_fallback
+        dashboard._prompt_refinement_identity = lambda **_kwargs: ('test-model', 'test')
+        try:
+            draft = dashboard.create_prompt_strategy_draft(
+                'kdj<0买入，kdj>15卖出'
+            )
+            body = ''.join(
+                dashboard.stream_refine_prompt_strategy_draft(draft['draft_id'])
+            )
+
+            self.assertEqual(calls, [1])
+            self.assertEqual(fallback_calls, [True])
+            self.assertIn('event: reset', body)
+            self.assertIn('正在自动重试一次', body)
+            self.assertIn('event: complete', body)
+            self.assertNotIn('event: error', body)
+            self.assertEqual(
+                dashboard.prompt_strategy_store().get_draft(draft['draft_id'])['status'],
+                'pending_confirmation',
+            )
+        finally:
+            dashboard._stream_prompt_refinement = original_streamer
+            dashboard._complete_prompt_refinement = original_complete
+            dashboard._prompt_refinement_identity = original_identity
+            if old_db is None:
+                os.environ.pop('DASHBOARD_PROMPT_STRATEGY_DB', None)
+            else:
+                os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = old_db
+
+    def test_prompt_refinement_stream_value_error_has_safe_reason(self):
+        classified = dashboard._classify_prompt_refinement_stream_error(
+            ValueError('read of closed file')
+        )
+
+        self.assertTrue(classified.retryable)
+        self.assertEqual(classified.code, 'stream_interrupted')
+        self.assertIn('输出完成前中断', str(classified))
+        self.assertNotIn('ValueError', str(classified))
+
+    def test_prompt_refinement_retries_when_model_omits_supported_conditions(self):
+        old_db = os.environ.get('DASHBOARD_PROMPT_STRATEGY_DB')
+        original_streamer = dashboard._stream_prompt_refinement
+        original_identity = dashboard._prompt_refinement_identity
+        os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = str(
+            self.tmp_path / 'prompt-coverage-retry.db'
+        )
+        calls = []
+
+        def repairing_stream(messages):
+            calls.append(messages)
+            model_spec = prompt_kdj_spec() if len(calls) == 1 else prompt_outside_bar_spec()
+            yield json.dumps({'strategy_spec': model_spec}, ensure_ascii=False)
+
+        dashboard._stream_prompt_refinement = repairing_stream
+        dashboard._prompt_refinement_identity = lambda **_kwargs: ('test-model', 'test')
+        try:
+            draft = dashboard.create_prompt_strategy_draft(
+                '今日最低价参考昨日最低价时买入'
+            )
+            body = ''.join(
+                dashboard.stream_refine_prompt_strategy_draft(draft['draft_id'])
+            )
+
+            self.assertEqual(len(calls), 2)
+            self.assertIn('event: reset', body)
+            self.assertIn('遗漏了可执行条件', body)
+            self.assertIn('event: complete', body)
+            self.assertIn('offset_bars=0/1', calls[1][-1]['content'])
+        finally:
+            dashboard._stream_prompt_refinement = original_streamer
+            dashboard._prompt_refinement_identity = original_identity
+            if old_db is None:
+                os.environ.pop('DASHBOARD_PROMPT_STRATEGY_DB', None)
+            else:
+                os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = old_db
+
+    def test_prompt_refinement_retries_first_local_compile_failure(self):
+        old_db = os.environ.get('DASHBOARD_PROMPT_STRATEGY_DB')
+        original_streamer = dashboard._stream_prompt_refinement
+        original_identity = dashboard._prompt_refinement_identity
+        os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = str(
+            self.tmp_path / 'prompt-compile-retry.db'
+        )
+        calls = []
+
+        def repairing_stream(messages):
+            calls.append(messages)
+            model_spec = prompt_kdj_spec()
+            if len(calls) == 1:
+                model_spec['rules']['entry']['model_hint'] = 'buy'
+            yield json.dumps({'strategy_spec': model_spec}, ensure_ascii=False)
+
+        dashboard._stream_prompt_refinement = repairing_stream
+        dashboard._prompt_refinement_identity = lambda **_kwargs: ('test-model', 'test')
+        try:
+            draft = dashboard.create_prompt_strategy_draft(
+                'kdj<0买入，kdj>15卖出'
+            )
+            body = ''.join(
+                dashboard.stream_refine_prompt_strategy_draft(draft['draft_id'])
+            )
+
+            self.assertEqual(len(calls), 2)
+            self.assertIn('event: reset', body)
+            self.assertIn('结构不符合规则', body)
+            self.assertIn('model_hint', calls[1][-1]['content'])
+            self.assertEqual(
+                dashboard.prompt_strategy_store().get_draft(draft['draft_id'])['status'],
+                'pending_confirmation',
+            )
+        finally:
+            dashboard._stream_prompt_refinement = original_streamer
+            dashboard._prompt_refinement_identity = original_identity
+            if old_db is None:
+                os.environ.pop('DASHBOARD_PROMPT_STRATEGY_DB', None)
+            else:
+                os.environ['DASHBOARD_PROMPT_STRATEGY_DB'] = old_db
 
     def test_prompt_strategy_activation_failure_keeps_previous_active_version(self):
         old_db = os.environ.get('DASHBOARD_PROMPT_STRATEGY_DB')

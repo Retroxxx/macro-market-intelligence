@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import tempfile
 import unittest
 from datetime import date, timedelta
@@ -10,6 +11,7 @@ from app.backtesting.prompt_strategy import (
     PROMPT_BACKTEST_PROTOCOL_VERSION,
     PromptStrategyBacktestPolicy,
     PromptStrategyHistoricalSelector,
+    validate_prompt_backtest_version,
 )
 from app.backtesting.selection import (
     HistoricalBar,
@@ -24,8 +26,9 @@ from app.backtesting.tasks import (
 )
 from app.storage.prompt_strategies import PromptStrategyStore
 from app.strategies.rules import compile_strategy_spec, replay_rule_evaluation_audit
+from app.strategies.rules.schema import sha256_json
 
-from test_prompt_rule_engine import kdj_spec
+from test_prompt_rule_engine import kdj_spec, outside_bar_spec
 
 
 def frozen_version(spec=None, *, version_id="preset_text-v1-test"):
@@ -59,6 +62,102 @@ def price_bars(values):
 
 
 class PromptStrategyBacktestingTests(unittest.TestCase):
+    def test_existing_v2_frozen_plan_remains_replayable(self):
+        current = frozen_version()
+
+        def without_offsets(value):
+            if isinstance(value, dict):
+                return {
+                    key: without_offsets(item)
+                    for key, item in value.items()
+                    if key != "offset_bars"
+                }
+            if isinstance(value, list):
+                return [without_offsets(item) for item in value]
+            return copy.deepcopy(value)
+
+        legacy_plan = without_offsets(current["execution_plan"])
+        legacy_plan.pop("plan_sha256", None)
+        legacy_plan["engine_version"] = "prompt-rules-v2"
+        legacy_plan["plan_sha256"] = sha256_json(legacy_plan)
+        legacy_version = {
+            **current,
+            "plan_sha256": legacy_plan["plan_sha256"],
+            "engine_version": "prompt-rules-v2",
+            "execution_plan": legacy_plan,
+        }
+
+        validated = validate_prompt_backtest_version(legacy_version)
+
+        self.assertEqual(validated["engine_version"], "prompt-rules-v2")
+        self.assertEqual(
+            PromptStrategyHistoricalSelector(legacy_version).backtest_warmup_sessions,
+            38,
+        )
+
+    def test_previous_bar_feature_replays_through_selection_and_entry(self):
+        version = frozen_version(
+            outside_bar_spec(),
+            version_id="preset_text-v-offset-test",
+        )
+        bars = [
+            HistoricalBar(
+                symbol="sh600000",
+                date="2026-08-05",
+                open=10,
+                high=11,
+                low=9,
+                close=10,
+                volume=1000,
+                name="测试股",
+            ),
+            HistoricalBar(
+                symbol="sh600000",
+                date="2026-08-06",
+                open=10,
+                high=12,
+                low=8,
+                close=10,
+                volume=1200,
+                name="测试股",
+            ),
+            HistoricalBar(
+                symbol="sh600000",
+                date="2026-08-07",
+                open=10,
+                high=11,
+                low=9,
+                close=10,
+                volume=1100,
+                name="测试股",
+            ),
+        ]
+        result = run_selection_backtest(
+            {"sh600000": bars},
+            PromptStrategyHistoricalSelector(
+                version,
+                eligible_symbols=("sh600000",),
+            ),
+            config=SelectionBacktestConfig(
+                signal_start_date="2026-08-06",
+                signal_end_date="2026-08-07",
+                cooldown_sessions=0,
+            ),
+            position_exit_strategy=PromptStrategyBacktestPolicy(version),
+        ).to_dict()
+
+        self.assertEqual(result["portfolio"]["buy_order_count"], 1)
+        self.assertEqual(result["portfolio"]["open_position_count"], 1)
+        selection_audit = result["signals"][0]["metadata"][
+            "prompt_selection_audit"
+        ]
+        self.assertTrue(replay_rule_evaluation_audit(
+            selection_audit,
+            plan=version["execution_plan"],
+        )["ok"])
+        fact_keys = selection_audit["replay_context"]["facts"]
+        self.assertTrue(any("~offset=1" in key for key in fact_keys))
+
     def test_kdj_version_replays_selection_entry_monitor_and_exit_with_audits(self):
         version = frozen_version()
         bars = price_bars([20.0] * 55 + [12.0, 8.0, 5.0, 8.0, 10.0, 12.0, 14.0])

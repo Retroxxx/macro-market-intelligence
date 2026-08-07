@@ -16,7 +16,10 @@ from app.strategies.rules import (
     build_rule_evaluation_audit,
     evaluate_plan_stage,
 )
-from app.strategies.rules.schema import PROMPT_RULE_ENGINE_VERSION, sha256_json
+from app.strategies.rules.schema import (
+    SUPPORTED_PROMPT_RULE_ENGINE_VERSIONS,
+    sha256_json,
+)
 
 from .selection import (
     HistoricalBar,
@@ -66,7 +69,7 @@ def validate_prompt_backtest_version(
     ):
         raise ValueError("文字策略回测版本计划指纹无效")
     engine_version = str(plan.get("engine_version") or "")
-    if engine_version != PROMPT_RULE_ENGINE_VERSION:
+    if engine_version not in SUPPORTED_PROMPT_RULE_ENGINE_VERSIONS:
         raise ValueError("文字策略回测版本的规则引擎不受支持")
     strategy = plan.get("strategy")
     if not isinstance(strategy, dict):

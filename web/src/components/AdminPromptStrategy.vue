@@ -76,6 +76,9 @@ async function requestEventStream(url, options = {}) {
     } else if (event === 'delta') {
       streamedOutput.value += String(data?.text || '')
       message.value = `模型生成中，已接收 ${streamedOutput.value.length} 个字符…`
+    } else if (event === 'reset') {
+      streamedOutput.value = ''
+      message.value = String(data?.message || '模型流式输出中断，正在自动重试一次…')
     } else if (event === 'complete') {
       completedDraft = data?.draft || null
     } else if (event === 'error') {
@@ -218,7 +221,7 @@ onMounted(refresh)
       <div>
         <div class="eyebrow">Prompt → 冻结规则 → 本地执行</div>
         <h2 id="promptStrategyTitle">文字策略闭环</h2>
-        <p>模型只在创建阶段细化一次；确认激活后，选股、买前复核、持仓监测和卖出均由本地规则引擎执行。</p>
+        <p>模型只在创建阶段生成一个成功版本；传输或校验失败最多自动补偿一次。确认激活后，选股、买前复核、持仓监测和卖出均由本地规则引擎执行。</p>
       </div>
       <span v-if="activeVersion && runtimeEnabled" class="prompt-version-badge">运行中 r{{ activeVersion.revision }}</span>
       <span v-else-if="activeVersion" class="prompt-version-badge muted">已冻结，当前未运行</span>

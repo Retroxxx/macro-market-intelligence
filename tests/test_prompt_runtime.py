@@ -17,11 +17,11 @@ from strategies.prompt_runtime import (  # noqa: E402
 )
 from strategies.rules import compile_strategy_spec, replay_rule_evaluation_audit  # noqa: E402
 
-from test_prompt_rule_engine import kdj_spec  # noqa: E402
+from test_prompt_rule_engine import kdj_spec, outside_bar_spec  # noqa: E402
 
 
-def frozen_version():
-    plan = compile_strategy_spec(kdj_spec())
+def frozen_version(spec=None):
+    plan = compile_strategy_spec(spec or kdj_spec())
     return {
         "version_id": "preset_text-v1-test",
         "plan_sha256": plan["plan_sha256"],
@@ -48,6 +48,48 @@ def falling_rows(count=40):
 
 
 class PromptRuntimeTests(unittest.TestCase):
+    def test_runtime_evaluates_exact_current_and_previous_bar_values(self):
+        version = frozen_version(outside_bar_spec())
+        rows = [
+            {
+                "date": "2026-08-06",
+                "open": 10,
+                "high": 11,
+                "low": 9,
+                "close": 10,
+                "volume": 1000,
+            },
+            {
+                "date": "2026-08-07",
+                "open": 10,
+                "high": 12,
+                "low": 8,
+                "close": 10,
+                "volume": 1200,
+            },
+        ]
+
+        result = evaluate_frozen_strategy_stage(
+            version,
+            "selection",
+            rows,
+            code="600000",
+            name="测试股",
+        )
+
+        self.assertEqual(result["evaluation"]["status"], "true")
+        by_field_and_offset = {
+            (
+                item["parameters"]["field"],
+                item["offset_bars"],
+            ): result["audit"]["replay_context"]["facts"][fact_key]
+            for fact_key, item in result["feature_metadata"].items()
+        }
+        self.assertEqual(by_field_and_offset[("low", 0)], 8.0)
+        self.assertEqual(by_field_and_offset[("low", 1)], 9.0)
+        self.assertEqual(by_field_and_offset[("high", 0)], 12.0)
+        self.assertEqual(by_field_and_offset[("high", 1)], 11.0)
+
     def test_runtime_materializes_only_stage_dependencies_and_builds_audit(self):
         version = frozen_version()
         result = evaluate_frozen_strategy_stage(

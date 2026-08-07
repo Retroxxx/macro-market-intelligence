@@ -14,6 +14,7 @@ from ..scoring.common import compute_bbi, compute_ema, moving_avg
 FeatureCompute = Callable[[list[dict[str, Any]], Mapping[str, Any]], Mapping[str, Any]]
 BarRequirement = Callable[[Mapping[str, Any]], int]
 ParameterValidator = Callable[[Mapping[str, Any]], None]
+MAX_FEATURE_OFFSET_BARS = 499
 
 
 @dataclass(frozen=True)
@@ -99,6 +100,7 @@ class FeatureRequest:
     parameters: Mapping[str, Any] = field(default_factory=dict)
     timeframe: str = "1d"
     feature_version: str = ""
+    offset_bars: int = 0
 
 
 class FeatureRegistry:
@@ -153,6 +155,15 @@ class FeatureRegistry:
                 "aliases": list(definition.aliases),
                 "min_bars": definition.min_bars,
                 "timeframes": list(definition.supported_timeframes),
+                "offset_bars": {
+                    "kind": "int",
+                    "default": 0,
+                    "min": 0,
+                    "max": MAX_FEATURE_OFFSET_BARS,
+                    "description": (
+                        "0 is the current evaluation bar; 1 is the previous bar."
+                    ),
+                },
                 "parameters": {
                     name: {
                         "kind": item.kind,
@@ -175,12 +186,17 @@ def feature_request_key(
     field_name: str,
     parameters: Mapping[str, Any],
     timeframe: str,
+    offset_bars: int = 0,
 ) -> str:
     parameter_text = ",".join(
         f"{key}={parameters[key]}" for key in sorted(parameters)
     )
     suffix = f"[{parameter_text}]" if parameter_text else ""
-    return f"{definition.feature_id}.{field_name}{suffix}@{timeframe}#{definition.version}"
+    offset_suffix = f"~offset={offset_bars}" if offset_bars else ""
+    return (
+        f"{definition.feature_id}.{field_name}{suffix}@{timeframe}"
+        f"#{definition.version}{offset_suffix}"
+    )
 
 
 def normalize_feature_request(
@@ -199,17 +215,37 @@ def normalize_feature_request(
             f"{definition.feature_id} does not support timeframe: {timeframe}"
         )
     parameters = definition.normalize_parameters(request.parameters)
+    raw_offset = request.offset_bars
+    if isinstance(raw_offset, bool):
+        raise ValueError("offset_bars must be an integer")
+    try:
+        offset_bars = int(raw_offset)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("offset_bars must be an integer") from exc
+    if isinstance(raw_offset, float) and not raw_offset.is_integer():
+        raise ValueError("offset_bars must be an integer")
+    if not 0 <= offset_bars <= MAX_FEATURE_OFFSET_BARS:
+        raise ValueError(
+            f"offset_bars must be between 0 and {MAX_FEATURE_OFFSET_BARS}"
+        )
     normalized = FeatureRequest(
         feature_id=definition.feature_id,
         field=field_name,
         parameters=parameters,
         timeframe=timeframe,
         feature_version=definition.version,
+        offset_bars=offset_bars,
     )
     return (
         definition,
         normalized,
-        feature_request_key(definition, field_name, parameters, timeframe),
+        feature_request_key(
+            definition,
+            field_name,
+            parameters,
+            timeframe,
+            offset_bars,
+        ),
     )
 
 
@@ -741,7 +777,7 @@ def materialize_features(
     metadata: dict[str, dict[str, Any]] = {}
     errors: list[dict[str, str]] = []
     computed: dict[
-        tuple[str, str, str, tuple[tuple[str, Any], ...]],
+        tuple[str, str, str, tuple[tuple[str, Any], ...], int],
         Mapping[str, Any],
     ] = {}
     for raw_request in requests:
@@ -757,14 +793,23 @@ def materialize_features(
             definition.version,
             request.timeframe,
             tuple(sorted(request.parameters.items())),
+            request.offset_bars,
         )
         if computation_key not in computed:
-            if len(normalized_rows) < definition.required_bars(request.parameters):
+            required_bars = (
+                definition.required_bars(request.parameters) + request.offset_bars
+            )
+            feature_rows = (
+                normalized_rows
+                if request.offset_bars == 0
+                else normalized_rows[:-request.offset_bars]
+            )
+            if len(normalized_rows) < required_bars:
                 computed[computation_key] = {}
             else:
                 try:
                     computed[computation_key] = dict(
-                        definition.compute(normalized_rows, request.parameters)
+                        definition.compute(feature_rows, request.parameters)
                     )
                 except Exception as exc:
                     computed[computation_key] = {}
@@ -773,6 +818,11 @@ def materialize_features(
                         "error": type(exc).__name__,
                     })
         value = computed[computation_key].get(request.field)
+        feature_rows = (
+            normalized_rows
+            if request.offset_bars == 0
+            else normalized_rows[:-request.offset_bars]
+        )
         facts[fact_key] = value
         metadata[fact_key] = {
             "feature_id": definition.feature_id,
@@ -780,8 +830,9 @@ def materialize_features(
             "field": request.field,
             "parameters": dict(request.parameters),
             "timeframe": request.timeframe,
-            "bar_count": len(normalized_rows),
-            "bar_time": str((normalized_rows[-1] if normalized_rows else {}).get("date") or ""),
+            "offset_bars": request.offset_bars,
+            "bar_count": len(feature_rows),
+            "bar_time": str((feature_rows[-1] if feature_rows else {}).get("date") or ""),
             "status": "ok" if value is not None else "missing",
         }
     return {"facts": facts, "metadata": metadata, "errors": errors}

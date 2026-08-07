@@ -24,13 +24,16 @@ from strategies.rules import (  # noqa: E402
 )
 
 
-def feature(feature_id, field="value", **parameters):
-    return {
+def feature(feature_id, output_field="value", *, offset_bars=0, **parameters):
+    payload = {
         "type": "feature",
         "feature_id": feature_id,
-        "field": field,
+        "field": output_field,
         "parameters": parameters,
     }
+    if offset_bars:
+        payload["offset_bars"] = offset_bars
+    return payload
 
 
 def compare(rule_id, left, operator, right):
@@ -72,13 +75,46 @@ def kdj_spec():
     }
 
 
+def outside_bar_spec():
+    current_low = feature("market.value", field="low")
+    previous_low = feature("market.value", field="low", offset_bars=1)
+    current_high = feature("market.value", field="high")
+    previous_high = feature("market.value", field="high", offset_bars=1)
+    outside_bar = {
+        "type": "all",
+        "rule_id": "outside-bar",
+        "children": [
+            compare("lower-low", current_low, "lt", previous_low),
+            compare("higher-high", current_high, "gt", previous_high),
+        ],
+    }
+    spec = kdj_spec()
+    spec.update({
+        "strategy_id": "outside-bar",
+        "name": "日线外包络",
+        "description": "今日最低价低于昨日最低价且今日最高价高于昨日最高价",
+        "rules": {
+            "selection": outside_bar,
+            "entry": outside_bar,
+            "exit": compare(
+                "never-exit-in-test",
+                feature("market.value", field="close"),
+                "gt",
+                9999,
+            ),
+        },
+        "assumptions": ["今日和昨日均指相邻已收盘日K"],
+    })
+    return spec
+
+
 class PromptRuleEngineTests(unittest.TestCase):
     def test_compiler_builds_stable_versioned_dependency_plan(self):
         first = compile_strategy_spec(kdj_spec())
         second = compile_strategy_spec(kdj_spec())
 
         self.assertEqual(first["plan_sha256"], second["plan_sha256"])
-        self.assertEqual(first["engine_version"], "prompt-rules-v2")
+        self.assertEqual(first["engine_version"], "prompt-rules-v3")
         self.assertEqual(
             first["required_features"]["selection"][0]["feature_id"],
             "technical.kdj",
@@ -137,6 +173,98 @@ class PromptRuleEngineTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(CompileError, "fast must be smaller"):
             compile_strategy_spec(invalid)
+
+    def test_feature_offset_compiles_and_evaluates_exact_previous_bar_values(self):
+        plan = compile_strategy_spec(outside_bar_spec())
+        requests = plan["required_features"]["selection"]
+
+        self.assertEqual(sorted(item["offset_bars"] for item in requests), [0, 0, 1, 1])
+        self.assertEqual(plan["stage_requirements"]["selection"]["minimum_bars"], 2)
+        self.assertTrue(all(
+            item.get("offset_bars", {}).get("max") == 499
+            for item in DEFAULT_FEATURE_REGISTRY.capability_catalog()
+        ))
+
+        rows = [
+            {"date": "2026-08-06", "high": 11, "low": 9, "close": 10},
+            {"date": "2026-08-07", "high": 12, "low": 8, "close": 10},
+        ]
+        payload = materialize_features(
+            [FeatureRequest(
+                feature_id=item["feature_id"],
+                field=item["field"],
+                parameters=item["parameters"],
+                timeframe=item["timeframe"],
+                feature_version=item["feature_version"],
+                offset_bars=item["offset_bars"],
+            ) for item in requests],
+            rows,
+        )
+        evaluation = evaluate_plan_stage(
+            plan,
+            "selection",
+            EvaluationContext(facts=payload["facts"]),
+        )
+
+        self.assertEqual(evaluation["status"], "true")
+        previous_metadata = [
+            item for item in payload["metadata"].values()
+            if item["offset_bars"] == 1
+        ]
+        self.assertTrue(previous_metadata)
+        self.assertTrue(all(item["bar_time"] == "2026-08-06" for item in previous_metadata))
+
+        missing = materialize_features(
+            [FeatureRequest(
+                feature_id=item["feature_id"],
+                field=item["field"],
+                parameters=item["parameters"],
+                timeframe=item["timeframe"],
+                feature_version=item["feature_version"],
+                offset_bars=item["offset_bars"],
+            ) for item in requests],
+            rows[-1:],
+        )
+        self.assertEqual(
+            evaluate_plan_stage(
+                plan,
+                "selection",
+                EvaluationContext(facts=missing["facts"]),
+            )["status"],
+            "unknown",
+        )
+
+    def test_feature_offset_is_generic_and_strictly_bounded(self):
+        spec = kdj_spec()
+        spec["rules"]["selection"] = compare(
+            "previous-kdj",
+            feature(
+                "technical.kdj",
+                "j",
+                offset_bars=1,
+                n=9,
+                m1=3,
+                m2=3,
+            ),
+            "lt",
+            0,
+        )
+        request = compile_strategy_spec(spec)["required_features"]["selection"][0]
+        self.assertEqual(request["offset_bars"], 1)
+        self.assertEqual(request["min_bars"], 40)
+
+        for invalid_offset in (-1, 500, 1.5, True):
+            invalid = kdj_spec()
+            node = feature("market.value", field="low")
+            node["offset_bars"] = invalid_offset
+            invalid["rules"]["selection"] = compare(
+                "invalid-offset",
+                node,
+                "lt",
+                10,
+            )
+            with self.subTest(offset=invalid_offset), self.assertRaises(CompileError):
+                compile_strategy_spec(invalid)
 
     def test_materializer_computes_only_requested_features_and_reuses_one_call(self):
         registry = FeatureRegistry()
