@@ -84,6 +84,7 @@ from dashboard.apis.market_breadth import (
     append_market_breadth_sample,
     build_market_breadth_payload,
     compact_market_breadth_sample,
+    compact_previous_market_breadth_history,
     compact_previous_turnover_history,
     is_market_breadth_session_timestamp,
     roll_market_breadth_history,
@@ -3998,6 +3999,37 @@ def _empty_market_breadth_history(day: str) -> dict[str, Any]:
     )
 
 
+def _market_breadth_history_recovery_file() -> Path:
+    suffix = MARKET_BREADTH_HISTORY_FILE.suffix or ".json"
+    return MARKET_BREADTH_HISTORY_FILE.with_name(
+        f"{MARKET_BREADTH_HISTORY_FILE.stem}.recovery{suffix}"
+    )
+
+
+def _back_up_market_breadth_history(history: dict[str, Any] | None) -> bool:
+    """Mirror the newest real breadth curve before the active file rolls."""
+
+    if not isinstance(history, dict) or not history.get("samples"):
+        return False
+    recovery_file = _market_breadth_history_recovery_file()
+    recovery = read_json_cache(recovery_file, None)
+    if history == recovery:
+        return False
+    write_json_cache(recovery_file, history)
+    return True
+
+
+def _persist_market_breadth_history(history: dict[str, Any]) -> bool:
+    """Atomically preserve a non-empty curve before updating the active file."""
+
+    changed = _back_up_market_breadth_history(history)
+    current = read_json_cache(MARKET_BREADTH_HISTORY_FILE, None)
+    if history != current:
+        write_json_cache(MARKET_BREADTH_HISTORY_FILE, history)
+        changed = True
+    return changed
+
+
 def _empty_industry_flow_history(day: str) -> dict[str, Any]:
     return {
         "schema_version": 1,
@@ -4110,6 +4142,7 @@ def reset_daily_market_histories(now: datetime | None = None) -> bool:
             interval_seconds=MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS,
         )
         if history is not None and rolled != history:
+            _back_up_market_breadth_history(history)
             write_json_cache(MARKET_BREADTH_HISTORY_FILE, rolled)
             changed = True
     with INDUSTRY_FLOW_HISTORY_LOCK:
@@ -4216,6 +4249,38 @@ def load_previous_market_turnover_history(
         )
 
 
+def load_previous_market_breadth_samples(
+    *,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Load the newest complete breadth curve before the active display day."""
+
+    resolved_now = now or current_cn_datetime()
+    current_day = market_retention_date_key(resolved_now)
+    reset_daily_market_histories(resolved_now)
+    with MARKET_BREADTH_HISTORY_LOCK:
+        history = read_json_cache(MARKET_BREADTH_HISTORY_FILE, None) or {}
+        recovery = read_json_cache(_market_breadth_history_recovery_file(), None)
+        candidates: list[dict[str, Any]] = []
+        for raw in (
+            history.get("previous_day"),
+            recovery,
+            recovery.get("previous_day") if isinstance(recovery, dict) else None,
+        ):
+            previous = compact_previous_market_breadth_history(
+                raw if isinstance(raw, dict) else None,
+                before_date=current_day,
+            )
+            if previous is not None:
+                candidates.append(previous)
+        previous = (
+            max(candidates, key=lambda item: str(item.get("date") or ""))
+            if candidates
+            else None
+        )
+        return list((previous or {}).get("samples") or [])
+
+
 def record_market_breadth_sample(
     snapshot: dict[str, Any],
     *,
@@ -4240,7 +4305,7 @@ def record_market_breadth_sample(
             interval_seconds=MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS,
         )
         if updated != history and updated.get("samples"):
-            write_json_cache(MARKET_BREADTH_HISTORY_FILE, updated)
+            _persist_market_breadth_history(updated)
         return [
             sample
             for sample in (updated.get("samples") or [])
@@ -4255,6 +4320,23 @@ def _market_breadth_failure_payload(
 ) -> dict[str, Any]:
     samples = load_market_breadth_samples(now=now)
     if not samples:
+        previous_samples = load_previous_market_breadth_samples(now=now)
+        if previous_samples:
+            fallback = dict(previous_samples[-1])
+            fallback.update({
+                "stale_cache": True,
+                "error": f"{type(error).__name__}: {error}",
+            })
+            payload = build_market_breadth_payload(
+                fallback,
+                history_samples=previous_samples,
+                interval_seconds=MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS,
+            )
+            payload.update({
+                "displaying_previous_trading_day": True,
+                "display_date": fallback["generated_at"][:10],
+            })
+            return payload
         return build_market_breadth_payload({
             "error": f"{type(error).__name__}: {error}",
         })
@@ -4276,7 +4358,22 @@ def _cached_market_breadth_payload(now: datetime) -> dict[str, Any] | None:
 
     samples = load_market_breadth_samples(now=now)
     if not samples:
-        return None
+        if is_market_breadth_sampling_window(now):
+            return None
+        previous_samples = load_previous_market_breadth_samples(now=now)
+        if not previous_samples:
+            return None
+        latest = previous_samples[-1]
+        payload = build_market_breadth_payload(
+            latest,
+            history_samples=previous_samples,
+            interval_seconds=MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS,
+        )
+        payload.update({
+            "displaying_previous_trading_day": True,
+            "display_date": latest["generated_at"][:10],
+        })
+        return payload
     latest = samples[-1]
     try:
         latest_time = datetime.strptime(
@@ -4535,6 +4632,77 @@ def fetch_and_record_money_flow(
         args=("--force-refresh",) if force_refresh else (),
     )
     return money_flow, record_industry_flow_sample(money_flow, now=now)
+
+
+def _money_flow_with_display_period(
+    payload: dict[str, Any],
+    *,
+    now: datetime,
+) -> dict[str, Any]:
+    generated_date = str(payload.get("generated_at") or "")[:10]
+    current_date = now.strftime("%Y-%m-%d")
+    if not generated_date or generated_date >= current_date:
+        return payload
+    try:
+        calendar = dashboard_trading_day_status(now)
+    except Exception:
+        calendar = {}
+    previous_date = str(calendar.get("previous_trading_day") or "")[:10]
+    return {
+        **payload,
+        "display_date": generated_date,
+        "displaying_historical_data": True,
+        "displaying_previous_trading_day": generated_date == previous_date,
+    }
+
+
+def load_previous_money_flow_snapshot(
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Rebuild the latest real fund-flow ranking from durable samples."""
+
+    resolved_now = now or current_cn_datetime()
+    reset_daily_market_histories(resolved_now)
+    with INDUSTRY_FLOW_HISTORY_LOCK:
+        primary = read_json_cache(INDUSTRY_FLOW_HISTORY_FILE, None)
+        recovery = read_json_cache(_industry_flow_history_recovery_file(), None)
+    candidates: list[dict[str, Any]] = []
+    for history in (primary, recovery):
+        if not isinstance(history, dict):
+            continue
+        for raw in history.get("samples") or []:
+            compact = compact_industry_flow_sample(
+                raw if isinstance(raw, dict) else None
+            )
+            if compact is not None:
+                candidates.append(compact)
+    if not candidates:
+        return None
+    latest = max(candidates, key=lambda item: str(item.get("generated_at") or ""))
+    rows = [row for row in latest.get("items") or [] if isinstance(row, dict)]
+    inflow = sorted(
+        (row for row in rows if float(row.get("net_flow_yi") or 0) > 0),
+        key=lambda row: (-float(row.get("net_flow_yi") or 0), str(row.get("name") or "")),
+    )
+    outflow = sorted(
+        (row for row in rows if float(row.get("net_flow_yi") or 0) < 0),
+        key=lambda row: (float(row.get("net_flow_yi") or 0), str(row.get("name") or "")),
+    )
+    if not inflow and not outflow:
+        return None
+    payload = {
+        "schema_version": 2,
+        "metric": "industry_main_net_flow",
+        "metric_label": "最近交易日主力净额",
+        "source": "本地最近交易日资金采样",
+        "generated_at": latest["generated_at"],
+        "inflow": [dict(row) for row in inflow],
+        "outflow": [dict(row) for row in outflow],
+        "count": len(rows),
+        "stale_cache": True,
+    }
+    return _money_flow_with_display_period(payload, now=resolved_now)
 
 
 def refresh_industry_flow_sample() -> bool:
@@ -5198,8 +5366,14 @@ def produce_us_sector_data() -> dict[str, Any]:
 
 
 def produce_money_flow_data() -> dict[str, Any]:
-    money_flow, _samples = fetch_and_record_money_flow(timeout=120)
-    return money_flow
+    current = current_cn_datetime()
+    money_flow, _samples = fetch_and_record_money_flow(timeout=120, now=current)
+    if money_flow.get("inflow") or money_flow.get("outflow"):
+        return _money_flow_with_display_period(money_flow, now=current)
+    previous = load_previous_money_flow_snapshot(now=current)
+    if previous is not None and money_flow.get("error"):
+        previous["error"] = str(money_flow["error"])
+    return previous or money_flow
 
 
 def produce_industry_flow_data() -> dict[str, Any]:

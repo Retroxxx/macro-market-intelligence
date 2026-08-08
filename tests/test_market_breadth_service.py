@@ -317,7 +317,7 @@ class MarketBreadthHistoryTests(unittest.TestCase):
 
         self.assertEqual(stop_event.timeout, 30.0)
 
-    def test_daily_reset_retains_snapshots_until_nine_then_clears_them(self):
+    def test_daily_reset_archives_complete_breadth_curve_at_nine(self):
         original_breadth_file = dashboard.MARKET_BREADTH_HISTORY_FILE
         original_flow_file = dashboard.INDUSTRY_FLOW_HISTORY_FILE
         original_money_file = dashboard.MONEY_FLOW_SNAPSHOT_FILE
@@ -384,6 +384,9 @@ class MarketBreadthHistoryTests(unittest.TestCase):
                 self.assertFalse(repeated)
                 self.assertEqual(breadth["date"], "2026-07-23")
                 self.assertEqual(breadth["samples"], [])
+                self.assertEqual(breadth["previous_day"]["date"], "2026-07-22")
+                self.assertEqual(len(breadth["previous_day"]["samples"]), 1)
+                self.assertEqual(breadth["previous_day"]["samples"][0]["red"], 3000)
                 self.assertEqual(breadth["previous_turnover"]["date"], "2026-07-22")
                 self.assertEqual(len(breadth["previous_turnover"]["samples"]), 1)
                 self.assertEqual(
@@ -515,7 +518,7 @@ class MarketBreadthHistoryTests(unittest.TestCase):
             dashboard.MONEY_FLOW_SNAPSHOT_FILE = original_money_file
             dashboard.is_a_share_trading_day_for_dashboard = original_calendar
 
-    def test_apis_publish_yesterday_before_nine_and_clear_it_at_nine(self):
+    def test_market_breadth_keeps_previous_curve_after_nine(self):
         original_breadth_file = dashboard.MARKET_BREADTH_HISTORY_FILE
         original_flow_file = dashboard.INDUSTRY_FLOW_HISTORY_FILE
         original_money_file = dashboard.MONEY_FLOW_SNAPSHOT_FILE
@@ -581,8 +584,13 @@ class MarketBreadthHistoryTests(unittest.TestCase):
                     flow_at_nine = dashboard.produce_industry_flow_data()
 
                 fetch_at_nine.assert_not_called()
-                self.assertFalse(breadth_at_nine["available"])
-                self.assertEqual(breadth_at_nine["timeline"], [])
+                self.assertTrue(breadth_at_nine["available"])
+                self.assertTrue(breadth_at_nine["displaying_previous_trading_day"])
+                self.assertEqual(breadth_at_nine["display_date"], "2026-07-22")
+                self.assertEqual(
+                    breadth_at_nine["timeline"][-1]["generated_at"],
+                    "2026-07-22 15:00:00",
+                )
                 self.assertFalse(flow_at_nine["available"])
                 self.assertEqual(flow_at_nine["nodes"], [])
                 self.assertEqual(flow_at_nine["timeline"], [])
@@ -632,7 +640,7 @@ class MarketBreadthHistoryTests(unittest.TestCase):
         self.assertEqual(next_day["date"], "2026-07-23")
         self.assertEqual(len(next_day["samples"]), 1)
 
-    def test_next_day_retains_only_previous_actual_turnover_curve(self):
+    def test_next_day_retains_previous_breadth_and_turnover_curves(self):
         history = append_market_breadth_sample({}, {
             **sample("2026-07-22 09:30:00"),
             "actual_turnover_yi": 100,
@@ -651,14 +659,95 @@ class MarketBreadthHistoryTests(unittest.TestCase):
             "actual_turnover_yi": 120,
         })
 
-        self.assertEqual(next_day["schema_version"], 4)
+        self.assertEqual(next_day["schema_version"], 5)
         self.assertEqual(len(next_day["samples"]), 1)
+        previous_day = next_day["previous_day"]
+        self.assertEqual(previous_day["date"], "2026-07-22")
+        self.assertEqual(len(previous_day["samples"]), 2)
+        self.assertEqual(previous_day["samples"][0]["red"], 3000)
+        self.assertEqual(previous_day["samples"][-1]["actual_turnover_yi"], 220)
         previous = next_day["previous_turnover"]
         self.assertEqual(previous["date"], "2026-07-22")
         self.assertEqual(previous["source"], "测试分钟线")
         self.assertEqual(len(previous["samples"]), 2)
         self.assertNotIn("red", previous["samples"][0])
         self.assertEqual(previous["samples"][-1]["actual_turnover_yi"], 220)
+
+    def test_previous_breadth_survives_consecutive_closed_day_rolls(self):
+        friday = append_market_breadth_sample(
+            {},
+            sample("2026-07-24 15:00:00", red=3400, green=1600),
+        )
+
+        saturday = dashboard.roll_market_breadth_history(friday, "2026-07-25")
+        sunday = dashboard.roll_market_breadth_history(saturday, "2026-07-26")
+        monday = dashboard.roll_market_breadth_history(sunday, "2026-07-27")
+
+        self.assertEqual(monday["samples"], [])
+        self.assertEqual(monday["previous_day"]["date"], "2026-07-24")
+        self.assertEqual(
+            monday["previous_day"]["samples"][-1]["generated_at"],
+            "2026-07-24 15:00:00",
+        )
+        self.assertEqual(monday["previous_day"]["samples"][-1]["red"], 3400)
+
+    def test_money_flow_uses_previous_trading_day_recovery_when_refresh_is_empty(self):
+        original_industry_file = dashboard.INDUSTRY_FLOW_HISTORY_FILE
+        original_money_file = dashboard.MONEY_FLOW_SNAPSHOT_FILE
+        original_runner = dashboard.run_dashboard_helper
+        original_clock = dashboard.current_cn_datetime
+        original_calendar = dashboard.dashboard_trading_day_status
+        try:
+            with tempfile.TemporaryDirectory(prefix="niuone-money-flow-previous-") as temp_dir:
+                root = Path(temp_dir)
+                dashboard.INDUSTRY_FLOW_HISTORY_FILE = root / "industry_flow.json"
+                dashboard.MONEY_FLOW_SNAPSHOT_FILE = root / "money_flow.json"
+                dashboard.INDUSTRY_FLOW_HISTORY_FILE.write_text(json.dumps({
+                    "date": "2026-07-26",
+                    "samples": [],
+                }), encoding="utf-8")
+                dashboard._industry_flow_history_recovery_file().write_text(json.dumps({
+                    "date": "2026-07-24",
+                    "samples": [{
+                        "generated_at": "2026-07-24 15:00:00",
+                        "items": [
+                            {"name": "半导体", "net_flow_yi": 12},
+                            {"name": "软件开发", "net_flow_yi": 8},
+                            {"name": "银行", "net_flow_yi": -6},
+                        ],
+                    }],
+                }), encoding="utf-8")
+                dashboard.run_dashboard_helper = lambda *_args, **_kwargs: {
+                    "inflow": [],
+                    "outflow": [],
+                    "error": "upstream unavailable",
+                }
+                dashboard.current_cn_datetime = lambda: datetime(2026, 7, 26, 10, 0)
+                dashboard.dashboard_trading_day_status = lambda _now=None: {
+                    "date": "2026-07-26",
+                    "is_trading_day": False,
+                    "previous_trading_day": "2026-07-24",
+                }
+
+                payload = dashboard.produce_money_flow_data()
+
+                self.assertTrue(payload["displaying_previous_trading_day"])
+                self.assertTrue(payload["displaying_historical_data"])
+                self.assertEqual(payload["display_date"], "2026-07-24")
+                self.assertEqual(
+                    [row["name"] for row in payload["inflow"]],
+                    ["半导体", "软件开发"],
+                )
+                self.assertEqual(payload["outflow"][0]["name"], "银行")
+                self.assertEqual(payload["inflow"][0]["net_flow_yi"], 12)
+                self.assertTrue(payload["stale_cache"])
+                self.assertEqual(payload["error"], "upstream unavailable")
+        finally:
+            dashboard.INDUSTRY_FLOW_HISTORY_FILE = original_industry_file
+            dashboard.MONEY_FLOW_SNAPSHOT_FILE = original_money_file
+            dashboard.run_dashboard_helper = original_runner
+            dashboard.current_cn_datetime = original_clock
+            dashboard.dashboard_trading_day_status = original_calendar
 
     def test_invalid_or_lunch_samples_never_replace_valid_history(self):
         history = append_market_breadth_sample({}, sample("2026-07-22 10:00:00"))
@@ -912,6 +1001,36 @@ class MarketBreadthHistoryTests(unittest.TestCase):
                 self.assertIn("TimeoutError", payload["error"])
                 self.assertEqual(payload["latest"]["red"], 3456)
                 self.assertEqual(payload["latest"]["green"], 1544)
+        finally:
+            dashboard.MARKET_BREADTH_HISTORY_FILE = original_history_file
+
+    def test_previous_curve_recovers_when_active_history_loses_its_archive(self):
+        original_history_file = dashboard.MARKET_BREADTH_HISTORY_FILE
+        try:
+            with tempfile.TemporaryDirectory(prefix="niuone-market-breadth-recovery-") as temp_dir:
+                history_file = Path(temp_dir) / "history.json"
+                dashboard.MARKET_BREADTH_HISTORY_FILE = history_file
+                dashboard.record_market_breadth_sample(
+                    sample("2026-07-24 09:30:00", red=2800, green=2200),
+                    now=datetime(2026, 7, 24, 9, 30),
+                )
+                dashboard.record_market_breadth_sample(
+                    sample("2026-07-24 15:00:00", red=3400, green=1600),
+                    now=datetime(2026, 7, 24, 15, 0),
+                )
+                recovery_file = dashboard._market_breadth_history_recovery_file()
+                self.assertTrue(recovery_file.exists())
+
+                history_file.write_text(json.dumps(
+                    dashboard.roll_market_breadth_history(None, "2026-07-26"),
+                ), encoding="utf-8")
+                recovered = dashboard.load_previous_market_breadth_samples(
+                    now=datetime(2026, 7, 26, 12, 0),
+                )
+
+                self.assertEqual(len(recovered), 2)
+                self.assertEqual(recovered[0]["generated_at"], "2026-07-24 09:30:00")
+                self.assertEqual(recovered[-1]["red"], 3400)
         finally:
             dashboard.MARKET_BREADTH_HISTORY_FILE = original_history_file
 

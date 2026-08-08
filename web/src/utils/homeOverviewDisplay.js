@@ -55,6 +55,14 @@ export function overviewViewportMode(width, height) {
   return { layout, density }
 }
 
+export function overviewFlowRowLimit(height) {
+  const viewportHeight = finiteNumber(height)
+  if (viewportHeight != null && viewportHeight > 0 && viewportHeight < 560) return 3
+  if (viewportHeight != null && viewportHeight < 720) return 4
+  if (viewportHeight != null && viewportHeight >= 900) return 6
+  return 5
+}
+
 export function overviewMainlinePanelMode(height) {
   const panelHeight = finiteNumber(height)
   if (panelHeight != null && panelHeight > 0 && panelHeight < 118) return 'summary'
@@ -116,22 +124,29 @@ export function overviewMarketState(payload = {}) {
   }
 }
 
-export function overviewBreadth(payload = {}) {
+export function overviewBreadth(payload = {}, fallback = {}) {
   const latest = payload?.latest && typeof payload.latest === 'object' ? payload.latest : {}
   const advancing = finiteNumber(latest.red)
   const declining = finiteNumber(latest.green)
-  const limitUp = finiteNumber(latest.limit_up)
-  const limitDown = finiteNumber(latest.limit_down)
+  const limitUp = finiteNumber(latest.limit_up) ?? finiteNumber(fallback.limit_up)
+  const limitDown = finiteNumber(latest.limit_down) ?? finiteNumber(fallback.limit_down)
   const total = (advancing ?? 0) + (declining ?? 0)
+  const advancingPct = total > 0 && advancing != null
+    ? advancing / total * 100
+    : finiteNumber(fallback.breadth_score)
   return {
-    available: [advancing, declining, limitUp, limitDown].some(value => value != null),
+    available: [advancingPct, limitUp, limitDown].some(value => value != null),
+    countsAvailable: advancing != null && declining != null,
     advancing,
     declining,
     limitUp,
     limitDown,
     brokenLimit: finiteNumber(latest.broken_limit),
-    advancingPct: total > 0 && advancing != null ? advancing / total * 100 : null,
-    generatedAt: latest.generated_at || payload.generated_at || '',
+    advancingPct,
+    medianChangePct: finiteNumber(latest.median_change_pct) ?? finiteNumber(fallback.median_change_pct),
+    generatedAt: latest.generated_at || payload.generated_at || fallback.generated_at || '',
+    displayDate: String(payload.display_date || latest.generated_at || '').slice(0, 10),
+    previousTradingDay: payload.displaying_previous_trading_day === true,
   }
 }
 
@@ -251,7 +266,35 @@ function candidateScore(item) {
   return finiteNumber(item?.best_score ?? item?.score) ?? Number.NEGATIVE_INFINITY
 }
 
-export function overviewCandidates(items = [], payloadMeta = {}, limit = 5) {
+export function overviewCandidatePeriod(generatedAt, tradingCalendar = {}) {
+  const generatedDate = String(generatedAt || '').slice(0, 10)
+  const currentDate = String(tradingCalendar?.date || '').slice(0, 10)
+  const previousDate = String(
+    tradingCalendar?.previous_trading_day || '',
+  ).slice(0, 10)
+  const historical = Boolean(
+    /^\d{4}-\d{2}-\d{2}$/.test(generatedDate)
+    && /^\d{4}-\d{2}-\d{2}$/.test(currentDate)
+    && generatedDate < currentDate,
+  )
+  const previousTradingDay = historical && generatedDate === previousDate
+  return {
+    historical,
+    previousTradingDay,
+    generatedDate,
+    label: previousTradingDay
+      ? `上一交易日候选 ${generatedDate.slice(5)}`
+      : historical
+        ? `历史候选 ${generatedDate.slice(5)}`
+        : '',
+  }
+}
+
+export function overviewCandidates(
+  items = [],
+  payloadMeta = {},
+  limit = Infinity,
+) {
   const strategyMeta = practiceCandidateStrategyMeta(payloadMeta)
   const tierOrder = { high: 0, mid: 1, low: 2 }
   return (Array.isArray(items) ? items : [])
@@ -280,15 +323,42 @@ export function overviewCandidates(items = [], payloadMeta = {}, limit = 5) {
 export function overviewThemes(payload = {}, limit = 5) {
   const themes = Array.isArray(payload?.themes) ? payload.themes : []
   return themes
-    .map((theme, order) => ({
-      ...theme,
-      _order: order,
-      displayName: String(theme?.industry || theme?.name || ''),
-      displayScore: finiteNumber(theme?.score),
-      lifecycle: String(theme?.niuone_lifecycle_label || theme?.state || '待确认'),
-      breadth: finiteNumber(theme?.effective_breadth_pct),
-      leader: theme?.leader_stock || (Array.isArray(theme?.strong_stocks) ? theme.strong_stocks[0] : null),
-    }))
+    .map((theme, order) => {
+      const strongStocks = Array.isArray(theme?.strong_stocks) ? theme.strong_stocks : []
+      const leader = theme?.leader_stock || strongStocks[0] || null
+      const seenStocks = new Set()
+      const coreStocks = [leader, ...strongStocks]
+        .filter(stock => stock && typeof stock === 'object')
+        .map(stock => ({
+          code: String(stock?.code || ''),
+          name: String(stock?.name || ''),
+          changePct: finiteNumber(stock?.change_pct),
+          score: finiteNumber(stock?.strong_score),
+        }))
+        .filter(stock => {
+          const key = stock.code || stock.name
+          if (!key || seenStocks.has(key)) return false
+          seenStocks.add(key)
+          return true
+        })
+      return {
+        ...theme,
+        _order: order,
+        displayName: String(theme?.industry || theme?.name || ''),
+        displayScore: finiteNumber(theme?.score),
+        lifecycle: String(theme?.niuone_lifecycle_label || theme?.state || '待确认'),
+        breadth: finiteNumber(theme?.effective_breadth_pct),
+        todayScore: finiteNumber(theme?.today_strength_score),
+        medianChangePct: finiteNumber(theme?.today_median_change_pct),
+        strongStockCount: finiteNumber(theme?.strong_stock_count),
+        confirmationCount: finiteNumber(theme?.confirmation_count),
+        leader,
+        coreStocks,
+        followers: coreStocks.slice(1, 3)
+          .map(stock => String(stock?.name || stock?.code || ''))
+          .filter(Boolean),
+      }
+    })
     .filter(theme => theme.displayName)
     .sort((left, right) => (right.displayScore ?? -Infinity) - (left.displayScore ?? -Infinity)
       || left._order - right._order)
@@ -322,4 +392,15 @@ export function overviewMoneyFlow(payload = {}, direction = 'inflow', limit = 3)
     ...row,
     netFlowYi: finiteNumber(row?.net_flow_yi),
   }))
+}
+
+export function overviewMoneyFlowNet(payload = {}) {
+  const rows = [
+    ...(Array.isArray(payload?.inflow) ? payload.inflow : []),
+    ...(Array.isArray(payload?.outflow) ? payload.outflow : []),
+  ]
+  const values = rows
+    .map(row => finiteNumber(row?.net_flow_yi))
+    .filter(value => value != null)
+  return values.length ? values.reduce((total, value) => total + value, 0) : null
 }

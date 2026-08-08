@@ -419,9 +419,15 @@ const latestGeneratedAt = computed(() => String(
   props.payload.generated_at || latest.value.generated_at || '',
 ).trim())
 const latestTime = computed(() => latestGeneratedAt.value.slice(11, 19))
-const previousDayLabel = computed(() => previousDayMarketLabel(
-  latestGeneratedAt.value,
-))
+const previousDayLabel = computed(() => {
+  if (props.payload.displaying_previous_trading_day) {
+    const date = String(
+      props.payload.display_date || latestGeneratedAt.value,
+    ).slice(5, 10)
+    return date ? `最近交易日数据（${date}）` : '最近交易日数据'
+  }
+  return previousDayMarketLabel(latestGeneratedAt.value)
+})
 const turnoverComparisonText = computed(() => {
   const comparison = turnoverComparison.value
   const previous = nullableNumeric(comparison.previous_turnover_yi)
@@ -523,12 +529,12 @@ const turnoverEstimateText = computed(() => {
         </label>
       </div>
       <div class="market-breadth-head-meta">
-        <span v-if="previousDayLabel" class="previous-day-data-badge">{{ previousDayLabel }}</span>
+        <span v-if="previousDayLabel && !terminal" class="previous-day-data-badge">{{ previousDayLabel }}</span>
         <span v-if="latestTime" class="market-breadth-time">{{ latestTime }}</span>
       </div>
     </div>
 
-    <div v-if="payload.error" class="market-breadth-notice" role="status">
+    <div v-if="payload.error && !(terminal && payload.displaying_previous_trading_day)" class="market-breadth-notice" role="status">
       行情源暂时不可用，{{ payload.stale_cache ? '继续展示上一份有效采样' : '等待下一次采样' }}
     </div>
 
