@@ -124,6 +124,18 @@ export function overviewMarketState(payload = {}) {
   }
 }
 
+export function overviewPracticeMarketSummary(summary = {}, generating = false) {
+  const source = summary && typeof summary === 'object' ? summary : {}
+  const text = String(source.summary || '').trim()
+  if (text) return text
+  if (generating || source.running) {
+    return String(source.stage_label || '').trim() || '正在生成此刻盘面总结与评价…'
+  }
+  if (source.loading !== false) return '正在读取模拟交易盘面资料…'
+  if (source.error) return '模拟交易盘面资料暂不可用'
+  return '模拟交易盘面资料待更新'
+}
+
 export function overviewBreadth(payload = {}, fallback = {}) {
   const latest = payload?.latest && typeof payload.latest === 'object' ? payload.latest : {}
   const advancing = finiteNumber(latest.red)

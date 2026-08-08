@@ -140,6 +140,17 @@ const themes = module.overviewThemes({{themes: [{{
     {{code: '300725', name: '药石科技'}},
   ],
 }}]}});
+const practiceMarketSummaries = [
+  module.overviewPracticeMarketSummary({{
+    available: true,
+    summary: '资金回流成长方向，市场赚钱效应有所修复。',
+  }}),
+  module.overviewPracticeMarketSummary({{
+    running: true,
+    stage_label: '正在抓取实时盘面',
+  }}),
+  module.overviewPracticeMarketSummary({{loading: false}}),
+];
 console.log(JSON.stringify({{
   zeroAccount,
   profitableAccount,
@@ -161,6 +172,7 @@ console.log(JSON.stringify({{
   mainlinePanelModes,
   flowRowLimits,
   themes,
+  practiceMarketSummaries,
 }}));
 """
         result = subprocess.run(
@@ -251,6 +263,14 @@ console.log(JSON.stringify({{
         self.assertEqual(payload["themes"][0]["followers"], ["百花医药", "药石科技"])
         self.assertEqual(len(payload["themes"][0]["coreStocks"]), 3)
         self.assertEqual(payload["themes"][0]["coreStocks"][0]["code"], "301047")
+        self.assertEqual(
+            payload["practiceMarketSummaries"],
+            [
+                "资金回流成长方向，市场赚钱效应有所修复。",
+                "正在抓取实时盘面",
+                "模拟交易盘面资料待更新",
+            ],
+        )
 
     def test_overview_route_is_lazy_read_only_and_lifecycle_safe(self):
         component = OVERVIEW_PATH.read_text(encoding="utf-8")
@@ -290,6 +310,15 @@ console.log(JSON.stringify({{
         self.assertNotIn("resumeTrading", component)
         self.assertNotIn("refreshNiuOneMainline", component)
         self.assertIn('aria-label="核心决策指标"', component)
+        self.assertIn('<h2 id="overviewTitle">盘面监测总览</h2>', component)
+        self.assertNotIn("今日市场作战台", component)
+        self.assertNotIn("A股决策中枢", component)
+        self.assertNotIn("overview-eyebrow", component)
+        self.assertNotIn("先判断市场环境", component)
+        self.assertIn('aria-label="模拟交易盘面总结"', component)
+        self.assertIn("practiceState.marketSummary,", component)
+        self.assertIn("practiceState.marketSummaryGenerating,", component)
+        self.assertNotIn("overviewMarketSummary", component)
         self.assertIn("practiceState.loaded && account.value.available", component)
         self.assertIn("account.dailyPnl", component)
         self.assertIn("account.dailyPnlPct", component)

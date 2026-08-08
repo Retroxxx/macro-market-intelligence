@@ -4045,6 +4045,14 @@ console.log(JSON.stringify([
         self.assertIn('--header-control-height:34px', DASHBOARD_FRONTEND)
         self.assertIn('--header-control-height:28px', DASHBOARD_FRONTEND)
         self.assertIn('height:var(--header-control-height)', DASHBOARD_FRONTEND)
+        self.assertIn(
+            '.settings-link, .header-link, .version-status, .refresh-pill { display:inline-flex; align-items:center;',
+            DASHBOARD_FRONTEND,
+        )
+        self.assertIn(
+            '.version-status span, .version-status b, .refresh-pill span, .refresh-pill b { line-height:1; }',
+            DASHBOARD_FRONTEND,
+        )
         self.assertIn('.version-status { min-width:0; }', DASHBOARD_FRONTEND)
 
     def test_mobile_theme_toggle_does_not_keep_focus_or_hover_highlight(self):

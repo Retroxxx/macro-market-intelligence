@@ -21,6 +21,7 @@ import {
   overviewMarketState,
   overviewMoneyFlow,
   overviewMoneyFlowNet,
+  overviewPracticeMarketSummary,
   overviewSectorMoves,
   overviewThemes,
   overviewViewportMode,
@@ -104,6 +105,10 @@ const overviewPreviousTradingDayLabel = computed(() => {
   return date ? `数据基准：上一交易日 ${date}` : '数据基准：上一交易日'
 })
 const industryNetFlow = computed(() => overviewMoneyFlowNet(indicesState.moneyFlow))
+const marketSummary = computed(() => overviewPracticeMarketSummary(
+  practiceState.marketSummary,
+  practiceState.marketSummaryGenerating,
+))
 const coverage = computed(() => finiteNumber(mainlinePayload.value.data_quality?.coverage))
 const latestUpdate = computed(() => (
   indicesState.indices?.generated_at
@@ -293,9 +298,8 @@ onBeforeUnmount(() => {
   >
     <section class="overview-command-head" aria-labelledby="overviewTitle">
       <div>
-        <div class="overview-eyebrow"><span aria-hidden="true"></span>A股决策中枢</div>
-        <h2 id="overviewTitle">今日市场作战台</h2>
-        <p>先判断市场环境，再追踪主线机会，最后核对账户风险。</p>
+        <h2 id="overviewTitle">盘面监测总览</h2>
+        <p class="overview-market-summary" :title="marketSummary" aria-label="模拟交易盘面总结">{{ marketSummary }}</p>
       </div>
       <div class="overview-command-meta" aria-label="数据更新时间">
         <span class="overview-live-dot" aria-hidden="true"></span>
@@ -723,25 +727,12 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
-.overview-eyebrow {
-  color: var(--overview-accent);
-  font-size: 10px;
-  font-weight: 850;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-}
-
-.overview-eyebrow {
-  align-items: center;
+.overview-command-head > div:first-child {
+  align-items: baseline;
   display: flex;
-  gap: 7px;
-}
-
-.overview-eyebrow span {
-  background: var(--overview-accent);
-  border-radius: 999px;
-  height: 6px;
-  width: 6px;
+  flex: 1 1 auto;
+  gap: 12px;
+  min-width: 0;
 }
 
 .overview-command-head h2 {
@@ -749,13 +740,20 @@ onBeforeUnmount(() => {
   font-size: clamp(22px, 2.2vw, 30px);
   letter-spacing: -.03em;
   line-height: 1.15;
-  margin: 5px 0 0;
+  margin: 0;
+  white-space: nowrap;
 }
 
-.overview-command-head p {
-  color: var(--overview-muted);
+.overview-market-summary {
+  color: var(--overview-mainline-secondary);
   font-size: 12px;
-  margin: 6px 0 0;
+  font-weight: 500;
+  line-height: 1.35;
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .overview-command-meta {
@@ -1306,9 +1304,8 @@ onBeforeUnmount(() => {
     min-width: 0;
   }
 
-  .overview-eyebrow { font-size: 9px; white-space: nowrap; }
   .overview-command-head h2 { font-size: 16px; margin: 0; white-space: nowrap; }
-  .overview-command-head p { font-size: 9px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .overview-market-summary { font-size: 10px; }
   .overview-command-meta { font-size: 10px; }
 
   .overview-banner {
@@ -1505,7 +1502,6 @@ onBeforeUnmount(() => {
     --overview-terminal-left: minmax(0, 1.35fr);
     --overview-terminal-right: minmax(290px, .92fr);
   }
-  .overview-page[data-layout="compact"] .overview-command-head p { display: none; }
   .overview-page[data-layout="compact"] .overview-panel-actions > .overview-update-time { display: none; }
   .overview-page[data-layout="compact"] .overview-index-tile time { display: none; }
   .overview-page[data-layout="compact"] .overview-theme-table-head,
@@ -1525,7 +1521,6 @@ onBeforeUnmount(() => {
     flex-basis: 32px;
     min-height: 32px;
   }
-  .overview-page[data-density="compact"] .overview-command-head p { display: none; }
   .overview-page[data-density="compact"] .overview-kpi-strip {
     flex-basis: 50px;
     min-height: 50px;
@@ -1549,9 +1544,8 @@ onBeforeUnmount(() => {
     min-height: 26px;
     padding-block: 2px;
   }
-  .overview-page[data-density="ultra-compact"] .overview-eyebrow,
-  .overview-page[data-density="ultra-compact"] .overview-command-head p { display: none; }
   .overview-page[data-density="ultra-compact"] .overview-command-head h2 { font-size: 13px; }
+  .overview-page[data-density="ultra-compact"] .overview-market-summary { font-size: 9px; }
   .overview-page[data-density="ultra-compact"] .overview-kpi-strip {
     flex-basis: 42px;
     min-height: 42px;
