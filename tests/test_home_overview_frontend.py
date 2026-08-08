@@ -325,7 +325,7 @@ console.log(JSON.stringify({{
         self.assertIn('<Teleport to="body">', component)
         self.assertIn("overview-theme-stock-popover", component)
         self.assertIn("overview-theme-leader-toggle", component)
-        self.assertIn(".overview-theme-leader-toggle { font-size: 9px; padding: 2px 6px; }", component)
+        self.assertIn(".overview-theme-leader-toggle { font-size: 10px; padding: 2px 6px; }", component)
         self.assertGreaterEqual(component.count("<span>{{ themeLeader(theme) }}</span>"), 2)
         self.assertNotIn("查看{{ theme.coreStocks.length }}只", component)
         self.assertIn("结构代表股", component)
@@ -345,7 +345,17 @@ console.log(JSON.stringify({{
         self.assertIn("中位 {{ formatOverviewPercent(theme.medianChangePct, 1, true) }}", component)
         self.assertIn("overview-theme-metric-track", component)
         self.assertIn("themeMetricPosition(theme.displayScore)", component)
-        self.assertIn(".overview-theme-score b { color: var(--overview-text); }", component)
+        self.assertIn(".overview-theme-score b { color: var(--overview-mainline-accent); }", component)
+        self.assertIn(".overview-theme-breadth b { color: var(--overview-text); }", component)
+        self.assertIn(".overview-theme-leader-toggle svg { color: var(--overview-mainline-accent); }", component)
+        self.assertIn(".overview-theme-score .overview-theme-metric-track i { background: var(--overview-mainline-accent); }", component)
+        for mainline_tone in (
+            "--overview-mainline-accent: #46627c;",
+            "--overview-mainline-secondary: #4f5d69;",
+            "--overview-mainline-accent: #9bb1c5;",
+            "--overview-mainline-secondary: #aab5bf;",
+        ):
+            self.assertIn(mainline_tone, component)
         self.assertIn("border-left: 1px solid var(--overview-border-strong);", component)
         self.assertIn("{{ formatOverviewPercent(theme.breadth, 0) }}", component)
         self.assertNotIn("overview-theme-metrics", component)
@@ -361,6 +371,37 @@ console.log(JSON.stringify({{
             ':global(html[data-theme="dark"] .overview-page)',
             component,
         )
+        for subdued_color in (
+            "--overview-accent: #536b82;",
+            "--overview-up: #b6534e;",
+            "--overview-down: #34745d;",
+            "--overview-warning: #7b5e30;",
+            "--overview-accent: #7b8fa3;",
+            "--overview-up: #d06e68;",
+            "--overview-down: #559a7f;",
+            "--overview-warning: #b18b52;",
+        ):
+            self.assertIn(subdued_color, component)
+        for saturated_color in ("#79a7ff", "#ff7d75", "#45cb91", "#f2bd55"):
+            self.assertNotIn(saturated_color, component)
+        self.assertEqual(component.count("--overview-faint: #66727e;"), 2)
+        self.assertEqual(component.count("--overview-faint: #7d8995;"), 2)
+        self.assertIn("--market-breadth-limit-up: var(--overview-up);", component)
+        self.assertIn("--market-breadth-actual-turnover: var(--overview-accent);", component)
+        self.assertIn(
+            ".overview-tier.high { background: var(--overview-surface-strong); border-color: var(--overview-border-strong); color: var(--overview-text); }",
+            component,
+        )
+        for readable_terminal_text in (
+            ".overview-kpi-label { font-size: 9px; }",
+            ".overview-index-tile time { font-size: 9px; }",
+            ".overview-theme-table-head { font-size: 9px; padding: 0 1px 3px; }",
+            ".overview-theme-lifecycle { font-size: 9px; padding-left: 4px; }",
+            ".overview-theme-metric small { font-size: 9px; }",
+            ".overview-candidate-table-head { font-size: 9px; padding: 0 5px 3px; }",
+            ".overview-flow-row { flex: 1 1 0; font-size: 9px; min-height: 20px; }",
+        ):
+            self.assertIn(readable_terminal_text, component)
         self.assertNotIn(
             ':global(html[data-theme="dark"]) .overview-page',
             component,
