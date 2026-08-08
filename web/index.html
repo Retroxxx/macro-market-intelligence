@@ -6,13 +6,20 @@
     <title>牛牛1号</title>
     <script>
       (() => {
-        const storageKey = 'niuone-dashboard-theme-v1';
+        const themeStorageKey = 'niuone-dashboard-theme-v1';
+        const cornerStorageKey = 'niuone-dashboard-corners-v1';
         let theme = '';
-        try { theme = localStorage.getItem(storageKey) || ''; } catch (error) {}
+        let corners = '';
+        try {
+          theme = localStorage.getItem(themeStorageKey) || '';
+          corners = localStorage.getItem(cornerStorageKey) || '';
+        } catch (error) {}
         if (theme !== 'light' && theme !== 'dark') {
           theme = window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
+        if (corners !== 'rounded' && corners !== 'square') corners = 'square';
         document.documentElement.dataset.theme = theme;
+        document.documentElement.dataset.corners = corners;
       })();
     </script>
     <link rel="icon" type="image/png" sizes="256x256" href="/src/assets/niuone-logo.png" />

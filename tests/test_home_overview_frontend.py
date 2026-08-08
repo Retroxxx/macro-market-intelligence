@@ -502,6 +502,30 @@ console.log(JSON.stringify({{
         self.assertIn("上一交易日资金", market_overview)
         self.assertIn("@media (max-width: 720px)", component)
         self.assertIn("@media (prefers-reduced-motion: reduce)", component)
+        for square_overview_surface in (
+            ':global(html[data-corners="square"]) .overview-command-head,',
+            ':global(html[data-corners="square"]) .overview-theme-stock-popover,',
+            ':global(html[data-corners="square"]) .overview-tier,',
+            ':global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-card),',
+            ':global(html[data-corners="square"] body.overview-terminal-open .category-tabs),',
+            ':global(html[data-corners="square"] body.overview-terminal-open .tab)',
+        ):
+            self.assertIn(square_overview_surface, component)
+        self.assertIn("border-radius: 0 !important;", component)
+        self.assertIn("状态圆点和数据进度轨道保留原有几何语义", component)
+        for professional_terminal_style in (
+            "--overview-surface-raised: #f3f5f7;",
+            "--overview-border: #cfd6dd;",
+            "--overview-border-strong: #aeb9c4;",
+            "--overview-border: #303c47;",
+            "--overview-border-strong: #43515e;",
+            "box-shadow: none;",
+            ".overview-panel { border-color: var(--overview-border-strong); }",
+            ".overview-theme-table-head { background: var(--overview-surface-raised);",
+            ".overview-candidate-table-head { background: var(--overview-surface-raised);",
+            "box-shadow: none !important;",
+        ):
+            self.assertIn(professional_terminal_style, component)
 
 
 if __name__ == "__main__":

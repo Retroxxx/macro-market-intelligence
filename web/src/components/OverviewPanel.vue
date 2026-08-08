@@ -660,10 +660,10 @@ onBeforeUnmount(() => {
 <style scoped>
 .overview-page {
   --overview-surface: #ffffff;
-  --overview-surface-raised: #f6f8fa;
-  --overview-surface-strong: #eef1f4;
-  --overview-border: #d8dee4;
-  --overview-border-strong: #bbc5cf;
+  --overview-surface-raised: #f3f5f7;
+  --overview-surface-strong: #e9edf1;
+  --overview-border: #cfd6dd;
+  --overview-border-strong: #aeb9c4;
   --overview-text: #1d2731;
   --overview-muted: #66727e;
   --overview-faint: #66727e;
@@ -687,8 +687,8 @@ onBeforeUnmount(() => {
   --overview-surface: #0d1218;
   --overview-surface-raised: #121920;
   --overview-surface-strong: #18212a;
-  --overview-border: #293540;
-  --overview-border-strong: #3a4855;
+  --overview-border: #303c47;
+  --overview-border-strong: #43515e;
   --overview-text: #e2e7ec;
   --overview-muted: #8b97a3;
   --overview-faint: #7d8995;
@@ -710,14 +710,15 @@ onBeforeUnmount(() => {
 .overview-banner {
   border: 1px solid var(--overview-border);
   background: var(--overview-surface);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+  box-shadow: none;
 }
+
+.overview-command-head,
+.overview-panel { border-color: var(--overview-border-strong); }
 
 .overview-command-head {
   align-items: flex-end;
-  background:
-    linear-gradient(125deg, var(--overview-accent-soft), transparent 42%),
-    var(--overview-surface);
+  background: var(--overview-surface-raised);
   border-radius: 14px;
   display: flex;
   gap: 20px;
@@ -995,7 +996,7 @@ onBeforeUnmount(() => {
 .overview-theme-list { display: grid; }
 .overview-theme-table-head,
 .overview-theme-row { align-items: center; display: grid; gap: 14px; grid-template-columns: minmax(164px, 1fr) minmax(180px, 1.08fr) minmax(100px, .72fr) minmax(86px, .58fr); }
-.overview-theme-table-head { border-bottom: 1px solid var(--overview-border-strong); color: var(--overview-muted); font-size: 9px; padding: 0 2px 5px; }
+.overview-theme-table-head { background: var(--overview-surface-raised); border-bottom: 1px solid var(--overview-border-strong); color: var(--overview-muted); font-size: 9px; padding: 0 2px 5px; }
 .overview-theme-row { border-bottom: 1px solid var(--overview-border); padding: 7px 2px; }
 .overview-theme-row:last-child { border-bottom: 0; }
 .overview-theme-row div { min-width: 0; }
@@ -1057,9 +1058,9 @@ onBeforeUnmount(() => {
 .overview-theme-mobile-toggle { align-items: center; background: var(--overview-surface-raised); border: 1px solid var(--overview-border); border-radius: 4px; color: var(--overview-muted); display: none; font-size: 10px; font-weight: 650; gap: 3px; justify-self: start; padding: 3px 6px; }
 .overview-theme-stock-popover {
   --overview-surface: #ffffff;
-  --overview-surface-raised: #f6f8fa;
-  --overview-border: #d8dee4;
-  --overview-border-strong: #bbc5cf;
+  --overview-surface-raised: #f3f5f7;
+  --overview-border: #cfd6dd;
+  --overview-border-strong: #aeb9c4;
   --overview-text: #1d2731;
   --overview-muted: #66727e;
   --overview-faint: #66727e;
@@ -1112,8 +1113,8 @@ onBeforeUnmount(() => {
 :global(html[data-theme="dark"] .overview-theme-stock-popover) {
   --overview-surface: #0d1218;
   --overview-surface-raised: #121920;
-  --overview-border: #293540;
-  --overview-border-strong: #3a4855;
+  --overview-border: #303c47;
+  --overview-border-strong: #43515e;
   --overview-text: #e2e7ec;
   --overview-muted: #8b97a3;
   --overview-faint: #7d8995;
@@ -1153,7 +1154,7 @@ onBeforeUnmount(() => {
 .overview-candidate-table { display: grid; }
 .overview-candidate-table-head,
 .overview-candidate-row { align-items: center; display: grid; gap: 12px; grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.35fr) 60px 72px; }
-.overview-candidate-table-head { border-bottom: 1px solid var(--overview-border-strong); color: var(--overview-muted); font-size: 9px; padding: 0 8px 7px; }
+.overview-candidate-table-head { background: var(--overview-surface-raised); border-bottom: 1px solid var(--overview-border-strong); color: var(--overview-muted); font-size: 9px; padding: 0 8px 7px; }
 .overview-candidate-row { border-bottom: 1px solid var(--overview-border); min-height: 50px; padding: 7px 8px; }
 .overview-candidate-row:last-child { border-bottom: 0; }
 .overview-candidate-row > div { min-width: 0; }
@@ -1582,5 +1583,60 @@ onBeforeUnmount(() => {
   :global(body.overview-terminal-open .header-link),
   :global(body.overview-terminal-open .version-status),
   :global(body.overview-terminal-open .refresh-pill) { display: none; }
+}
+
+/* 直角主题采用金融终端式边框；状态圆点和数据进度轨道保留原有几何语义。 */
+:global(html[data-corners="square"]) .overview-command-head,
+:global(html[data-corners="square"]) .overview-stale-badge,
+:global(html[data-corners="square"]) .overview-banner,
+:global(html[data-corners="square"]) .overview-kpi,
+:global(html[data-corners="square"]) .overview-panel,
+:global(html[data-corners="square"]) .overview-inline-notice,
+:global(html[data-corners="square"]) .overview-index-tile,
+:global(html[data-corners="square"]) .overview-chart-wrap,
+:global(html[data-corners="square"]) .overview-breadth-unavailable-copy,
+:global(html[data-corners="square"]) .overview-theme-leader-toggle,
+:global(html[data-corners="square"]) .overview-theme-mobile-toggle,
+:global(html[data-corners="square"]) .overview-theme-stock-popover,
+:global(html[data-corners="square"]) .overview-theme-stock,
+:global(html[data-corners="square"]) .overview-tier,
+:global(html[data-corners="square"]) .overview-panel a:focus-visible,
+:global(html[data-corners="square"]) .overview-theme-leader-toggle:focus-visible,
+:global(html[data-corners="square"]) .overview-theme-mobile-toggle:focus-visible,
+:global(html[data-corners="square"]) .overview-theme-stock-popover-head button:focus-visible {
+  border-radius: 0;
+}
+
+:global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-card),
+:global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-info-popover),
+:global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-notice),
+:global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-controls),
+:global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-toggle),
+:global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-compact-tooltip) {
+  border-radius: 0 !important;
+}
+
+:global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-toggle)::before {
+  border-radius: 0 !important;
+}
+
+:global(html[data-corners="square"] body.overview-terminal-open .settings-link),
+:global(html[data-corners="square"] body.overview-terminal-open .header-link),
+:global(html[data-corners="square"] body.overview-terminal-open .version-status),
+:global(html[data-corners="square"] body.overview-terminal-open .refresh-pill),
+:global(html[data-corners="square"] body.overview-terminal-open .theme-toggle),
+:global(html[data-corners="square"] body.overview-terminal-open .category-tabs),
+:global(html[data-corners="square"] body.overview-terminal-open .tab) {
+  border-radius: 0 !important;
+}
+
+:global(body.overview-terminal-open .settings-link),
+:global(body.overview-terminal-open .header-link),
+:global(body.overview-terminal-open .version-status),
+:global(body.overview-terminal-open .refresh-pill),
+:global(body.overview-terminal-open .theme-toggle),
+:global(body.overview-terminal-open .category-tabs),
+:global(body.overview-terminal-open .tab) {
+  box-shadow: none !important;
 }
 </style>

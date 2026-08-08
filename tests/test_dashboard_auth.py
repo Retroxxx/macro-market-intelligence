@@ -4060,6 +4060,83 @@ console.log(JSON.stringify([
         self.assertIn('html[data-theme="dark"] .theme-toggle:focus-visible {', DASHBOARD_FRONTEND)
         self.assertIn('border-color:var(--line);\n        background:var(--panel);\n        outline:none;', DASHBOARD_FRONTEND)
 
+    def test_all_views_share_rectilinear_terminal_surfaces(self):
+        dashboard_styles = (ROOT / 'frontend' / 'dashboard.css').read_text(encoding='utf-8')
+        admin_styles = (ROOT / 'frontend' / 'admin.css').read_text(encoding='utf-8')
+
+        self.assertIn(
+            'Shared rectilinear terminal language for every Dashboard view.',
+            dashboard_styles,
+        )
+        self.assertIn('button:not(.practice-trade-marker)', dashboard_styles)
+        self.assertIn('[class$="-popover"]', dashboard_styles)
+        self.assertIn('[class$="-hero"]', dashboard_styles)
+        self.assertIn('[class$="-record"]', dashboard_styles)
+        self.assertIn('border-radius:0 !important;', dashboard_styles)
+        self.assertIn('.market-breadth-toggle::before { border-radius:0 !important; }', dashboard_styles)
+        self.assertIn('.practice-current-marker { position:absolute; width:10px; height:10px; border-radius:999px;', dashboard_styles)
+        self.assertIn('.benchmark-dot { width:7px; height:7px; border-radius:999px;', dashboard_styles)
+
+        self.assertIn(
+            "Match the Dashboard's rectilinear financial-terminal language.",
+            admin_styles,
+        )
+        self.assertIn('[class$="-dialog"]', admin_styles)
+        self.assertIn('input:not([type="radio"]):not([type="range"])', admin_styles)
+        self.assertIn(
+            '.settings-group-head{padding:15px 18px;border-radius:7px 7px 0 0;',
+            admin_styles,
+        )
+        self.assertIn('.notification-channel-switch-track{position:relative;width:30px;height:17px;border-radius:999px;', admin_styles)
+        self.assertIn('.strategy-option-dot{width:8px;height:8px;border-radius:3px;', admin_styles)
+
+    def test_appearance_preferences_offer_independent_color_and_corner_controls(self):
+        theme_composable = (
+            ROOT / 'web' / 'src' / 'composables' / 'useTheme.js'
+        ).read_text(encoding='utf-8')
+        appearance_component = (
+            ROOT / 'web' / 'src' / 'components' / 'AdminAppearanceSettings.vue'
+        ).read_text(encoding='utf-8')
+        settings_index = (
+            ROOT / 'web' / 'src' / 'components' / 'AdminSettingsIndex.vue'
+        ).read_text(encoding='utf-8')
+        admin_page = (
+            ROOT / 'web' / 'src' / 'components' / 'AdminPage.vue'
+        ).read_text(encoding='utf-8')
+        index_html = (ROOT / 'web' / 'index.html').read_text(encoding='utf-8')
+        dashboard_styles = (ROOT / 'frontend' / 'dashboard.css').read_text(encoding='utf-8')
+        admin_styles = (ROOT / 'frontend' / 'admin.css').read_text(encoding='utf-8')
+
+        self.assertIn("const CORNER_STORAGE_KEY = 'niuone-dashboard-corners-v1'", theme_composable)
+        self.assertIn('document.documentElement.dataset.corners = normalized', theme_composable)
+        self.assertIn('setCornerStyle,', theme_composable)
+        self.assertIn('setTheme,', theme_composable)
+        self.assertIn("corners = 'square'", index_html)
+        self.assertIn('document.documentElement.dataset.corners = corners', index_html)
+
+        self.assertIn('<h2 id="appearanceSettingsTitle">界面主题</h2>', appearance_component)
+        self.assertIn('<legend>主题颜色</legend>', appearance_component)
+        self.assertIn('<legend>边角样式</legend>', appearance_component)
+        self.assertIn("{ value: 'light', label: '浅色'", appearance_component)
+        self.assertIn("{ value: 'dark', label: '深色'", appearance_component)
+        self.assertIn("{ value: 'rounded', label: '圆角'", appearance_component)
+        self.assertIn("{ value: 'square', label: '直角'", appearance_component)
+        self.assertIn('@change="setTheme(option.value)"', appearance_component)
+        self.assertIn('@change="setCornerStyle(option.value)"', appearance_component)
+        self.assertIn("slug: 'appearance'", settings_index)
+        self.assertIn("entries.findIndex(group => group.slug === 'about')", settings_index)
+        self.assertNotIn('<AdminAppearanceSettings', settings_index)
+        self.assertIn("groupSlug.value === 'appearance'", admin_page)
+        self.assertIn('<AdminAppearanceSettings', admin_page)
+        self.assertIn('v-else-if="state === \'ready\' && isAppearanceSettings && config"', admin_page)
+        self.assertIn('<RouterLink class="settings-back-link" to="/admin">', appearance_component)
+        self.assertIn('class="settings-group appearance-settings-panel"', appearance_component)
+
+        self.assertIn('html[data-corners="square"] :where(', dashboard_styles)
+        self.assertIn('html[data-corners="square"] :where(', admin_styles)
+        self.assertIn('.appearance-settings-panel {', admin_styles)
+        self.assertIn('.appearance-option-card.selected', admin_styles)
+
     def test_info_buttons_open_on_hover_for_pointer_devices(self):
         self.assertIn('@media (hover:hover) and (pointer:fine)', DASHBOARD_FRONTEND)
         self.assertIn(

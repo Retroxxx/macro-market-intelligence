@@ -8,7 +8,21 @@ const props = defineProps({
   },
 })
 
-const groups = computed(() => Array.isArray(props.config.groups) ? props.config.groups : [])
+const appearanceGroup = Object.freeze({
+  slug: 'appearance',
+  name: '界面主题',
+  icon: '主题',
+  summary: '选择浅色或深色主题，以及圆角或直角界面。',
+  item_count: 2,
+})
+
+const groups = computed(() => {
+  const entries = Array.isArray(props.config.groups) ? [...props.config.groups] : []
+  if (entries.some(group => group.slug === appearanceGroup.slug)) return entries
+  const aboutIndex = entries.findIndex(group => group.slug === 'about')
+  entries.splice(aboutIndex < 0 ? entries.length : aboutIndex, 0, appearanceGroup)
+  return entries
+})
 const itemCount = computed(() => Array.isArray(props.config.items) ? props.config.items.length : 0)
 </script>
 
