@@ -1089,7 +1089,7 @@ class FastApiDashboardTests(unittest.TestCase):
             "const width = chartWidth.value",
             component,
         )
-        self.assertIn("const compact = width < 560", component)
+        self.assertIn("const compact = props.terminal || width < 560", component)
         self.assertIn(
             "const baseHeight = showSentiment && showVolume.value ? (compact ? 280 : 330)",
             component,

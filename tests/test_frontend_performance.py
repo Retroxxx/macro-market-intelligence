@@ -38,6 +38,7 @@ class FrontendPerformanceTests(unittest.TestCase):
             "IndustryFlowPanel",
             "IndicesPanel",
             "MarketMonitorPanel",
+            "OverviewPanel",
             "PracticePanel",
             "UsRatingsPanel",
             "XMonitorPanel",

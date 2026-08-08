@@ -1,7 +1,8 @@
 import { computed, reactive, ref } from 'vue'
 
-const CATEGORY_ORDER = ['practice', 'niuone_mainline', 'indices', 'market_monitor', 'dragon_tiger', 'x_monitor', 'us_ratings']
+const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'dragon_tiger', 'x_monitor', 'us_ratings']
 const CATEGORY_LABELS = {
+  overview: '总览',
   practice: '模拟交易',
   niuone_mainline: '题材强度',
   indices: '指数行情',
@@ -11,6 +12,7 @@ const CATEGORY_LABELS = {
   us_ratings: '美股机构买入评级',
 }
 const CATEGORY_PATHS = {
+  overview: '/',
   practice: '/practice',
   niuone_mainline: '/niuone-mainline',
   indices: '/indices',
@@ -29,11 +31,8 @@ const MESSAGE_COUNT_CATEGORIES = ['market_monitor', 'x_monitor', 'us_ratings']
 const REQUEST_TIMEOUT_MS = 15 * 1000
 
 const initialQueryCategory = new URLSearchParams(window.location.search).get('category') || ''
-const initialCategory = PATH_CATEGORIES[window.location.pathname]
-  || LEGACY_CATEGORY_ALIASES[initialQueryCategory]
-  || initialQueryCategory
-  || 'practice'
-const activeCategory = ref(Object.hasOwn(CATEGORY_PATHS, initialCategory) ? initialCategory : 'practice')
+const initialCategory = dashboardCategoryFromLocation(window.location.pathname, initialQueryCategory)
+const activeCategory = ref(Object.hasOwn(CATEGORY_PATHS, initialCategory) ? initialCategory : 'overview')
 const autoVersionCheckEnabled = ref(true)
 const currentVersion = ref('dev')
 const usFeaturesEnabled = ref(false)
@@ -61,15 +60,15 @@ const items = computed(() => CATEGORY_ORDER
   })))
 
 export function dashboardCategoryFromLocation(path, queryCategory = '') {
-  const category = PATH_CATEGORIES[path]
-    || LEGACY_CATEGORY_ALIASES[queryCategory]
-    || queryCategory
-    || 'practice'
-  return Object.hasOwn(CATEGORY_PATHS, category) ? category : 'practice'
+  const normalizedQuery = LEGACY_CATEGORY_ALIASES[queryCategory] || queryCategory
+  const category = (path === '/' && normalizedQuery ? normalizedQuery : PATH_CATEGORIES[path])
+    || normalizedQuery
+    || 'overview'
+  return Object.hasOwn(CATEGORY_PATHS, category) ? category : 'overview'
 }
 
 export function dashboardCategoryPath(category) {
-  return CATEGORY_PATHS[LEGACY_CATEGORY_ALIASES[category] || category] || CATEGORY_PATHS.practice
+  return CATEGORY_PATHS[LEGACY_CATEGORY_ALIASES[category] || category] || CATEGORY_PATHS.overview
 }
 
 function setActiveCategory(category) {

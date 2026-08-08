@@ -5,6 +5,7 @@ import { previousDayMarketLabel } from '../../utils/marketDisplay.js'
 
 const props = defineProps({
   payload: { type: Object, required: true },
+  terminal: { type: Boolean, default: false },
 })
 
 const SERIES = [
@@ -22,7 +23,7 @@ const SERIES = [
 
 const showBreadth = ref(true)
 const showLimitState = ref(true)
-const showVolume = ref(true)
+const showVolume = ref(!props.terminal)
 const hoveredAt = ref('')
 const chartElement = ref(null)
 const chartWrapElement = ref(null)
@@ -123,14 +124,18 @@ const axisHint = computed(() => {
 const chart = computed(() => {
   if (!timeline.value.length || !hasSelection.value) return null
   const width = chartWidth.value
-  const compact = width < 560
+  const compact = props.terminal || width < 560
   const showSentiment = showBreadth.value || showLimitState.value
   const baseHeight = showSentiment && showVolume.value ? (compact ? 280 : 330) : (compact ? 218 : 236)
   const compactMinHeight = showSentiment && showVolume.value ? 220 : 180
-  const height = compact
-    ? Math.max(compactMinHeight, Math.min(baseHeight, chartAvailableHeight.value))
-    : Math.max(baseHeight, chartAvailableHeight.value)
-  const margin = compact
+  const height = props.terminal
+    ? 168
+    : compact
+      ? Math.max(compactMinHeight, Math.min(baseHeight, chartAvailableHeight.value))
+      : Math.max(baseHeight, chartAvailableHeight.value)
+  const margin = props.terminal
+    ? { top: 36, right: 34, bottom: 24, left: 38 }
+    : compact
     ? { top: showVolume.value ? 74 : 42, right: 38, bottom: 30, left: 42 }
     : { top: 16, right: 42, bottom: 34, left: 50 }
   const plotWidth = width - margin.left - margin.right
@@ -457,7 +462,7 @@ const turnoverEstimateText = computed(() => {
 </script>
 
 <template>
-  <section class="market-breadth-card" aria-labelledby="market-breadth-title">
+  <section class="market-breadth-card" :class="{ terminal }" aria-labelledby="market-breadth-title">
     <div class="market-breadth-head">
       <div class="market-breadth-heading">
         <div class="market-breadth-title-row">

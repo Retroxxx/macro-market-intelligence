@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 const dashboardPaths = [
+  '/',
   '/practice',
   '/niuone-mainline',
   '/indices',
@@ -12,10 +13,6 @@ const dashboardPaths = [
 ]
 
 const routes = [
-  {
-    path: '/',
-    redirect: '/practice',
-  },
   ...dashboardPaths.map(path => ({
     path,
     component: () => import('./components/DashboardPage.vue'),

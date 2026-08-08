@@ -949,6 +949,7 @@ class DashboardAuthTests(unittest.TestCase):
         for path in expected_paths - {'/'}:
             self.assertIn(f"'{path}'", router_source)
         self.assertIn('createWebHistory()', router_source)
+        self.assertIn("overview: '/'", tab_source)
         self.assertIn("practice: '/practice'", tab_source)
 
     def test_dashboard_bootstrap_owns_visit_count_and_visitor_cookie(self):
@@ -4280,13 +4281,15 @@ console.log(JSON.stringify([
 
         for route in ('/practice', '/niuone-mainline', '/indices', '/industry-flow', '/dragon-tiger', '/market-monitor', '/x-monitor', '/us-ratings'):
             self.assertIn(f"'{route}'", router_source)
-        self.assertIn("const CATEGORY_ORDER = ['practice', 'niuone_mainline', 'indices', 'market_monitor', 'dragon_tiger', 'x_monitor', 'us_ratings']", tabs_source)
+        self.assertIn("const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'dragon_tiger', 'x_monitor', 'us_ratings']", tabs_source)
+        self.assertIn("overview: '总览'", tabs_source)
         self.assertIn("niuone_mainline: '题材强度'", tabs_source)
         self.assertIn("industry_flow: '/industry-flow'", tabs_source)
         self.assertIn("const LEGACY_CATEGORY_ALIASES = { b1_screen: 'practice' }", tabs_source)
         self.assertIn("fetch(`/api/iwencai/dragon-tiger${query}`", dragon_source)
         self.assertIn("const SORT_FIELDS = new Set(['name', 'sector', 'change_pct', 'net_amount_yuan'])", dragon_source)
         self.assertIn("record?.seat_category === 'institution'", dragon_source)
+        self.assertIn('<OverviewPanel />', dashboard_page)
         self.assertIn('<PracticePanel />', dashboard_page)
         self.assertIn('<NiuOneMainlinePanel />', dashboard_page)
         self.assertNotIn('NIUONE THEME STRENGTH', mainline_page)

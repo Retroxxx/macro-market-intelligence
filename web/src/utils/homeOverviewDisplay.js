@@ -1,0 +1,325 @@
+import { marketItems } from './marketDisplay.js'
+import {
+  practiceCandidateIndustryLabel,
+  practiceCandidateStrategyMeta,
+  practiceCandidateTier,
+} from './practiceCandidateDisplay.js'
+
+const MARKET_STATE_LABELS = {
+  offensive: '进攻',
+  rotation: '轮动',
+  recovery: '修复',
+  balanced: '均衡',
+  cautious: '谨慎',
+  defensive: '防守',
+}
+
+const MARKET_STATE_TONES = {
+  offensive: 'positive',
+  rotation: 'positive',
+  recovery: 'warning',
+  balanced: 'neutral',
+  cautious: 'warning',
+  defensive: 'negative',
+}
+
+export function finiteNumber(value) {
+  if (value == null || value === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+export function valueTone(value) {
+  const number = finiteNumber(value)
+  if (number == null || number === 0) return 'flat'
+  return number > 0 ? 'up' : 'down'
+}
+
+export function overviewViewportMode(width, height) {
+  const viewportWidth = finiteNumber(width)
+  const viewportHeight = finiteNumber(height)
+  const hasWidth = viewportWidth != null && viewportWidth > 0
+  const hasHeight = viewportHeight != null && viewportHeight > 0
+
+  const layout = hasWidth && viewportWidth <= 720
+    ? 'mobile'
+    : hasWidth && viewportWidth < 1180
+      ? 'compact'
+      : 'wide'
+  const density = hasHeight && viewportHeight < 560
+    ? 'ultra-compact'
+    : hasHeight && viewportHeight < 720
+      ? 'compact'
+      : 'comfortable'
+
+  return { layout, density }
+}
+
+export function overviewMainlinePanelMode(height) {
+  const panelHeight = finiteNumber(height)
+  if (panelHeight != null && panelHeight > 0 && panelHeight < 118) return 'summary'
+  if (panelHeight != null && panelHeight > 0 && panelHeight < 218) return 'compact'
+  return 'full'
+}
+
+export function formatOverviewNumber(value, digits = 1) {
+  const number = finiteNumber(value)
+  if (number == null) return '--'
+  return number.toLocaleString('zh-CN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  })
+}
+
+export function formatOverviewPercent(value, digits = 1, signed = false) {
+  const number = finiteNumber(value)
+  if (number == null) return '--'
+  const sign = signed && number > 0 ? '+' : ''
+  return `${sign}${formatOverviewNumber(number, digits)}%`
+}
+
+export function formatOverviewAmount(value, signed = false) {
+  const number = finiteNumber(value)
+  if (number == null) return '--'
+  const sign = signed && number > 0 ? '+' : ''
+  const absolute = Math.abs(number)
+  if (absolute >= 100_000_000) return `${sign}${formatOverviewNumber(number / 100_000_000, 2)}亿`
+  if (absolute >= 10_000) return `${sign}${formatOverviewNumber(number / 10_000, 2)}万`
+  return `${sign}${formatOverviewNumber(number, 2)}`
+}
+
+export function formatOverviewYi(value, signed = false) {
+  const number = finiteNumber(value)
+  if (number == null) return '--'
+  const sign = signed && number > 0 ? '+' : ''
+  return `${sign}${formatOverviewNumber(number, 1)}亿`
+}
+
+export function freshnessText(value) {
+  const text = String(value || '').trim()
+  if (!text) return '时间待补充'
+  const time = text.match(/(?:T|\s)(\d{2}:\d{2})(?::\d{2})?/)?.[1]
+  return time ? `更新 ${time}` : `更新 ${text}`
+}
+
+export function overviewMarketState(payload = {}) {
+  const source = payload && typeof payload === 'object' ? payload : {}
+  const code = String(source.state || '').trim()
+  const score = finiteNumber(source.score)
+  return {
+    available: Boolean(code) || score != null,
+    code,
+    label: MARKET_STATE_LABELS[code] || code || '待评估',
+    score,
+    tone: MARKET_STATE_TONES[code] || 'neutral',
+    allowNewBuys: source.allow_new_buys !== false,
+  }
+}
+
+export function overviewBreadth(payload = {}) {
+  const latest = payload?.latest && typeof payload.latest === 'object' ? payload.latest : {}
+  const advancing = finiteNumber(latest.red)
+  const declining = finiteNumber(latest.green)
+  const limitUp = finiteNumber(latest.limit_up)
+  const limitDown = finiteNumber(latest.limit_down)
+  const total = (advancing ?? 0) + (declining ?? 0)
+  return {
+    available: [advancing, declining, limitUp, limitDown].some(value => value != null),
+    advancing,
+    declining,
+    limitUp,
+    limitDown,
+    brokenLimit: finiteNumber(latest.broken_limit),
+    advancingPct: total > 0 && advancing != null ? advancing / total * 100 : null,
+    generatedAt: latest.generated_at || payload.generated_at || '',
+  }
+}
+
+function overviewDailyReturn(practice, equity) {
+  const explicitPnl = finiteNumber(practice.daily_pnl ?? practice.today_pnl)
+  const explicitPnlPct = finiteNumber(
+    practice.daily_pnl_pct
+    ?? practice.today_pnl_pct
+    ?? practice.daily_loss_budget_pnl_pct,
+  )
+  if (explicitPnl != null || explicitPnlPct != null) {
+    const openingEquity = explicitPnl != null && equity != null ? equity - explicitPnl : null
+    const pnl = explicitPnl ?? (
+      equity != null && explicitPnlPct != null && explicitPnlPct > -100
+        ? equity - equity / (1 + explicitPnlPct / 100)
+        : null
+    )
+    const pnlPct = explicitPnlPct ?? (
+      pnl != null && openingEquity != null && openingEquity > 0
+        ? pnl / openingEquity * 100
+        : null
+    )
+    return { pnl, pnlPct }
+  }
+
+  const points = [
+    ...(Array.isArray(practice.daily_equity_history) ? practice.daily_equity_history : []),
+    ...(Array.isArray(practice.equity_history) ? practice.equity_history : []),
+  ].map(point => ({
+    time: String(point?.time || point?.date || ''),
+    equity: finiteNumber(point?.equity),
+  })).filter(point => /^\d{4}-\d{2}-\d{2}/.test(point.time) && point.equity != null)
+    .sort((left, right) => left.time.localeCompare(right.time))
+  const timestamp = String(
+    practice.current_date
+    || practice.trading_calendar?.date
+    || practice.current_time
+    || practice.generated_at
+    || practice.source_updated_at
+    || '',
+  )
+  const latestHistoryDate = points.at(-1)?.time.slice(0, 10) || ''
+  const timestampDate = /^\d{4}-\d{2}-\d{2}/.test(timestamp) ? timestamp.slice(0, 10) : ''
+  const targetDate = practice.trading_calendar?.is_trading_day === false && latestHistoryDate
+    ? latestHistoryDate
+    : timestampDate || latestHistoryDate
+  if (equity == null || !targetDate) return { pnl: null, pnlPct: null }
+
+  const previousEquity = points.filter(point => point.time.slice(0, 10) < targetDate).at(-1)?.equity
+  const firstTodayEquity = points.find(point => point.time.slice(0, 10) === targetDate)?.equity
+  const baseEquity = previousEquity != null && previousEquity > 0
+    ? previousEquity
+    : firstTodayEquity != null && firstTodayEquity > 0
+      ? firstTodayEquity
+      : null
+  if (baseEquity == null) return { pnl: null, pnlPct: null }
+
+  const pnl = equity - baseEquity
+  return { pnl, pnlPct: pnl / baseEquity * 100 }
+}
+
+export function overviewAccount(practice = {}) {
+  const equity = finiteNumber(practice.total_equity)
+  const cash = finiteNumber(practice.cash)
+  const initialCash = finiteNumber(practice.initial_cash)
+  const explicitPnl = finiteNumber(practice.total_pnl)
+  const pnl = explicitPnl ?? (
+    equity != null && initialCash != null ? equity - initialCash : null
+  )
+  const explicitPnlPct = finiteNumber(practice.total_pnl_pct)
+  const pnlPct = explicitPnlPct ?? (
+    pnl != null && initialCash != null && initialCash !== 0 ? pnl / initialCash * 100 : null
+  )
+  const exposurePct = equity != null && equity > 0 && cash != null
+    ? (equity - cash) / equity * 100
+    : null
+  const positions = Array.isArray(practice.positions) ? practice.positions : []
+  const dailyReturn = overviewDailyReturn(practice, equity)
+  return {
+    available: [equity, cash, initialCash].some(value => value != null) || positions.length > 0,
+    equity,
+    cash,
+    pnl,
+    pnlPct,
+    dailyPnl: dailyReturn.pnl,
+    dailyPnlPct: dailyReturn.pnlPct,
+    exposurePct,
+    positionCount: positions.length,
+    paused: practice.trading_paused === true,
+    pauseReason: String(practice.pause_reason || ''),
+    generatedAt: practice.current_time || practice.source_updated_at || practice.generated_at || '',
+  }
+}
+
+function indexPriority(item) {
+  const key = String(item?.key || '').toLowerCase()
+  const name = String(item?.name || '')
+  const code = String(item?.code || '').toLowerCase()
+  const values = [
+    [/^(sh|sse|sh_comp)$/.test(key) || code === 'sh000001' || /上证指数/.test(name), 0],
+    [/^(sz|szse|sz_comp)$/.test(key) || code === 'sz399001' || /深证成指/.test(name), 1],
+    [/^(cyb|chinext)$/.test(key) || code === 'sz399006' || /创业板/.test(name), 2],
+    [/^(hs300|csi300)$/.test(key) || /沪深\s*300/i.test(name), 3],
+  ]
+  return values.find(([match]) => match)?.[1] ?? 20
+}
+
+export function overviewIndices(payload = {}, limit = 4) {
+  return marketItems(payload, 'a_index', 'domestic')
+    .map((item, order) => ({ ...item, _order: order }))
+    .sort((left, right) => indexPriority(left) - indexPriority(right) || left._order - right._order)
+    .slice(0, limit)
+    .map(({ _order, ...item }) => item)
+}
+
+function candidateScore(item) {
+  return finiteNumber(item?.best_score ?? item?.score) ?? Number.NEGATIVE_INFINITY
+}
+
+export function overviewCandidates(items = [], payloadMeta = {}, limit = 5) {
+  const strategyMeta = practiceCandidateStrategyMeta(payloadMeta)
+  const tierOrder = { high: 0, mid: 1, low: 2 }
+  return (Array.isArray(items) ? items : [])
+    .map((item, order) => {
+      const strategyId = String(item?.best_strategy || '')
+      const tier = practiceCandidateTier(item)
+      const blockers = Array.isArray(item?.hard_blockers) ? item.hard_blockers : []
+      return {
+        ...item,
+        _order: order,
+        score: candidateScore(item),
+        strategyLabel: strategyMeta[strategyId]?.label || strategyId || '综合策略',
+        industryLabel: practiceCandidateIndustryLabel(item),
+        themeLabel: String(item?.signal_theme || ''),
+        tier,
+        tierLabel: tier === 'high' ? '交易达标' : tier === 'mid' && blockers.length ? '未达标' : tier === 'mid' ? '待确认' : '仅观察',
+      }
+    })
+    .sort((left, right) => tierOrder[left.tier] - tierOrder[right.tier]
+      || right.score - left.score
+      || left._order - right._order)
+    .slice(0, limit)
+    .map(({ _order, ...item }) => item)
+}
+
+export function overviewThemes(payload = {}, limit = 5) {
+  const themes = Array.isArray(payload?.themes) ? payload.themes : []
+  return themes
+    .map((theme, order) => ({
+      ...theme,
+      _order: order,
+      displayName: String(theme?.industry || theme?.name || ''),
+      displayScore: finiteNumber(theme?.score),
+      lifecycle: String(theme?.niuone_lifecycle_label || theme?.state || '待确认'),
+      breadth: finiteNumber(theme?.effective_breadth_pct),
+      leader: theme?.leader_stock || (Array.isArray(theme?.strong_stocks) ? theme.strong_stocks[0] : null),
+    }))
+    .filter(theme => theme.displayName)
+    .sort((left, right) => (right.displayScore ?? -Infinity) - (left.displayScore ?? -Infinity)
+      || left._order - right._order)
+    .slice(0, limit)
+    .map(({ _order, ...theme }) => theme)
+}
+
+function marketMoveValue(row) {
+  return finiteNumber(row?.pct ?? row?.change_pct)
+}
+
+export function overviewSectorMoves(payload = {}, direction = 'gain', limit = 3) {
+  const baseRows = Array.isArray(payload?.sectors)
+    ? payload.sectors
+    : (Array.isArray(payload?.items) ? payload.items : [])
+  const explicit = direction === 'loss' ? payload?.loss_top : payload?.gain_top
+  const rows = Array.isArray(explicit) && explicit.length ? explicit : baseRows
+  return rows
+    .map((row, order) => ({ ...row, _order: order, move: marketMoveValue(row) }))
+    .filter(row => row.name && row.move != null)
+    .sort((left, right) => direction === 'loss'
+      ? left.move - right.move || left._order - right._order
+      : right.move - left.move || left._order - right._order)
+    .slice(0, limit)
+    .map(({ _order, ...row }) => row)
+}
+
+export function overviewMoneyFlow(payload = {}, direction = 'inflow', limit = 3) {
+  const rows = Array.isArray(payload?.[direction]) ? payload[direction] : []
+  return rows.slice(0, limit).map(row => ({
+    ...row,
+    netFlowYi: finiteNumber(row?.net_flow_yi),
+  }))
+}

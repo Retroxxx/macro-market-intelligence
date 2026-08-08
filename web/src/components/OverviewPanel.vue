@@ -1,0 +1,1187 @@
+<script setup>
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useIndicesData } from '../composables/useIndicesData.js'
+import { useNiuOneMainlineData } from '../composables/useNiuOneMainlineData.js'
+import { usePracticeCandidatesData } from '../composables/usePracticeCandidatesData.js'
+import { usePracticeData } from '../composables/usePracticeData.js'
+import {
+  finiteNumber,
+  formatOverviewAmount,
+  formatOverviewNumber,
+  formatOverviewPercent,
+  formatOverviewYi,
+  freshnessText,
+  overviewAccount,
+  overviewBreadth,
+  overviewCandidates,
+  overviewIndices,
+  overviewMainlinePanelMode,
+  overviewMarketState,
+  overviewMoneyFlow,
+  overviewSectorMoves,
+  overviewThemes,
+  overviewViewportMode,
+  valueTone,
+} from '../utils/homeOverviewDisplay.js'
+import MarketBreadthChart from './indices/MarketBreadthChart.vue'
+
+const {
+  state: indicesState,
+  activateIndices,
+  deactivateIndices,
+} = useIndicesData()
+const {
+  state: mainlineState,
+  activateNiuOneMainline,
+  deactivateNiuOneMainline,
+} = useNiuOneMainlineData()
+const {
+  state: candidateState,
+  activatePracticeCandidates,
+  deactivatePracticeCandidates,
+} = usePracticeCandidatesData()
+const {
+  state: practiceState,
+  activatePractice,
+  deactivatePractice,
+} = usePracticeData()
+
+const overviewRoot = ref(null)
+const mainlinePanel = ref(null)
+const overviewViewportHeight = ref(0)
+const overviewViewportWidth = ref(0)
+const mainlinePanelHeight = ref(0)
+let headerResizeObserver = null
+let mainlineResizeObserver = null
+
+const mainlinePayload = computed(() => mainlineState.payload || {})
+const marketState = computed(() => overviewMarketState(mainlinePayload.value.market))
+const breadth = computed(() => overviewBreadth(indicesState.marketBreadth))
+const account = computed(() => overviewAccount(practiceState.practice))
+const accountReady = computed(() => practiceState.loaded && account.value.available)
+const indices = computed(() => overviewIndices(indicesState.indices))
+const candidates = computed(() => overviewCandidates(
+  candidateState.items,
+  candidateState.strategyMeta,
+))
+const themes = computed(() => overviewThemes(mainlinePayload.value))
+const sectorGains = computed(() => overviewSectorMoves(indicesState.sectors, 'gain'))
+const sectorLosses = computed(() => overviewSectorMoves(indicesState.sectors, 'loss'))
+const moneyInflows = computed(() => overviewMoneyFlow(indicesState.moneyFlow, 'inflow'))
+const moneyOutflows = computed(() => overviewMoneyFlow(indicesState.moneyFlow, 'outflow'))
+const marketNetFlow = computed(() => finiteNumber(indicesState.marketFlow?.net_flow_yi))
+const coverage = computed(() => finiteNumber(mainlinePayload.value.data_quality?.coverage))
+const latestUpdate = computed(() => (
+  indicesState.indices?.generated_at
+  || breadth.value.generatedAt
+  || mainlinePayload.value.generated_at
+  || account.value.generatedAt
+  || ''
+))
+const accountPnlTone = computed(() => valueTone(account.value.pnl))
+const exposureTone = computed(() => {
+  if (!accountReady.value) return 'neutral'
+  const exposure = account.value.exposurePct
+  if (exposure == null) return 'neutral'
+  if (exposure >= 80) return 'negative'
+  if (exposure >= 55) return 'warning'
+  return 'positive'
+})
+const readinessTone = computed(() => {
+  if (practiceState.dataReadiness?.blockers?.length) return 'negative'
+  if (practiceState.dataReadiness?.ready === true) return 'positive'
+  return 'warning'
+})
+const mainlineAvailable = computed(() => mainlinePayload.value.available === true)
+const marketDataAvailable = computed(() => indices.value.length || breadth.value.available)
+const flowDataAvailable = computed(() => (
+  sectorGains.value.length
+  || sectorLosses.value.length
+  || moneyInflows.value.length
+  || moneyOutflows.value.length
+))
+const accountStatus = computed(() => {
+  if (account.value.paused) return account.value.pauseReason || '新开仓已暂停'
+  if (practiceState.dataReadiness?.ready === true) return '交易数据就绪'
+  return practiceState.dataReadiness?.status_label || '正在检查交易数据'
+})
+const viewportMode = computed(() => overviewViewportMode(
+  overviewViewportWidth.value,
+  overviewViewportHeight.value,
+))
+const mainlinePanelMode = computed(() => overviewMainlinePanelMode(mainlinePanelHeight.value))
+
+function themeLeader(theme) {
+  const leader = theme?.leader
+  if (!leader || typeof leader !== 'object') return '龙头待确认'
+  return [leader.code, leader.name].filter(Boolean).join(' ') || '龙头待确认'
+}
+
+function candidateIdentity(candidate) {
+  return [candidate.code, candidate.name].filter(Boolean).join(' ') || '未命名标的'
+}
+
+function sectorMove(row) {
+  return finiteNumber(row?.move ?? row?.pct ?? row?.change_pct)
+}
+
+function flowIdentity(row) {
+  return [row?.code, row?.name].filter(Boolean).join(' ') || '未命名标的'
+}
+
+function syncOverviewViewport() {
+  const bounds = overviewRoot.value?.getBoundingClientRect()
+  const visualViewport = window.visualViewport
+  const viewportWidth = visualViewport
+    ? visualViewport.width
+    : window.innerWidth || document.documentElement.clientWidth || 0
+  const viewportBottom = visualViewport
+    ? visualViewport.height + visualViewport.offsetTop
+    : window.innerHeight || document.documentElement.clientHeight || 0
+  const available = Math.floor(viewportBottom - (bounds?.top || 0) - 6)
+  if (viewportWidth > 0) overviewViewportWidth.value = Math.floor(viewportWidth)
+  if (available > 0) overviewViewportHeight.value = available
+}
+
+function syncMainlinePanelHeight() {
+  const height = mainlinePanel.value?.getBoundingClientRect().height || 0
+  if (height > 0) mainlinePanelHeight.value = Math.floor(height)
+}
+
+onMounted(() => {
+  document.body.classList.add('overview-terminal-open')
+  activateIndices()
+  activateNiuOneMainline()
+  activatePracticeCandidates()
+  activatePractice()
+  window.addEventListener('resize', syncOverviewViewport, { passive: true })
+  window.visualViewport?.addEventListener('resize', syncOverviewViewport, { passive: true })
+  nextTick(() => {
+    if (!overviewRoot.value) return
+    syncOverviewViewport()
+    const header = document.querySelector('header')
+    if (header && typeof ResizeObserver !== 'undefined') {
+      headerResizeObserver = new ResizeObserver(syncOverviewViewport)
+      headerResizeObserver.observe(header)
+    }
+    syncMainlinePanelHeight()
+    if (mainlinePanel.value && typeof ResizeObserver !== 'undefined') {
+      mainlineResizeObserver = new ResizeObserver(syncMainlinePanelHeight)
+      mainlineResizeObserver.observe(mainlinePanel.value)
+    }
+  })
+})
+
+onBeforeUnmount(() => {
+  document.body.classList.remove('overview-terminal-open')
+  deactivateIndices()
+  deactivateNiuOneMainline()
+  deactivatePracticeCandidates()
+  deactivatePractice()
+  window.removeEventListener('resize', syncOverviewViewport)
+  window.visualViewport?.removeEventListener('resize', syncOverviewViewport)
+  headerResizeObserver?.disconnect()
+  headerResizeObserver = null
+  mainlineResizeObserver?.disconnect()
+  mainlineResizeObserver = null
+})
+</script>
+
+<template>
+  <div
+    ref="overviewRoot"
+    class="overview-page"
+    :data-layout="viewportMode.layout"
+    :data-density="viewportMode.density"
+    :style="overviewViewportHeight ? { '--overview-viewport-height': `${overviewViewportHeight}px` } : undefined"
+  >
+    <section class="overview-command-head" aria-labelledby="overviewTitle">
+      <div>
+        <div class="overview-eyebrow"><span aria-hidden="true"></span>A股决策中枢</div>
+        <h2 id="overviewTitle">今日市场作战台</h2>
+        <p>先判断市场环境，再追踪主线机会，最后核对账户风险。</p>
+      </div>
+      <div class="overview-command-meta" aria-label="数据更新时间">
+        <span class="overview-live-dot" aria-hidden="true"></span>
+        <span>{{ freshnessText(latestUpdate) }}</span>
+        <span v-if="indicesState.indices?.stale_cache" class="overview-stale-badge">缓存行情</span>
+      </div>
+    </section>
+
+    <div v-if="account.paused" class="overview-banner negative" role="status">
+      <strong>交易风控</strong>
+      <span>{{ accountStatus }}；卖出风控继续运行，账户操作请前往模拟交易页。</span>
+      <RouterLink to="/practice">查看账户</RouterLink>
+    </div>
+    <div
+      v-else-if="practiceState.dataReadiness?.blockers?.length"
+      class="overview-banner warning"
+      role="status"
+    >
+      <strong>数据准备未完成</strong>
+      <span>{{ accountStatus }}，首页继续展示最近一份有效数据。</span>
+      <RouterLink to="/practice">查看详情</RouterLink>
+    </div>
+
+    <section class="overview-kpi-strip" role="list" aria-label="核心决策指标">
+      <article class="overview-kpi" :class="marketState.tone" role="listitem">
+        <div class="overview-kpi-label">市场状态</div>
+        <strong>{{ marketState.available ? marketState.label : '--' }}</strong>
+        <span>{{ marketState.score == null ? '评分待补充' : `${formatOverviewNumber(marketState.score, 0)}分 · ${marketState.allowNewBuys ? '允许观察新机会' : '暂停新开仓'}` }}</span>
+      </article>
+      <article class="overview-kpi neutral" role="listitem">
+        <div class="overview-kpi-label">市场宽度</div>
+        <strong>{{ breadth.available ? formatOverviewPercent(breadth.advancingPct, 0) : '--' }}</strong>
+        <span>红盘 {{ formatOverviewNumber(breadth.advancing, 0) }} · 绿盘 {{ formatOverviewNumber(breadth.declining, 0) }}</span>
+      </article>
+      <article class="overview-kpi neutral" role="listitem">
+        <div class="overview-kpi-label">涨跌停</div>
+        <strong><b class="up">↑ {{ formatOverviewNumber(breadth.limitUp, 0) }}</b><i>/</i><b class="down">↓ {{ formatOverviewNumber(breadth.limitDown, 0) }}</b></strong>
+        <span>炸板 {{ formatOverviewNumber(breadth.brokenLimit, 0) }}只</span>
+      </article>
+      <article class="overview-kpi" :class="valueTone(marketNetFlow)" role="listitem">
+        <div class="overview-kpi-label">全市场净流入</div>
+        <strong>{{ formatOverviewYi(marketNetFlow, true) }}</strong>
+        <span>{{ freshnessText(indicesState.marketFlow?.generated_at) }}</span>
+      </article>
+      <article class="overview-kpi" :class="exposureTone" role="listitem">
+        <div class="overview-kpi-label">账户仓位</div>
+        <strong>{{ accountReady ? formatOverviewPercent(account.exposurePct, 1) : '--' }}</strong>
+        <span
+          v-if="accountReady"
+          :title="account.dailyPnl == null || account.dailyPnlPct == null ? '当日收益数据待补充' : `当日收益 ${formatOverviewAmount(account.dailyPnl, true)}，收益率 ${formatOverviewPercent(account.dailyPnlPct, 2, true)}`"
+        >
+          <b v-if="account.dailyPnl != null && account.dailyPnlPct != null" :class="valueTone(account.dailyPnl)">当日 {{ formatOverviewAmount(account.dailyPnl, true) }} · {{ formatOverviewPercent(account.dailyPnlPct, 2, true) }}</b>
+          <b v-else>当日收益待补充</b>
+          <i> · {{ account.positionCount }}只</i>
+        </span>
+        <span v-else>账户快照加载中</span>
+      </article>
+    </section>
+
+    <div class="overview-terminal-grid">
+    <div class="overview-primary-grid">
+      <section class="overview-panel overview-market-panel" aria-labelledby="overviewMarketTitle">
+        <div class="overview-panel-head">
+          <div>
+            <span class="overview-section-kicker">MARKET PULSE</span>
+            <h3 id="overviewMarketTitle">指数与市场情绪</h3>
+          </div>
+          <div class="overview-panel-actions">
+            <span>{{ freshnessText(indicesState.indices?.generated_at || breadth.generatedAt) }}</span>
+            <RouterLink to="/indices">查看行情 <span aria-hidden="true">›</span></RouterLink>
+          </div>
+        </div>
+
+        <div v-if="indicesState.indices?.error && marketDataAvailable" class="overview-inline-notice warning" role="status">
+          实时更新暂时失败，继续展示最近缓存：{{ indicesState.indices.error }}
+        </div>
+        <div v-if="indices.length" class="overview-index-grid">
+          <article
+            v-for="item in indices"
+            :key="item.key || item.code || item.name"
+            class="overview-index-tile"
+            :class="valueTone(item.change_pct)"
+          >
+            <div><span>{{ item.name }}</span><time>{{ String(item.time || '').slice(11, 16) }}</time></div>
+            <strong>{{ formatOverviewNumber(item.price, 2) }}</strong>
+            <b>{{ finiteNumber(item.change_pct) > 0 ? '↑ ' : finiteNumber(item.change_pct) < 0 ? '↓ ' : '' }}{{ formatOverviewPercent(item.change_pct, 2, true) }}</b>
+          </article>
+        </div>
+        <div v-else-if="indicesState.loading" class="overview-loading">正在读取 A 股核心指数…</div>
+        <div v-else class="overview-empty">{{ indicesState.indices?.error ? `指数数据暂不可用：${indicesState.indices.error}` : '尚无 A 股指数数据' }}</div>
+
+        <div class="overview-chart-wrap">
+          <MarketBreadthChart v-if="indicesState.marketBreadth?.timeline?.length" :payload="indicesState.marketBreadth" terminal />
+          <div v-else-if="breadth.available" class="overview-breadth-snapshot">
+            <div>
+              <span>红盘占比</span>
+              <strong>{{ formatOverviewPercent(breadth.advancingPct, 0) }}</strong>
+            </div>
+            <div class="overview-breadth-track" aria-hidden="true">
+              <span :style="{ width: `${Math.max(0, Math.min(100, breadth.advancingPct || 0))}%` }"></span>
+            </div>
+            <p>日内曲线尚未形成，当前展示最新市场截面。</p>
+          </div>
+          <div v-else class="overview-empty compact">市场宽度曲线等待首个有效采样</div>
+        </div>
+      </section>
+
+      <div class="overview-side-stack">
+        <section
+          ref="mainlinePanel"
+          class="overview-panel overview-mainline-panel"
+          :data-mainline-layout="mainlinePanelMode"
+          aria-labelledby="overviewMainlineTitle"
+        >
+          <div class="overview-panel-head compact">
+            <div>
+              <span class="overview-section-kicker">MAINLINE</span>
+              <h3 id="overviewMainlineTitle">主线机会</h3>
+            </div>
+            <RouterLink to="/niuone-mainline" class="overview-detail-link" aria-label="查看完整题材强度">详情 <span aria-hidden="true">›</span></RouterLink>
+          </div>
+
+          <div v-if="mainlineState.error && mainlineAvailable" class="overview-inline-notice warning" role="status">
+            题材更新暂时失败，继续展示缓存：{{ mainlineState.error }}
+          </div>
+
+          <template v-if="mainlineAvailable">
+            <div v-if="themes.length" class="overview-theme-list" aria-label="题材结构排名">
+              <div v-for="(theme, index) in themes" :key="theme.displayName" class="overview-theme-row">
+                <span class="overview-rank">{{ index + 1 }}</span>
+                <div><strong>{{ theme.displayName }}</strong><small>{{ theme.lifecycle }} · {{ themeLeader(theme) }}</small></div>
+                <b>{{ formatOverviewNumber(theme.displayScore, 1) }}</b>
+              </div>
+            </div>
+            <div class="overview-coverage">
+              <span>题材有效覆盖</span>
+              <b>{{ coverage == null ? '--' : formatOverviewPercent(coverage * 100, 1) }}</b>
+            </div>
+          </template>
+          <div v-else-if="mainlineState.loading && !mainlineState.loaded" class="overview-loading">正在读取主线题材…</div>
+          <div v-else class="overview-empty">{{ mainlineState.error ? `题材数据暂不可用：${mainlineState.error}` : '尚无题材强度扫描结果' }}</div>
+        </section>
+
+        <section class="overview-panel overview-account-panel" aria-labelledby="overviewAccountTitle">
+          <div class="overview-panel-head compact">
+            <div>
+              <span class="overview-section-kicker">RISK BOOK</span>
+              <h3 id="overviewAccountTitle">账户与风控</h3>
+            </div>
+            <RouterLink to="/practice" class="overview-detail-link" aria-label="查看完整模拟账户">详情 <span aria-hidden="true">›</span></RouterLink>
+          </div>
+          <div v-if="practiceState.error && accountReady" class="overview-inline-notice warning" role="status">
+            账户更新暂时失败，继续展示缓存：{{ practiceState.error }}
+          </div>
+          <template v-if="accountReady">
+            <div class="overview-account-equity">
+              <span>总权益</span>
+              <strong>{{ formatOverviewAmount(account.equity) }}</strong>
+              <b :class="accountPnlTone">{{ formatOverviewAmount(account.pnl, true) }} · {{ formatOverviewPercent(account.pnlPct, 2, true) }}</b>
+            </div>
+            <div class="overview-account-grid">
+              <div><span>现金</span><strong>{{ formatOverviewAmount(account.cash) }}</strong></div>
+              <div><span>仓位</span><strong>{{ formatOverviewPercent(account.exposurePct, 1) }}</strong></div>
+              <div><span>持仓</span><strong>{{ account.positionCount }}只</strong></div>
+            </div>
+            <div class="overview-risk-status" :class="account.paused ? 'negative' : readinessTone">
+              <span aria-hidden="true"></span>
+              <strong>{{ account.paused ? '交易暂停' : accountStatus }}</strong>
+            </div>
+          </template>
+          <div v-else-if="practiceState.loading && !practiceState.loaded" class="overview-loading">正在读取模拟账户…</div>
+          <div v-else class="overview-empty">{{ practiceState.error ? `账户数据暂不可用：${practiceState.error}` : '尚无账户快照' }}</div>
+        </section>
+      </div>
+    </div>
+
+    <div class="overview-secondary-grid">
+      <section class="overview-panel overview-candidate-panel" aria-labelledby="overviewCandidatesTitle">
+        <div class="overview-panel-head">
+          <div>
+            <span class="overview-section-kicker">OPPORTUNITY SET</span>
+            <h3 id="overviewCandidatesTitle">候选池</h3>
+          </div>
+          <div class="overview-panel-actions">
+            <span>{{ candidateState.count || candidateState.items.length }}只 · {{ freshnessText(candidateState.generatedAt) }}</span>
+            <RouterLink to="/practice">查看全部 <span aria-hidden="true">›</span></RouterLink>
+          </div>
+        </div>
+        <div v-if="candidateState.strategyCacheStale" class="overview-inline-notice warning" role="status">
+          {{ candidateState.statusMessage || '策略已切换，等待重新扫描；旧候选不参与首页排序。' }}
+        </div>
+        <div v-else-if="candidateState.running" class="overview-inline-notice" role="status">
+          新一轮候选正在计算，当前继续展示上一版有效结果。
+        </div>
+        <div v-if="candidateState.error && candidates.length" class="overview-inline-notice warning" role="status">
+          候选更新暂时失败，继续展示缓存：{{ candidateState.error }}
+        </div>
+        <div v-if="candidates.length && !candidateState.strategyCacheStale" class="overview-candidate-table" role="table" aria-label="优先候选股">
+          <div class="overview-candidate-table-head" role="row">
+            <span role="columnheader">标的</span><span role="columnheader">策略 / 题材</span><span role="columnheader">评分</span><span role="columnheader">状态</span>
+          </div>
+          <article v-for="candidate in candidates" :key="`${candidate.code}-${candidate.best_strategy}`" class="overview-candidate-row" role="row">
+            <div role="cell">
+              <strong>{{ candidateIdentity(candidate) }}</strong>
+              <span :class="valueTone(candidate.change_pct)">{{ formatOverviewPercent(candidate.change_pct, 2, true) }}</span>
+            </div>
+            <div role="cell">
+              <strong>{{ candidate.strategyLabel }}</strong>
+              <span>{{ candidate.themeLabel || candidate.industryLabel || '题材待归因' }}</span>
+            </div>
+            <b role="cell">{{ formatOverviewNumber(candidate.score, 2) }}</b>
+            <span role="cell" class="overview-tier" :class="candidate.tier">{{ candidate.tierLabel }}</span>
+          </article>
+        </div>
+        <div v-else-if="candidateState.loading && !candidateState.loaded" class="overview-loading">正在读取候选池…</div>
+        <div v-else class="overview-empty">{{ candidateState.error ? `候选池暂不可用：${candidateState.error}` : '当前没有可展示的候选标的' }}</div>
+      </section>
+
+      <section class="overview-panel overview-flow-panel" aria-labelledby="overviewFlowTitle">
+        <div class="overview-panel-head">
+          <div>
+            <span class="overview-section-kicker">CAPITAL FLOW</span>
+            <h3 id="overviewFlowTitle">板块与资金</h3>
+          </div>
+          <div class="overview-panel-actions">
+            <span>{{ freshnessText(indicesState.moneyFlow?.generated_at || indicesState.sectors?.generated_at) }}</span>
+            <RouterLink to="/indices?panel=market">查看详情 <span aria-hidden="true">›</span></RouterLink>
+          </div>
+        </div>
+        <div
+          v-if="flowDataAvailable && (indicesState.sectors?.error || indicesState.moneyFlow?.error || indicesState.marketFlow?.error)"
+          class="overview-inline-notice warning"
+          role="status"
+        >
+          部分资金数据更新失败，继续展示各模块最近一份有效结果。
+        </div>
+        <template v-if="flowDataAvailable">
+          <div class="overview-flow-columns">
+            <div>
+              <h4>领涨板块</h4>
+              <div v-for="row in sectorGains" :key="`gain-${row.name}`" class="overview-flow-row up">
+                <span>{{ row.name }}</span><b>↑ {{ formatOverviewPercent(sectorMove(row), 2, true) }}</b>
+              </div>
+              <div v-if="!sectorGains.length" class="overview-mini-empty">暂无领涨板块</div>
+            </div>
+            <div>
+              <h4>领跌板块</h4>
+              <div v-for="row in sectorLosses" :key="`loss-${row.name}`" class="overview-flow-row down">
+                <span>{{ row.name }}</span><b>↓ {{ formatOverviewPercent(sectorMove(row), 2, true) }}</b>
+              </div>
+              <div v-if="!sectorLosses.length" class="overview-mini-empty">暂无领跌板块</div>
+            </div>
+          </div>
+          <div class="overview-flow-divider"></div>
+          <div class="overview-flow-columns">
+            <div>
+              <h4>主力净流入</h4>
+              <div v-for="row in moneyInflows" :key="`in-${row.code || row.name}`" class="overview-flow-row up">
+                <span>{{ flowIdentity(row) }}</span><b>{{ formatOverviewYi(row.netFlowYi, true) }}</b>
+              </div>
+              <div v-if="!moneyInflows.length" class="overview-mini-empty">暂无净流入排行</div>
+            </div>
+            <div>
+              <h4>主力净流出</h4>
+              <div v-for="row in moneyOutflows" :key="`out-${row.code || row.name}`" class="overview-flow-row down">
+                <span>{{ flowIdentity(row) }}</span><b>{{ formatOverviewYi(row.netFlowYi, true) }}</b>
+              </div>
+              <div v-if="!moneyOutflows.length" class="overview-mini-empty">暂无净流出排行</div>
+            </div>
+          </div>
+        </template>
+        <div v-else-if="indicesState.loading" class="overview-loading">正在读取板块与资金数据…</div>
+        <div v-else class="overview-empty">板块与资金数据暂不可用</div>
+      </section>
+    </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.overview-page {
+  --overview-surface: #ffffff;
+  --overview-surface-raised: #f8fafc;
+  --overview-surface-strong: #eef3f8;
+  --overview-border: #d9e1ea;
+  --overview-border-strong: #bdcad8;
+  --overview-text: #17212f;
+  --overview-muted: #64748b;
+  --overview-faint: #94a3b8;
+  --overview-accent: #315fba;
+  --overview-accent-soft: #eaf1ff;
+  --overview-up: #c43d35;
+  --overview-up-soft: rgba(196, 61, 53, .08);
+  --overview-down: #12805c;
+  --overview-down-soft: rgba(18, 128, 92, .08);
+  --overview-warning: #a16300;
+  --overview-warning-soft: rgba(217, 145, 0, .10);
+  color: var(--overview-text);
+  display: grid;
+  gap: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+:global(html[data-theme="dark"] .overview-page) {
+  --overview-surface: #0e141d;
+  --overview-surface-raised: #121b27;
+  --overview-surface-strong: #172230;
+  --overview-border: #27364a;
+  --overview-border-strong: #3b506b;
+  --overview-text: #edf3fb;
+  --overview-muted: #91a1b7;
+  --overview-faint: #62738a;
+  --overview-accent: #79a7ff;
+  --overview-accent-soft: rgba(67, 111, 196, .16);
+  --overview-up: #ff7d75;
+  --overview-up-soft: rgba(255, 90, 82, .08);
+  --overview-down: #45cb91;
+  --overview-down-soft: rgba(45, 196, 132, .08);
+  --overview-warning: #f2bd55;
+  --overview-warning-soft: rgba(232, 166, 44, .09);
+}
+
+.overview-command-head,
+.overview-panel,
+.overview-kpi,
+.overview-banner {
+  border: 1px solid var(--overview-border);
+  background: var(--overview-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+
+.overview-command-head {
+  align-items: flex-end;
+  background:
+    linear-gradient(125deg, var(--overview-accent-soft), transparent 42%),
+    var(--overview-surface);
+  border-radius: 14px;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  overflow: hidden;
+  padding: 18px 20px;
+  position: relative;
+}
+
+.overview-eyebrow,
+.overview-section-kicker {
+  color: var(--overview-accent);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.overview-eyebrow {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+}
+
+.overview-eyebrow span {
+  background: var(--overview-accent);
+  border-radius: 999px;
+  height: 6px;
+  width: 6px;
+}
+
+.overview-command-head h2 {
+  color: var(--overview-text);
+  font-size: clamp(22px, 2.2vw, 30px);
+  letter-spacing: -.03em;
+  line-height: 1.15;
+  margin: 5px 0 0;
+}
+
+.overview-command-head p {
+  color: var(--overview-muted);
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+
+.overview-command-meta {
+  align-items: center;
+  color: var(--overview-muted);
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 11px;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.overview-live-dot {
+  background: var(--overview-down);
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px var(--overview-down-soft);
+  height: 6px;
+  width: 6px;
+}
+
+.overview-stale-badge {
+  background: var(--overview-warning-soft);
+  border: 1px solid color-mix(in srgb, var(--overview-warning) 40%, transparent);
+  border-radius: 999px;
+  color: var(--overview-warning);
+  padding: 2px 7px;
+}
+
+.overview-banner {
+  align-items: center;
+  border-radius: 10px;
+  display: grid;
+  font-size: 12px;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 10px 13px;
+}
+
+.overview-banner.warning { background: var(--overview-warning-soft); color: var(--overview-warning); }
+.overview-banner.negative { background: var(--overview-up-soft); color: var(--overview-up); }
+.overview-banner a { color: inherit; font-weight: 800; }
+
+.overview-kpi-strip {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.overview-kpi {
+  border-radius: 11px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 12px 13px;
+  position: relative;
+}
+
+.overview-kpi-label {
+  color: var(--overview-muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .04em;
+}
+
+.overview-kpi strong {
+  align-items: baseline;
+  color: var(--overview-text);
+  display: flex;
+  font-size: 22px;
+  gap: 7px;
+  line-height: 1.2;
+  margin-top: 5px;
+  min-height: 26px;
+  white-space: nowrap;
+}
+
+.overview-kpi strong b { font-size: 17px; }
+.overview-kpi strong i { color: var(--overview-border-strong); font-size: 13px; font-style: normal; }
+.overview-kpi > span { color: var(--overview-muted); display: block; font-size: 10px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overview-kpi > span b { font-weight: 800; }
+.overview-kpi > span i { font-style: normal; }
+.overview-kpi.up strong,
+.overview-kpi .up { color: var(--overview-up); }
+.overview-kpi.down strong,
+.overview-kpi .down { color: var(--overview-down); }
+
+.overview-primary-grid {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.85fr) minmax(330px, .85fr);
+}
+
+.overview-side-stack { display: grid; gap: 14px; min-width: 0; }
+.overview-terminal-grid { display: grid; gap: 14px; min-width: 0; }
+.overview-panel { border-radius: 13px; min-width: 0; overflow: hidden; padding: 15px; }
+
+.overview-panel-head {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.overview-panel-head.compact { margin-bottom: 10px; }
+.overview-panel-head h3 { color: var(--overview-text); font-size: 15px; letter-spacing: -.01em; margin: 2px 0 0; }
+.overview-panel-actions { align-items: center; color: var(--overview-faint); display: flex; font-size: 10px; gap: 10px; }
+.overview-panel a { color: var(--overview-accent); font-size: 11px; font-weight: 800; text-decoration: none; white-space: nowrap; }
+.overview-panel a:hover { text-decoration: underline; }
+.overview-panel a:focus-visible { outline: 2px solid var(--overview-accent); outline-offset: 3px; border-radius: 2px; }
+.overview-detail-link { align-self: flex-start; }
+
+.overview-inline-notice {
+  background: var(--overview-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--overview-accent) 24%, transparent);
+  border-radius: 8px;
+  color: var(--overview-accent);
+  font-size: 10px;
+  margin-bottom: 10px;
+  padding: 7px 9px;
+}
+
+.overview-inline-notice.warning { background: var(--overview-warning-soft); border-color: color-mix(in srgb, var(--overview-warning) 30%, transparent); color: var(--overview-warning); }
+
+.overview-index-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.overview-index-tile {
+  background: var(--overview-surface-raised);
+  border: 1px solid var(--overview-border);
+  border-radius: 9px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.overview-index-tile > div { align-items: center; display: flex; gap: 6px; justify-content: space-between; }
+.overview-index-tile span { color: var(--overview-muted); font-size: 10px; font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overview-index-tile time { color: var(--overview-faint); font-size: 9px; }
+.overview-index-tile strong { color: var(--overview-text); display: block; font-size: 17px; margin-top: 5px; }
+.overview-index-tile b { display: block; font-size: 11px; margin-top: 2px; }
+.overview-index-tile.up b { color: var(--overview-up); }
+.overview-index-tile.down b { color: var(--overview-down); }
+.overview-index-tile.flat b { color: var(--overview-muted); }
+
+.overview-chart-wrap {
+  background: var(--overview-surface-raised);
+  border: 1px solid var(--overview-border);
+  border-radius: 10px;
+  margin-top: 10px;
+  min-height: 260px;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.overview-chart-wrap :deep(.market-breadth-card) { border: 0; box-shadow: none; padding: 0; }
+.overview-chart-wrap :deep(.market-breadth-chart-wrap) { min-height: 220px; }
+
+.overview-breadth-snapshot { align-content: center; display: grid; min-height: 238px; padding: 24px; }
+.overview-breadth-snapshot > div:first-child { align-items: baseline; display: flex; justify-content: space-between; }
+.overview-breadth-snapshot span,
+.overview-breadth-snapshot p { color: var(--overview-muted); font-size: 11px; }
+.overview-breadth-snapshot strong { font-size: 25px; }
+.overview-breadth-track { background: var(--overview-down-soft); border-radius: 999px; height: 10px; margin-top: 14px; overflow: hidden; }
+.overview-breadth-track span { background: linear-gradient(90deg, var(--overview-up), #ee8b63); border-radius: inherit; display: block; height: 100%; }
+.overview-breadth-snapshot p { margin: 10px 0 0; }
+
+.overview-loading,
+.overview-empty {
+  align-items: center;
+  color: var(--overview-muted);
+  display: flex;
+  font-size: 11px;
+  justify-content: center;
+  min-height: 118px;
+  padding: 18px;
+  text-align: center;
+}
+.overview-empty.compact { min-height: 238px; }
+
+.overview-theme-list { display: grid; }
+.overview-theme-row { align-items: center; border-bottom: 1px solid var(--overview-border); display: grid; gap: 8px; grid-template-columns: 20px minmax(0, 1fr) auto; padding: 7px 2px; }
+.overview-theme-row:last-child { border-bottom: 0; }
+.overview-rank { color: var(--overview-faint); font-size: 10px; font-weight: 800; }
+.overview-theme-row div { min-width: 0; }
+.overview-theme-row strong { display: block; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overview-theme-row small { color: var(--overview-muted); display: block; font-size: 8px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overview-theme-row > b { color: var(--overview-accent); font-size: 12px; }
+.overview-coverage { color: var(--overview-muted); display: flex; font-size: 9px; justify-content: space-between; padding-top: 8px; }
+.overview-coverage b { color: var(--overview-text); }
+
+.overview-account-equity { display: grid; grid-template-columns: 1fr auto; }
+.overview-account-equity > span { color: var(--overview-muted); font-size: 9px; grid-column: 1 / -1; }
+.overview-account-equity strong { font-size: 23px; margin-top: 3px; }
+.overview-account-equity b { align-self: end; font-size: 10px; padding-bottom: 3px; }
+.overview-account-equity b.up { color: var(--overview-up); }
+.overview-account-equity b.down { color: var(--overview-down); }
+.overview-account-equity b.flat { color: var(--overview-muted); }
+.overview-account-grid { display: grid; gap: 7px; grid-template-columns: repeat(3, 1fr); margin-top: 10px; }
+.overview-account-grid > div { background: var(--overview-surface-raised); border: 1px solid var(--overview-border); border-radius: 8px; padding: 8px; }
+.overview-account-grid span { color: var(--overview-muted); display: block; font-size: 8px; }
+.overview-account-grid strong { display: block; font-size: 11px; margin-top: 3px; }
+.overview-risk-status { align-items: center; background: var(--overview-surface-raised); border-radius: 8px; color: var(--overview-muted); display: flex; font-size: 9px; gap: 7px; margin-top: 8px; padding: 7px 8px; }
+.overview-risk-status span { background: currentColor; border-radius: 50%; height: 6px; width: 6px; }
+.overview-risk-status.positive { color: var(--overview-down); }
+.overview-risk-status.warning { color: var(--overview-warning); }
+.overview-risk-status.negative { color: var(--overview-up); }
+
+.overview-secondary-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1.35fr) minmax(360px, .85fr); }
+.overview-candidate-table { display: grid; }
+.overview-candidate-table-head,
+.overview-candidate-row { align-items: center; display: grid; gap: 12px; grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.35fr) 60px 72px; }
+.overview-candidate-table-head { border-bottom: 1px solid var(--overview-border-strong); color: var(--overview-muted); font-size: 9px; padding: 0 8px 7px; }
+.overview-candidate-row { border-bottom: 1px solid var(--overview-border); min-height: 50px; padding: 7px 8px; }
+.overview-candidate-row:last-child { border-bottom: 0; }
+.overview-candidate-row > div { min-width: 0; }
+.overview-candidate-row strong { display: block; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overview-candidate-row div span { color: var(--overview-muted); display: block; font-size: 9px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overview-candidate-row div span.up { color: var(--overview-up); }
+.overview-candidate-row div span.down { color: var(--overview-down); }
+.overview-candidate-row > b { color: var(--overview-accent); font-size: 13px; }
+.overview-tier { border: 1px solid var(--overview-border); border-radius: 999px; font-size: 9px; font-weight: 800; justify-self: start; padding: 3px 7px; white-space: nowrap; }
+.overview-tier.high { background: var(--overview-up-soft); border-color: color-mix(in srgb, var(--overview-up) 32%, transparent); color: var(--overview-up); }
+.overview-tier.mid { background: var(--overview-warning-soft); border-color: color-mix(in srgb, var(--overview-warning) 32%, transparent); color: var(--overview-warning); }
+.overview-tier.low { color: var(--overview-muted); }
+
+.overview-flow-columns { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.overview-flow-columns h4 { color: var(--overview-muted); font-size: 9px; letter-spacing: .04em; margin: 0 0 5px; }
+.overview-flow-row { align-items: center; border-bottom: 1px solid var(--overview-border); display: flex; font-size: 10px; gap: 8px; justify-content: space-between; min-height: 30px; }
+.overview-flow-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overview-flow-row b { flex: 0 0 auto; }
+.overview-flow-row.up b { color: var(--overview-up); }
+.overview-flow-row.down b { color: var(--overview-down); }
+.overview-flow-divider { border-top: 1px solid var(--overview-border-strong); margin: 10px 0; }
+.overview-mini-empty { color: var(--overview-faint); font-size: 9px; padding: 8px 0; }
+
+.overview-mainline-panel[data-mainline-layout="compact"] .overview-coverage,
+.overview-mainline-panel[data-mainline-layout="summary"] .overview-coverage { display: none; }
+
+.overview-mainline-panel[data-mainline-layout="compact"] .overview-theme-list {
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+}
+
+.overview-mainline-panel[data-mainline-layout="summary"] .overview-theme-list {
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.overview-mainline-panel[data-mainline-layout="compact"] .overview-theme-row,
+.overview-mainline-panel[data-mainline-layout="summary"] .overview-theme-row {
+  min-height: 0;
+  padding-block: 1px;
+}
+
+.overview-mainline-panel[data-mainline-layout="compact"] .overview-theme-row:nth-child(n + 4),
+.overview-mainline-panel[data-mainline-layout="compact"] .overview-theme-row small,
+.overview-mainline-panel[data-mainline-layout="summary"] .overview-theme-row:nth-child(n + 3),
+.overview-mainline-panel[data-mainline-layout="summary"] .overview-theme-row small { display: none; }
+
+@media (max-width: 1120px) {
+  .overview-kpi-strip { grid-template-columns: repeat(5, minmax(180px, 1fr)); overflow-x: auto; padding-bottom: 3px; scrollbar-width: thin; }
+  .overview-primary-grid { grid-template-columns: minmax(0, 1.5fr) minmax(300px, .9fr); }
+  .overview-index-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-secondary-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 900px) {
+  .overview-primary-grid { grid-template-columns: 1fr; }
+  .overview-side-stack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .overview-page { gap: 10px; }
+  .overview-command-head { align-items: flex-start; display: grid; padding: 14px; }
+  .overview-command-meta { justify-self: start; }
+  .overview-banner { align-items: start; grid-template-columns: 1fr; }
+  .overview-kpi-strip { grid-template-columns: repeat(5, minmax(156px, 1fr)); margin-inline: -1px; }
+  .overview-kpi { padding: 10px 11px; }
+  .overview-kpi strong { font-size: 19px; }
+  .overview-panel { padding: 12px; }
+  .overview-panel-head { align-items: flex-start; }
+  .overview-panel-actions { align-items: flex-end; display: grid; justify-items: end; }
+  .overview-side-stack { grid-template-columns: 1fr; }
+  .overview-chart-wrap { min-height: 230px; padding: 6px; }
+  .overview-candidate-table-head { display: none; }
+  .overview-candidate-row { gap: 7px; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 42px; }
+  .overview-candidate-row > .overview-tier { grid-column: 1 / -1; }
+}
+
+@media (max-width: 440px) {
+  .overview-index-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-index-tile time { display: none; }
+  .overview-flow-columns { grid-template-columns: 1fr; }
+  .overview-flow-divider { margin: 4px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overview-page *,
+  .overview-page *::before,
+  .overview-page *::after { scroll-behavior: auto !important; transition: none !important; }
+}
+
+@media (min-width: 721px) {
+  :global(body.overview-terminal-open) { overflow: hidden; }
+  :global(body.overview-terminal-open header) {
+    padding: 7px max(clamp(10px, 1.8vw, 24px), calc((100vw - 1440px) / 2));
+  }
+  :global(body.overview-terminal-open .header-row) { gap: 8px; min-height: 30px; }
+  :global(body.overview-terminal-open .dashboard-brand) { gap: 7px; font-size: 19px; }
+  :global(body.overview-terminal-open .dashboard-brand-logo) { height: 30px; width: 30px; }
+  :global(body.overview-terminal-open .header-actions) {
+    --header-control-height: 28px;
+    flex-wrap: nowrap;
+    gap: 5px;
+    min-width: 0;
+  }
+  :global(body.overview-terminal-open .settings-link),
+  :global(body.overview-terminal-open .header-link),
+  :global(body.overview-terminal-open .version-status),
+  :global(body.overview-terminal-open .refresh-pill) { font-size: 11px; padding: 4px 7px; }
+  :global(body.overview-terminal-open .version-status span),
+  :global(body.overview-terminal-open .version-status b),
+  :global(body.overview-terminal-open .refresh-pill span),
+  :global(body.overview-terminal-open .refresh-pill b) { font-size: 10px; }
+  :global(body.overview-terminal-open .category-tabs) { margin-top: 5px; padding: 2px; }
+  :global(body.overview-terminal-open .tab) { font-size: 11px; padding: 5px 9px; }
+  :global(body.overview-terminal-open main) {
+    padding: 6px max(clamp(9px, 1.8vw, 24px), calc((100vw - 1440px) / 2));
+  }
+
+  .overview-page {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    height: var(--overview-viewport-height, calc(100dvh - 148px));
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .overview-command-head {
+    align-items: center;
+    border-radius: 7px;
+    flex: 0 0 38px;
+    min-height: 38px;
+    padding: 5px 10px;
+  }
+
+  .overview-command-head > div:first-child {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .overview-eyebrow { font-size: 8px; white-space: nowrap; }
+  .overview-command-head h2 { font-size: 16px; margin: 0; white-space: nowrap; }
+  .overview-command-head p { font-size: 9px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .overview-command-meta { font-size: 9px; }
+
+  .overview-banner {
+    flex: 0 0 auto;
+    min-height: 28px;
+    padding: 5px 9px;
+  }
+
+  .overview-kpi-strip {
+    flex: 0 0 58px;
+    gap: 5px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    min-height: 58px;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .overview-kpi {
+    border-radius: 6px;
+    padding: 6px 9px;
+  }
+
+  .overview-kpi-label { font-size: 8px; }
+  .overview-kpi strong { font-size: 16px; line-height: 1.1; margin-top: 2px; min-height: 18px; }
+  .overview-kpi strong b { font-size: 13px; }
+  .overview-kpi > span { font-size: 8px; margin-top: 2px; }
+
+  .overview-terminal-grid {
+    display: grid;
+    flex: 1 1 auto;
+    gap: 6px;
+    grid-template-rows: minmax(0, 1.16fr) minmax(0, .84fr);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .overview-primary-grid,
+  .overview-secondary-grid {
+    gap: 6px;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .overview-primary-grid { grid-template-columns: minmax(0, 1.85fr) minmax(300px, .85fr); }
+  .overview-secondary-grid { grid-template-columns: minmax(0, 1.35fr) minmax(340px, .85fr); }
+  .overview-side-stack { gap: 6px; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1.25fr) minmax(118px, .75fr); height: 100%; min-height: 0; overflow: hidden; }
+
+  .overview-panel {
+    border-radius: 7px;
+    height: 100%;
+    min-height: 0;
+    padding: 7px 8px;
+  }
+
+  .overview-panel-head,
+  .overview-panel-head.compact { margin-bottom: 5px; min-height: 23px; }
+  .overview-panel-head h3 { font-size: 12px; margin-top: 0; }
+  .overview-section-kicker { font-size: 7px; letter-spacing: .08em; }
+  .overview-panel-actions { font-size: 8px; gap: 7px; }
+  .overview-panel a { font-size: 9px; }
+  .overview-inline-notice { font-size: 8px; margin-bottom: 4px; padding: 3px 6px; }
+
+  .overview-market-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .overview-index-grid { flex: 0 0 48px; gap: 4px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .overview-index-tile { border-radius: 5px; padding: 4px 6px; }
+  .overview-index-tile span { font-size: 8px; }
+  .overview-index-tile time { font-size: 7px; }
+  .overview-index-tile strong { font-size: 12px; margin-top: 1px; }
+  .overview-index-tile b { font-size: 8px; margin-top: 0; }
+
+  .overview-chart-wrap {
+    display: flex;
+    flex: 1 1 auto;
+    margin-top: 4px;
+    min-height: 0;
+    padding: 3px 5px;
+  }
+
+  .overview-chart-wrap :deep(.market-breadth-card.terminal) {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    height: 100%;
+    margin: 0;
+    min-height: 0;
+  }
+
+  .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-head) {
+    flex: 0 0 auto;
+    gap: 5px;
+    grid-template-areas: "controls meta";
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-heading) { display: none; }
+  .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-controls) { gap: 4px; justify-content: flex-start; }
+  .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-toggle) { min-height: 22px; padding: 3px 6px; }
+  .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-toggle small) { display: none; }
+  .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-head-meta) { font-size: 8px; }
+  .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-chart-wrap) { flex: 1 1 auto; margin-top: 1px; min-height: 0; padding: 0; }
+  .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-chart) { height: 100%; min-height: 0; width: 100%; }
+  .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-compact-tooltip) { font-size: 7px; }
+  .overview-breadth-snapshot,
+  .overview-empty.compact { min-height: 0; }
+
+  .overview-mainline-panel,
+  .overview-account-panel,
+  .overview-candidate-panel,
+  .overview-flow-panel { display: flex; flex-direction: column; min-height: 0; }
+
+  .overview-theme-list { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .overview-theme-row { gap: 5px; grid-template-columns: 16px minmax(0, 1fr) auto; min-height: 25px; padding: 3px 1px; }
+  .overview-rank { font-size: 8px; }
+  .overview-theme-row strong { font-size: 9px; }
+  .overview-theme-row small { font-size: 7px; margin-top: 0; }
+  .overview-theme-row > b { font-size: 9px; }
+  .overview-coverage { font-size: 7px; padding-top: 3px; }
+
+  .overview-account-equity > span { font-size: 7px; }
+  .overview-account-equity strong { font-size: 16px; margin-top: 0; }
+  .overview-account-equity b { font-size: 8px; padding-bottom: 1px; }
+  .overview-account-grid { gap: 4px; margin-top: 4px; }
+  .overview-account-grid > div { border-radius: 4px; padding: 4px 5px; }
+  .overview-account-grid span { font-size: 7px; }
+  .overview-account-grid strong { font-size: 9px; margin-top: 1px; }
+  .overview-risk-status { border-radius: 4px; font-size: 7px; margin-top: 4px; padding: 3px 5px; }
+
+  .overview-candidate-table { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .overview-candidate-table-head,
+  .overview-candidate-row { gap: 7px; grid-template-columns: minmax(130px, 1fr) minmax(150px, 1.25fr) 42px 62px; }
+  .overview-candidate-table-head { font-size: 7px; padding: 0 5px 3px; }
+  .overview-candidate-row { min-height: 0; padding: 3px 5px; }
+  .overview-candidate-row strong { font-size: 9px; }
+  .overview-candidate-row div span { font-size: 7px; margin-top: 0; }
+  .overview-candidate-row > b { font-size: 10px; }
+  .overview-tier { font-size: 7px; padding: 2px 5px; }
+
+  .overview-flow-columns { gap: 8px; }
+  .overview-flow-columns h4 { font-size: 7px; margin-bottom: 2px; }
+  .overview-flow-row { font-size: 8px; min-height: 20px; }
+  .overview-flow-divider { margin: 4px 0; }
+  .overview-mini-empty { font-size: 7px; padding: 3px 0; }
+  .overview-loading,
+  .overview-empty { flex: 1 1 auto; min-height: 0; padding: 8px; }
+
+  .overview-page[data-layout="compact"] .overview-command-head p { display: none; }
+  .overview-page[data-layout="compact"] .overview-primary-grid {
+    grid-template-columns: minmax(0, 1.5fr) minmax(260px, .92fr);
+  }
+  .overview-page[data-layout="compact"] .overview-secondary-grid {
+    grid-template-columns: minmax(0, 1.18fr) minmax(290px, .92fr);
+  }
+  .overview-page[data-layout="compact"] .overview-panel-actions > span:first-child { display: none; }
+  .overview-page[data-layout="compact"] .overview-index-tile time { display: none; }
+  .overview-page[data-layout="compact"] .overview-candidate-table-head,
+  .overview-page[data-layout="compact"] .overview-candidate-row {
+    gap: 5px;
+    grid-template-columns: minmax(92px, 1fr) minmax(104px, 1.15fr) 36px 54px;
+  }
+
+  .overview-page[data-density="compact"] .overview-command-head {
+    flex-basis: 32px;
+    min-height: 32px;
+  }
+  .overview-page[data-density="compact"] .overview-command-head p { display: none; }
+  .overview-page[data-density="compact"] .overview-kpi-strip {
+    flex-basis: 50px;
+    min-height: 50px;
+  }
+  .overview-page[data-density="compact"] .overview-kpi { padding-block: 4px; }
+  .overview-page[data-density="compact"] .overview-kpi strong { font-size: 14px; min-height: 16px; }
+  .overview-page[data-density="compact"] .overview-kpi strong b { font-size: 11px; }
+  .overview-page[data-density="compact"] .overview-terminal-grid {
+    grid-template-rows: minmax(0, 1.1fr) minmax(0, .9fr);
+  }
+  .overview-page[data-density="compact"] .overview-panel-head,
+  .overview-page[data-density="compact"] .overview-panel-head.compact { min-height: 20px; }
+  .overview-page[data-density="compact"] .overview-index-grid { flex-basis: 42px; }
+  .overview-page[data-density="compact"] .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-toggle) {
+    min-height: 18px;
+    padding-block: 1px;
+  }
+  .overview-page[data-density="compact"] .overview-theme-row { min-height: 21px; padding-block: 2px; }
+  .overview-page[data-density="compact"] .overview-flow-row { min-height: 17px; }
+
+  .overview-page[data-density="ultra-compact"] { gap: 4px; }
+  .overview-page[data-density="ultra-compact"] .overview-command-head {
+    flex-basis: 26px;
+    min-height: 26px;
+    padding-block: 2px;
+  }
+  .overview-page[data-density="ultra-compact"] .overview-eyebrow,
+  .overview-page[data-density="ultra-compact"] .overview-command-head p { display: none; }
+  .overview-page[data-density="ultra-compact"] .overview-command-head h2 { font-size: 13px; }
+  .overview-page[data-density="ultra-compact"] .overview-kpi-strip {
+    flex-basis: 42px;
+    min-height: 42px;
+  }
+  .overview-page[data-density="ultra-compact"] .overview-kpi { padding: 3px 7px; }
+  .overview-page[data-density="ultra-compact"] .overview-kpi strong { font-size: 12px; min-height: 14px; }
+  .overview-page[data-density="ultra-compact"] .overview-kpi strong b { font-size: 10px; }
+  .overview-page[data-density="ultra-compact"] .overview-kpi > span,
+  .overview-page[data-density="ultra-compact"] .overview-kpi-label { font-size: 7px; }
+  .overview-page[data-density="ultra-compact"] .overview-terminal-grid {
+    gap: 4px;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .overview-page[data-density="ultra-compact"] .overview-primary-grid,
+  .overview-page[data-density="ultra-compact"] .overview-secondary-grid,
+  .overview-page[data-density="ultra-compact"] .overview-side-stack { gap: 4px; }
+  .overview-page[data-density="ultra-compact"] .overview-side-stack {
+    grid-template-rows: minmax(0, 1.18fr) minmax(92px, .82fr);
+  }
+  .overview-page[data-density="ultra-compact"] .overview-panel { padding: 4px 6px; }
+  .overview-page[data-density="ultra-compact"] .overview-panel-head,
+  .overview-page[data-density="ultra-compact"] .overview-panel-head.compact {
+    margin-bottom: 2px;
+    min-height: 17px;
+  }
+  .overview-page[data-density="ultra-compact"] .overview-section-kicker { display: none; }
+  .overview-page[data-density="ultra-compact"] .overview-panel-head h3 { font-size: 10px; }
+  .overview-page[data-density="ultra-compact"] .overview-index-grid { flex-basis: 36px; }
+  .overview-page[data-density="ultra-compact"] .overview-index-tile { padding-block: 2px; }
+  .overview-page[data-density="ultra-compact"] .overview-index-tile strong { font-size: 10px; }
+  .overview-page[data-density="ultra-compact"] .overview-theme-row { min-height: 17px; padding-block: 1px; }
+  .overview-page[data-density="ultra-compact"] .overview-coverage { padding-top: 1px; }
+  .overview-page[data-density="ultra-compact"] .overview-account-grid { margin-top: 2px; }
+  .overview-page[data-density="ultra-compact"] .overview-account-grid > div { padding-block: 2px; }
+  .overview-page[data-density="ultra-compact"] .overview-risk-status { margin-top: 2px; padding-block: 2px; }
+  .overview-page[data-density="ultra-compact"] .overview-candidate-table-head { display: none; }
+  .overview-page[data-density="ultra-compact"] .overview-candidate-row { padding-block: 1px; }
+  .overview-page[data-density="ultra-compact"] .overview-flow-row { min-height: 14px; }
+  .overview-page[data-density="ultra-compact"] .overview-flow-divider { margin-block: 2px; }
+}
+
+@media (min-width: 721px) and (max-width: 1040px) {
+  :global(body.overview-terminal-open .header-link),
+  :global(body.overview-terminal-open .version-status),
+  :global(body.overview-terminal-open .refresh-pill) { display: none; }
+}
+</style>

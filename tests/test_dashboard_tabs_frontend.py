@@ -64,6 +64,7 @@ console.log(JSON.stringify({{fetchCalls, initialMarketCount, counts}}));
                 "fetchCalls": ["/api/dashboard/bootstrap"],
                 "initialMarketCount": "",
                 "counts": {
+                    "overview": "",
                     "practice": "",
                     "niuone_mainline": "",
                     "indices": "",
@@ -72,6 +73,42 @@ console.log(JSON.stringify({{fetchCalls, initialMarketCount, counts}}));
                     "x_monitor": " · 108",
                     "us_ratings": " · 4",
                 },
+            },
+        )
+
+    def test_root_defaults_to_overview_and_preserves_legacy_query_routes(self) -> None:
+        scenario = f"""
+globalThis.window = {{
+  location: {{pathname: '/', search: ''}},
+  setTimeout,
+  clearTimeout,
+}};
+const module = await import(
+  {json.dumps(DASHBOARD_TABS_PATH.as_uri())} + '?overview-route-test=1'
+);
+console.log(JSON.stringify({{
+  active: module.useDashboardTabs().activeCategory.value,
+  root: module.dashboardCategoryFromLocation('/', ''),
+  legacy: module.dashboardCategoryFromLocation('/', 'b1_screen'),
+  direct: module.dashboardCategoryFromLocation('/indices', 'practice'),
+}}));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", scenario],
+            cwd=ROOT / "web",
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "active": "overview",
+                "root": "overview",
+                "legacy": "practice",
+                "direct": "indices",
             },
         )
 
