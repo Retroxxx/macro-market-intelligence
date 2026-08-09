@@ -4254,6 +4254,128 @@ console.log(JSON.stringify([
             backtest_page,
         )
 
+    def test_tongdaxin_uses_shared_terminal_button_chrome(self):
+        stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+
+        for token in (
+            '--terminal-button-bg:#202020;',
+            '--terminal-button-bg-hover:#292929;',
+            '--terminal-button-bg-pressed:#111;',
+            '--terminal-button-border-light:#5b5b5b;',
+            '--terminal-button-border-dark:#080808;',
+            '--terminal-button-accent:#fff200;',
+        ):
+            self.assertIn(token, stylesheet)
+        self.assertIn(
+            'Shared Windows-era push-button chrome for every terminal action control.',
+            stylesheet,
+        )
+        self.assertIn(
+            'button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head)',
+            stylesheet,
+        )
+        self.assertNotIn(':not(.theme-leader-button)', stylesheet)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root body .theme-leader-button {',
+            stylesheet,
+        )
+        self.assertIn('min-height:24px;\n  padding:3px 6px;', stylesheet)
+        self.assertIn('a.header-link,', stylesheet)
+        self.assertIn('a.settings-link,', stylesheet)
+        self.assertIn('a.settings-back-link,', stylesheet)
+        self.assertIn('a.settings-card,', stylesheet)
+        self.assertGreaterEqual(stylesheet.count('a.tab,'), 4)
+        self.assertIn('.tab.active,', stylesheet)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root body .category-tabs .tab.active { color:#fff !important; }',
+            stylesheet,
+        )
+        self.assertIn('gap:2px;\n  padding:1px;', stylesheet)
+        self.assertIn(
+            'border-color:var(--terminal-button-border-light) var(--terminal-button-border-dark) var(--terminal-button-border-dark) var(--terminal-button-border-light) !important;',
+            stylesheet,
+        )
+        self.assertIn(
+            'box-shadow:inset 1px 1px 0 #383838,inset -1px -1px 0 #000 !important;',
+            stylesheet,
+        )
+        self.assertIn('button[aria-pressed="true"]', stylesheet)
+        self.assertIn(
+            ':not(.practice-trade-marker):not(.theme-toggle):not(.admin-theme-toggle)',
+            stylesheet,
+        )
+        self.assertIn('button:disabled,', stylesheet)
+        self.assertIn('.header-link[href*="github.com"]', stylesheet)
+
+    def test_tongdaxin_teleported_theme_stock_popover_uses_terminal_palette(self):
+        stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn(
+            'Teleported overview popovers must carry their own terminal palette.',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .overview-theme-stock-popover {',
+            stylesheet,
+        )
+        for token in (
+            '--overview-surface:#000;',
+            '--overview-surface-raised:#090909;',
+            '--overview-border-strong:#b50000;',
+            '--overview-text:#d0d0d0;',
+            '--overview-up:#ff4141;',
+            '--overview-down:#00dfe8;',
+        ):
+            self.assertIn(token, stylesheet)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .overview-theme-stock-list {',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .overview-theme-stock-popover-head button {',
+            stylesheet,
+        )
+        self.assertIn('min-width:42px;', stylesheet)
+        self.assertIn('min-height:22px;', stylesheet)
+        self.assertIn('justify-content:center;', stylesheet)
+        self.assertIn('padding:2px 7px;', stylesheet)
+        self.assertIn('background:var(--terminal-row);', stylesheet)
+        self.assertIn('background:var(--terminal-row-alt);', stylesheet)
+
+    def test_tongdaxin_mainline_expanded_stock_list_uses_terminal_table(self):
+        stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .theme-stock-details {',
+            stylesheet,
+        )
+        self.assertIn('padding:0;\n  border-color:var(--line2);\n  background:#000;', stylesheet)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .theme-stock-details-head {',
+            stylesheet,
+        )
+        self.assertIn('background:var(--terminal-header);', stylesheet)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .theme-stock-detail-row {',
+            stylesheet,
+        )
+        self.assertIn('min-height:30px;', stylesheet)
+        self.assertIn('border-bottom:1px solid var(--line);', stylesheet)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .theme-stock-detail-row + .theme-stock-detail-row { margin-top:0; }',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root :where(.theme-stock-details-head,.theme-stock-detail-row) > * + * {',
+            stylesheet,
+        )
+
     def test_tongdaxin_admin_matches_dashboard_header_and_content_width(self):
         stylesheet = (
             ROOT / 'frontend' / 'tongdaxin-theme.css'

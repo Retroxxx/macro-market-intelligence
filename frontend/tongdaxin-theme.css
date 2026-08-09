@@ -44,6 +44,13 @@ html[data-theme="tongdaxin"]:root {
   --terminal-grid:#b40000;
   --terminal-orange:#ff9000;
   --terminal-magenta:#ff00ff;
+  --terminal-button-bg:#202020;
+  --terminal-button-bg-hover:#292929;
+  --terminal-button-bg-pressed:#111;
+  --terminal-button-border-light:#5b5b5b;
+  --terminal-button-border-dark:#080808;
+  --terminal-button-text:#d8d8d8;
+  --terminal-button-accent:#fff200;
   --chart-grid:rgba(205,0,0,.68);
   --chart-grid-soft:rgba(180,0,0,.40);
   --chart-zero:rgba(255,48,48,.76);
@@ -181,7 +188,8 @@ html[data-theme="tongdaxin"]:root :where(
 html[data-theme="tongdaxin"]:root .category-tabs {
   width:100%;
   margin-top:2px;
-  padding:0;
+  gap:2px;
+  padding:1px;
   border-color:var(--line2);
   background:#000;
   box-shadow:none;
@@ -761,6 +769,53 @@ html[data-theme="tongdaxin"]:root [class$="-popover"] {
   backdrop-filter:none;
 }
 
+/* Teleported overview popovers must carry their own terminal palette. */
+html[data-theme="tongdaxin"]:root .overview-theme-stock-popover {
+  --overview-surface:#000;
+  --overview-surface-raised:#090909;
+  --overview-border:#641010;
+  --overview-border-strong:#b50000;
+  --overview-text:#d0d0d0;
+  --overview-muted:#8c8c8c;
+  --overview-faint:#727272;
+  --overview-accent:#fff200;
+  --overview-up:#ff4141;
+  --overview-down:#00dfe8;
+  border-color:var(--overview-border-strong);
+  background:var(--overview-surface);
+  color:var(--overview-text);
+}
+html[data-theme="tongdaxin"]:root .overview-theme-stock-popover-head {
+  border-bottom:1px solid var(--overview-border);
+  padding:2px 2px 5px;
+}
+html[data-theme="tongdaxin"]:root .overview-theme-stock-popover-head button {
+  display:inline-flex;
+  min-width:42px;
+  min-height:22px;
+  align-items:center;
+  justify-content:center;
+  padding:2px 7px;
+  line-height:1;
+}
+html[data-theme="tongdaxin"]:root .overview-theme-stock-list-head {
+  border-bottom:1px solid var(--overview-border);
+  background:var(--terminal-header-deep);
+}
+html[data-theme="tongdaxin"]:root .overview-theme-stock-list {
+  gap:1px;
+  border:1px solid var(--overview-border);
+  background:var(--overview-border);
+}
+html[data-theme="tongdaxin"]:root .overview-theme-stock {
+  border:0;
+  background:var(--terminal-row);
+}
+html[data-theme="tongdaxin"]:root .overview-theme-stock:nth-child(even) {
+  background:var(--terminal-row-alt);
+}
+html[data-theme="tongdaxin"]:root .overview-theme-stock + .overview-theme-stock { margin-top:0; }
+
 html[data-theme="tongdaxin"]:root .overview-page {
   --overview-surface:#000;
   --overview-surface-raised:#090909;
@@ -933,6 +988,44 @@ html[data-theme="tongdaxin"]:root .mainline-section { margin-top:4px; }
 html[data-theme="tongdaxin"]:root .theme-rankings { gap:4px; }
 html[data-theme="tongdaxin"]:root .theme-row { height:58px; gap:3px 8px; padding:4px 7px; }
 html[data-theme="tongdaxin"]:root .theme-row { border-color:var(--line); }
+
+html[data-theme="tongdaxin"]:root .theme-stock-details {
+  padding:0;
+  border-color:var(--line2);
+  background:#000;
+  box-shadow:0 10px 28px rgba(0,0,0,.48);
+}
+html[data-theme="tongdaxin"]:root :where(.theme-stock-details-head,.theme-stock-detail-row) { gap:0; }
+html[data-theme="tongdaxin"]:root .theme-stock-details-head {
+  min-height:25px;
+  border-bottom:1px solid var(--line2);
+  padding:0;
+  background:var(--terminal-header);
+  color:#b8b8b8;
+}
+html[data-theme="tongdaxin"]:root .theme-stock-detail-row {
+  min-height:30px;
+  border:0;
+  border-bottom:1px solid var(--line);
+  padding:0;
+  background:var(--terminal-row);
+}
+html[data-theme="tongdaxin"]:root .theme-stock-detail-row:nth-child(odd) { background:var(--terminal-row-alt); }
+html[data-theme="tongdaxin"]:root .theme-stock-detail-row:last-child { border-bottom:0; }
+html[data-theme="tongdaxin"]:root .theme-stock-detail-row + .theme-stock-detail-row { margin-top:0; }
+html[data-theme="tongdaxin"]:root :where(.theme-stock-details-head,.theme-stock-detail-row) > * {
+  display:flex;
+  min-height:inherit;
+  align-items:center;
+  padding:4px 6px;
+}
+html[data-theme="tongdaxin"]:root :where(.theme-stock-details-head,.theme-stock-detail-row) > * + * {
+  border-left:1px solid var(--line);
+}
+html[data-theme="tongdaxin"]:root .theme-stock-detail-row > .theme-stock-change {
+  justify-self:stretch;
+  justify-content:flex-end;
+}
 
 html[data-theme="tongdaxin"]:root .dragon-tiger-panel {
   max-width:none;
@@ -1216,6 +1309,134 @@ html[data-theme="tongdaxin"]:root :where(.primary-btn,.danger-btn,.save-btn) {
   text-transform:none;
 }
 
+/* Shared Windows-era push-button chrome for every terminal action control. */
+html[data-theme="tongdaxin"]:root body :where(
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  a.header-link,
+  a.settings-link,
+  a.toplink,
+  a.settings-back-link,
+  a.settings-card,
+  a.tab,
+  .dragon-tiger-unavailable a,
+  .version-update-actions a
+) {
+  border:1px solid !important;
+  border-color:var(--terminal-button-border-light) var(--terminal-button-border-dark) var(--terminal-button-border-dark) var(--terminal-button-border-light) !important;
+  background:var(--terminal-button-bg) !important;
+  color:var(--terminal-button-text) !important;
+  box-shadow:inset 1px 1px 0 #383838,inset -1px -1px 0 #000 !important;
+  filter:none !important;
+  text-decoration:none;
+  text-shadow:none !important;
+  transform:none !important;
+}
+
+html[data-theme="tongdaxin"]:root body :where(
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  a.header-link,
+  a.settings-link,
+  a.toplink,
+  a.settings-back-link,
+  a.settings-card,
+  a.tab,
+  .dragon-tiger-unavailable a,
+  .version-update-actions a
+):hover:not(:disabled) {
+  border-color:#777 #111 #111 #777 !important;
+  background:var(--terminal-button-bg-hover) !important;
+  color:var(--terminal-button-accent) !important;
+  box-shadow:inset 1px 1px 0 #444,inset -1px -1px 0 #050505 !important;
+}
+
+html[data-theme="tongdaxin"]:root body :where(
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  a.header-link,
+  a.settings-link,
+  a.toplink,
+  a.settings-back-link,
+  a.settings-card,
+  a.tab,
+  .dragon-tiger-unavailable a,
+  .version-update-actions a
+):active:not(:disabled) {
+  border-color:var(--terminal-button-border-dark) var(--terminal-button-border-light) var(--terminal-button-border-light) var(--terminal-button-border-dark) !important;
+  background:var(--terminal-button-bg-pressed) !important;
+  box-shadow:inset 1px 1px 0 #000,inset -1px -1px 0 #333 !important;
+}
+
+html[data-theme="tongdaxin"]:root body :where(
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  a.header-link,
+  a.settings-link,
+  a.toplink,
+  a.settings-back-link,
+  a.settings-card,
+  a.tab,
+  .dragon-tiger-unavailable a,
+  .version-update-actions a
+):focus-visible {
+  outline:1px dotted var(--terminal-button-accent) !important;
+  outline-offset:1px;
+}
+
+html[data-theme="tongdaxin"]:root body :where(
+  button.active,
+  button[aria-pressed="true"],
+  .tab.active,
+  .notification-channel-activation.is-active
+):not(.practice-trade-marker):not(.theme-toggle):not(.admin-theme-toggle) {
+  border-color:#ef2020 #570000 #570000 #ef2020 !important;
+  background:#8c0000 !important;
+  color:#fff200 !important;
+  box-shadow:inset 1px 1px 0 #bd2222,inset -1px -1px 0 #310000 !important;
+}
+html[data-theme="tongdaxin"]:root body .category-tabs .tab.active { color:#fff !important; }
+
+html[data-theme="tongdaxin"]:root body :where(
+  .settings-link,
+  .settings-back-link,
+  .settings-card,
+  .header-link[href*="github.com"]
+) {
+  color:var(--terminal-button-accent) !important;
+  font-weight:700;
+}
+
+html[data-theme="tongdaxin"]:root body :where(
+  button:disabled,
+  [role="button"][aria-disabled="true"]
+) {
+  cursor:not-allowed;
+  border-color:#303030 #090909 #090909 #303030 !important;
+  background:#141414 !important;
+  color:#666 !important;
+  box-shadow:inset 1px 1px 0 #202020 !important;
+  opacity:1;
+}
+
+html[data-theme="tongdaxin"]:root body :where(
+  .danger-btn,
+  .backtest-cancel,
+  .notification-channel-remove,
+  .save-button.error,
+  .model-test-button.is-error
+):not(:disabled) { color:var(--red-text) !important; }
+
+html[data-theme="tongdaxin"]:root body :where(
+  .save-button.saved,
+  .model-test-button.is-ok
+):not(:disabled) { color:var(--green-text) !important; }
+
+html[data-theme="tongdaxin"]:root body .theme-leader-button {
+  min-height:24px;
+  padding:3px 6px;
+}
+
 @media(max-width:720px) {
   html[data-theme="tongdaxin"]:root header { padding:8px 10px; }
   html[data-theme="tongdaxin"]:root h1 { font-size:18px; }
@@ -1245,10 +1466,10 @@ html[data-theme="tongdaxin"]:root :where(.primary-btn,.danger-btn,.save-btn) {
   html[data-theme="tongdaxin"]:root .theme-toggle:active,
   html[data-theme="tongdaxin"]:root .theme-toggle:focus,
   html[data-theme="tongdaxin"]:root .theme-toggle:focus-visible {
-    border-color:#8e0000;
-    background:#050505;
-    color:#c4c4c4;
-    outline:none;
-    box-shadow:none;
+    border-color:var(--terminal-button-border-light) var(--terminal-button-border-dark) var(--terminal-button-border-dark) var(--terminal-button-border-light) !important;
+    background:var(--terminal-button-bg) !important;
+    color:var(--terminal-button-text) !important;
+    outline:none !important;
+    box-shadow:inset 1px 1px 0 #383838,inset -1px -1px 0 #000 !important;
   }
 }
