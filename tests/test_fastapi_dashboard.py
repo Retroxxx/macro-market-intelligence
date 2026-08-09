@@ -1276,8 +1276,7 @@ class FastApiDashboardTests(unittest.TestCase):
         self.assertIn('aria-label="上榜理由"', component)
         self.assertIn(
             'html[data-theme="light"] .dragon-tiger-limit-up-reason '
-            "{ border-color:#efc9c5; border-left-color:#c43d35; "
-            "background:#fff7f6; }",
+            "{ border-color:#e4b7b3; background:#fff; }",
             stylesheet,
         )
         self.assertIn(
@@ -1300,6 +1299,81 @@ class FastApiDashboardTests(unittest.TestCase):
             ".dragon-tiger-continuous-tooltip-head em.negative "
             "{ border-color:#b9dfd0; background:#eff9f5; color:#087052; }",
             stylesheet,
+        )
+
+    def test_dragon_tiger_expanded_view_uses_terminal_report_layout(self):
+        component = (
+            ROOT / "web" / "src" / "components" / "DragonTigerPanel.vue"
+        ).read_text(encoding="utf-8")
+        stylesheet = (ROOT / "frontend" / "dashboard.css").read_text(
+            encoding="utf-8"
+        )
+        tongdaxin_styles = (
+            ROOT / "frontend" / "tongdaxin-theme.css"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('class="dragon-tiger-analysis-grid"', component)
+        self.assertIn("function reasonRank(index)", component)
+        self.assertIn("{{ reasonRank(index) }}", component)
+        self.assertNotIn("directionalNewsTone(item) === 'positive' ? '✦' : '▼'", component)
+        self.assertIn(
+            ".dragon-tiger-seat-record { display:grid; "
+            "grid-template-columns:minmax(170px,1.7fr) "
+            "repeat(3,minmax(64px,.58fr)); min-width:0; }",
+            stylesheet,
+        )
+        self.assertIn(".dragon-tiger-seat-values { display:contents; }", stylesheet)
+        self.assertIn(
+            ".dragon-tiger-detail-record { border:0; border-radius:0;",
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root '
+            ":where(.dragon-tiger-reasons,.dragon-tiger-funds,.dragon-tiger-seats)",
+            tongdaxin_styles,
+        )
+        self.assertIn(
+            ".dragon-tiger-seat-record { display:block; padding:6px 7px; }",
+            stylesheet,
+        )
+
+    def test_tongdaxin_dragon_tiger_uses_dense_quote_terminal_rows(self):
+        component = (
+            ROOT / "web" / "src" / "components" / "DragonTigerPanel.vue"
+        ).read_text(encoding="utf-8")
+        stylesheet = (ROOT / "frontend" / "dashboard.css").read_text(
+            encoding="utf-8"
+        )
+        tongdaxin_styles = (
+            ROOT / "frontend" / "tongdaxin-theme.css"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("function shortCode(value)", component)
+        self.assertIn(
+            'class="dragon-tiger-list-code">{{ shortCode(item.code) }}',
+            component,
+        )
+        self.assertIn(".dragon-tiger-list-code { display:none; }", stylesheet)
+        self.assertIn("content:'代码 / 名称';", tongdaxin_styles)
+        self.assertIn(
+            ".dragon-tiger-item:nth-of-type(even) { "
+            "background:var(--terminal-row-alt); }",
+            tongdaxin_styles,
+        )
+        self.assertIn("background:var(--terminal-selection);", tongdaxin_styles)
+        self.assertIn("content:'+';", tongdaxin_styles)
+        self.assertIn("content:'\\2212';", tongdaxin_styles)
+        self.assertIn(
+            ".dragon-tiger-list-code {\n  display:inline-block;",
+            tongdaxin_styles,
+        )
+        self.assertIn(
+            ".dragon-tiger-detail-values > span {\n  display:flex;",
+            tongdaxin_styles,
+        )
+        self.assertIn(
+            ".dragon-tiger-seat-record:nth-child(even) { background:#090909; }",
+            tongdaxin_styles,
         )
 
     def test_dragon_tiger_collapsed_rows_color_limit_up_reason_names(self):
