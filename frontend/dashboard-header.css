@@ -102,6 +102,33 @@ html[data-theme="dark"] .dashboard-site-header .tab.active { border-color:var(--
 
 html[data-corners="square"] .dashboard-site-header :where(.settings-link,.header-link,.version-status,.refresh-pill,.theme-toggle,.category-tabs,.tab) { border-radius:0; }
 
+@media(min-width:721px) {
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header {
+    padding:7px max(clamp(10px,1.8vw,24px),calc((100vw - 1440px) / 2));
+  }
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header .header-row { min-height:30px; gap:8px; }
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header .dashboard-brand { gap:7px; font-size:19px; }
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header .dashboard-brand-logo { width:30px; height:30px; }
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header .header-actions {
+    --header-control-height:28px;
+    min-width:0;
+    gap:5px;
+    flex-wrap:nowrap;
+  }
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header :where(.settings-link,.header-link,.version-status,.refresh-pill) {
+    padding:4px 7px;
+    font-size:11px;
+  }
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header :where(.version-status,.refresh-pill) :where(span,b) { font-size:10px; }
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header .category-tabs { margin-top:5px; padding:2px; }
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header .tab { padding:5px 9px; font-size:11px; }
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header :where(.settings-link,.header-link,.version-status,.refresh-pill,.theme-toggle,.category-tabs,.tab) { box-shadow:none; }
+}
+
+@media(min-width:721px) and (max-width:1040px) {
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header :where(.header-link,.version-status,.refresh-pill) { display:none; }
+}
+
 @media(max-width:720px) {
   .dashboard-site-header { position:static; padding:8px 9px 7px; }
   .dashboard-site-header .header-row { gap:8px; }

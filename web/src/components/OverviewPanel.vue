@@ -1253,28 +1253,6 @@ onBeforeUnmount(() => {
 
 @media (min-width: 721px) {
   :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open) { overflow: hidden; }
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open header) {
-    padding: 7px max(clamp(10px, 1.8vw, 24px), calc((100vw - 1440px) / 2));
-  }
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .header-row) { gap: 8px; min-height: 30px; }
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .dashboard-brand) { gap: 7px; font-size: 19px; }
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .dashboard-brand-logo) { height: 30px; width: 30px; }
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .header-actions) {
-    --header-control-height: 28px;
-    flex-wrap: nowrap;
-    gap: 5px;
-    min-width: 0;
-  }
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .settings-link),
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .header-link),
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .version-status),
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .refresh-pill) { font-size: 11px; padding: 4px 7px; }
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .version-status span),
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .version-status b),
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .refresh-pill span),
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .refresh-pill b) { font-size: 10px; }
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .category-tabs) { margin-top: 5px; padding: 2px; }
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .tab) { font-size: 11px; padding: 5px 9px; }
   :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open main) {
     padding: 6px max(clamp(9px, 1.8vw, 24px), calc((100vw - 1440px) / 2));
   }
@@ -1579,12 +1557,6 @@ onBeforeUnmount(() => {
   .overview-page[data-density="ultra-compact"] .overview-flow-divider { margin-block: 2px; }
 }
 
-@media (min-width: 721px) and (max-width: 1040px) {
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .header-link),
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .version-status),
-  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .refresh-pill) { display: none; }
-}
-
 /* 直角主题采用金融终端式边框；状态圆点和数据进度轨道保留原有几何语义。 */
 :global(html[data-corners="square"]) .overview-command-head,
 :global(html[data-corners="square"]) .overview-stale-badge,
@@ -1620,23 +1592,4 @@ onBeforeUnmount(() => {
   border-radius: 0 !important;
 }
 
-:global(html[data-corners="square"] body.overview-terminal-open .settings-link),
-:global(html[data-corners="square"] body.overview-terminal-open .header-link),
-:global(html[data-corners="square"] body.overview-terminal-open .version-status),
-:global(html[data-corners="square"] body.overview-terminal-open .refresh-pill),
-:global(html[data-corners="square"] body.overview-terminal-open .theme-toggle),
-:global(html[data-corners="square"] body.overview-terminal-open .category-tabs),
-:global(html[data-corners="square"] body.overview-terminal-open .tab) {
-  border-radius: 0 !important;
-}
-
-:global(body.overview-terminal-open .settings-link),
-:global(body.overview-terminal-open .header-link),
-:global(body.overview-terminal-open .version-status),
-:global(body.overview-terminal-open .refresh-pill),
-:global(body.overview-terminal-open .theme-toggle),
-:global(body.overview-terminal-open .category-tabs),
-:global(body.overview-terminal-open .tab) {
-  box-shadow: none !important;
-}
 </style>

@@ -55,3 +55,4 @@ const { activeCategory } = useDashboardTabs()
 
 <style src="../../../frontend/dashboard.css"></style>
 <style src="../../../frontend/tongdaxin-theme.css"></style>
+<style src="../../../frontend/dashboard-compact.css"></style>

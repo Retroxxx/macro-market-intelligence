@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WEB_SRC = ROOT / "web" / "src"
 DISPLAY_PATH = WEB_SRC / "utils" / "homeOverviewDisplay.js"
 OVERVIEW_PATH = WEB_SRC / "components" / "OverviewPanel.vue"
+DASHBOARD_HEADER_STYLES_PATH = ROOT / "frontend" / "dashboard-header.css"
 ROUTER_PATH = WEB_SRC / "router.js"
 TABS_PATH = WEB_SRC / "composables" / "useDashboardTabs.js"
 
@@ -274,6 +275,7 @@ console.log(JSON.stringify({{
 
     def test_overview_route_is_lazy_read_only_and_lifecycle_safe(self):
         component = OVERVIEW_PATH.read_text(encoding="utf-8")
+        dashboard_header_styles = DASHBOARD_HEADER_STYLES_PATH.read_text(encoding="utf-8")
         display_model = DISPLAY_PATH.read_text(encoding="utf-8")
         breadth_component = (
             WEB_SRC / "components" / "indices" / "MarketBreadthChart.vue"
@@ -441,9 +443,22 @@ console.log(JSON.stringify({{
             component,
         )
         self.assertNotIn(':global(body.overview-terminal-open header)', component)
+        self.assertNotIn('body.overview-terminal-open header)', component)
         self.assertIn(
-            ':global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open header)',
-            component,
+            'html:not([data-theme="tongdaxin"]) .dashboard-site-header {',
+            dashboard_header_styles,
+        )
+        self.assertIn(
+            'html:not([data-theme="tongdaxin"]) .dashboard-site-header .dashboard-brand { gap:7px; font-size:19px; }',
+            dashboard_header_styles,
+        )
+        self.assertIn(
+            'html:not([data-theme="tongdaxin"]) .dashboard-site-header .dashboard-brand-logo { width:30px; height:30px; }',
+            dashboard_header_styles,
+        )
+        self.assertIn(
+            'html:not([data-theme="tongdaxin"]) .dashboard-site-header .category-tabs { margin-top:5px; padding:2px; }',
+            dashboard_header_styles,
         )
         self.assertIn(":payload=\"indicesState.marketBreadth\" terminal", component)
         self.assertIn("terminal: { type: Boolean, default: false }", breadth_component)
@@ -515,8 +530,6 @@ console.log(JSON.stringify({{
             ':global(html[data-corners="square"]) .overview-theme-stock-popover,',
             ':global(html[data-corners="square"]) .overview-tier,',
             ':global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-card),',
-            ':global(html[data-corners="square"] body.overview-terminal-open .category-tabs),',
-            ':global(html[data-corners="square"] body.overview-terminal-open .tab)',
         ):
             self.assertIn(square_overview_surface, component)
         self.assertIn("border-radius: 0 !important;", component)
@@ -531,9 +544,12 @@ console.log(JSON.stringify({{
             ".overview-panel { border-color: var(--overview-border-strong); }",
             ".overview-theme-table-head { background: var(--overview-surface-raised);",
             ".overview-candidate-table-head { background: var(--overview-surface-raised);",
-            "box-shadow: none !important;",
         ):
             self.assertIn(professional_terminal_style, component)
+        self.assertIn(
+            'html:not([data-theme="tongdaxin"]) .dashboard-site-header :where(.settings-link,.header-link,.version-status,.refresh-pill,.theme-toggle,.category-tabs,.tab) { box-shadow:none; }',
+            dashboard_header_styles,
+        )
 
 
 if __name__ == "__main__":

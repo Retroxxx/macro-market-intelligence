@@ -4346,6 +4346,40 @@ console.log(JSON.stringify([
             stylesheet,
         )
 
+    def test_standard_dashboard_routes_share_overview_compact_density(self):
+        dashboard_page = (
+            ROOT / 'web' / 'src' / 'components' / 'DashboardPage.vue'
+        ).read_text(encoding='utf-8')
+        compact_styles = (
+            ROOT / 'frontend' / 'dashboard-compact.css'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn(
+            '<style src="../../../frontend/dashboard-compact.css"></style>',
+            dashboard_page,
+        )
+        self.assertIn('@media (min-width:721px)', compact_styles)
+        self.assertNotIn('zoom:', compact_styles)
+        self.assertIn(
+            'html:not([data-theme="tongdaxin"]) main {',
+            compact_styles,
+        )
+        for route_surface in (
+            '.practice-chart-card',
+            '.indices-switch',
+            '.industry-flow-heading',
+            '.mainline-hero',
+            '.market-monitor-grid',
+            '.x-monitor-panel',
+            '.dragon-tiger-panel',
+            '.rating-table',
+        ):
+            self.assertIn(route_surface, compact_styles)
+        self.assertGreaterEqual(
+            compact_styles.count('html:not([data-theme="tongdaxin"])'),
+            80,
+        )
+
     def test_info_buttons_open_on_hover_for_pointer_devices(self):
         self.assertIn('@media (hover:hover) and (pointer:fine)', DASHBOARD_FRONTEND)
         self.assertIn(
