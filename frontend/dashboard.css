@@ -263,6 +263,7 @@
     .thread-reply { padding:0; }
     .thread-reply-content { font-size:15px; line-height:1.68; color:#f1f5f9; white-space:pre-wrap; word-break:break-word; }
     .market-monitor-grid { display:grid; gap:12px; }
+    .market-monitor-table-head { display:none; }
     .market-monitor-card { border:1px solid rgba(148,163,184,.15); border-radius:16px; overflow:hidden; background:linear-gradient(135deg, rgba(16,19,26,.92), rgba(10,15,24,.96)); box-shadow:0 14px 42px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.035); cursor:pointer; transition:background .14s ease, border-color .14s ease, transform .14s ease; }
     .market-monitor-card:hover, .us-market-summary-card:hover { border-color:rgba(124,92,255,.32); background:linear-gradient(135deg, rgba(18,24,36,.96), rgba(10,15,24,.96)); }
     .market-monitor-card.open, .us-market-summary-card.open { border-color:rgba(124,92,255,.42); background:linear-gradient(135deg, rgba(22,28,42,.98), rgba(9,13,22,.98)); }

@@ -3198,6 +3198,50 @@ console.log(JSON.stringify({
             tongdaxin_stylesheet,
         )
 
+    def test_tongdaxin_market_monitor_uses_compact_quote_table_rows(self):
+        tongdaxin_stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+        self.assertIn('class="market-monitor-table-head" aria-hidden="true"', MARKET_MONITOR_COMPONENTS)
+        self.assertIn('<span>核心判断</span>', MARKET_MONITOR_COMPONENTS)
+        self.assertIn('<span>关键数据</span>', MARKET_MONITOR_COMPONENTS)
+        self.assertIn('class="market-card-main"', MARKET_MONITOR_COMPONENTS)
+        self.assertIn('class="market-chevron" aria-hidden="true"', MARKET_MONITOR_COMPONENTS)
+        self.assertIn('.market-monitor-table-head { display:none; }', DASHBOARD_FRONTEND)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .market-monitor-table-head {\n  display:grid;',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn(
+            'grid-template-columns:minmax(145px,.8fr) 126px minmax(180px,1.3fr) minmax(260px,1.65fr) 48px 20px;',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn(
+            '.market-card-main,.market-card-title-row,.market-card-side) { display:contents; }',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn('background:var(--terminal-selection);', tongdaxin_stylesheet)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .market-monitor-card .market-chevron::before {',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .us-market-head > span:first-child,',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .market-day-pager {',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .market-monitor-table-head { display:none; }',
+            tongdaxin_stylesheet,
+        )
+        self.assertGreaterEqual(
+            tongdaxin_stylesheet.count(':not(.us-market-head):not(.market-monitor-card)'),
+            4,
+        )
+
     def test_us_ratings_use_vue_revision_polling_and_lazy_enrichment(self):
         self.assertIn('const HISTORY_LIMIT = 120', US_RATING_DATA)
         self.assertIn('const REFRESH_INTERVAL_MS = 10 * 60 * 1000', US_RATING_DATA)

@@ -677,6 +677,217 @@ html[data-theme="tongdaxin"]:root .market-metric-grid {
 }
 html[data-theme="tongdaxin"]:root .market-metric-item { border:0; }
 
+/* Market monitor entries use the same compact grid as a quote terminal. */
+html[data-theme="tongdaxin"]:root .market-monitor-grid {
+  gap:1px;
+  border:1px solid var(--line2);
+  background:var(--line);
+}
+html[data-theme="tongdaxin"]:root .market-monitor-table-head {
+  display:grid;
+  grid-template-columns:minmax(145px,.8fr) 126px minmax(180px,1.3fr) minmax(260px,1.65fr) 48px 20px;
+  min-height:24px;
+  background:var(--terminal-header);
+  color:#c8c8c8;
+  font-size:11px;
+}
+html[data-theme="tongdaxin"]:root .market-monitor-table-head > span {
+  display:flex;
+  min-width:0;
+  align-items:center;
+  border-left:1px solid var(--line);
+  padding:3px 6px;
+}
+html[data-theme="tongdaxin"]:root .market-monitor-table-head > span:first-child { border-left:0; }
+html[data-theme="tongdaxin"]:root .market-monitor-card {
+  border:0;
+  background:var(--terminal-row);
+}
+html[data-theme="tongdaxin"]:root .market-monitor-card:nth-of-type(even) { background:var(--terminal-row-alt); }
+html[data-theme="tongdaxin"]:root .market-monitor-card:hover { border-color:transparent; background:#181818; }
+html[data-theme="tongdaxin"]:root .market-monitor-card.open { border-color:transparent; background:#000; }
+html[data-theme="tongdaxin"]:root .market-monitor-card .market-card-head {
+  display:grid;
+  grid-template-columns:minmax(145px,.8fr) 126px minmax(180px,1.3fr) minmax(260px,1.65fr) 48px 20px;
+  gap:0;
+  padding:0;
+  background:inherit;
+}
+html[data-theme="tongdaxin"]:root .market-monitor-card.open .market-card-head {
+  border-bottom:1px solid #2949ff;
+  background:var(--terminal-selection);
+}
+html[data-theme="tongdaxin"]:root .market-monitor-card :where(.market-card-main,.market-card-title-row,.market-card-side) { display:contents; }
+html[data-theme="tongdaxin"]:root .market-monitor-card :where(
+  .market-card-title,
+  .market-card-time,
+  .market-card-preview,
+  .market-chip-row,
+  .market-type,
+  .market-chevron
+) {
+  box-sizing:border-box;
+  min-width:0;
+  min-height:24px;
+  margin:0;
+  border:0;
+  border-left:1px solid var(--line);
+  padding:3px 6px;
+  overflow:hidden;
+  background:transparent;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+html[data-theme="tongdaxin"]:root .market-monitor-card .market-card-title {
+  display:flex;
+  align-items:center;
+  border-left:0;
+  color:#e0e0e0;
+  font-size:12px;
+  font-weight:700;
+}
+html[data-theme="tongdaxin"]:root .market-monitor-card .market-card-time {
+  display:flex;
+  align-items:center;
+  color:#929292;
+  font-family:Tahoma,Arial,sans-serif;
+  font-size:11px;
+}
+html[data-theme="tongdaxin"]:root .market-monitor-card .market-card-preview {
+  display:block;
+  color:#c0c0c0;
+  font-size:11px;
+  line-height:18px;
+}
+html[data-theme="tongdaxin"]:root .market-monitor-card .market-chip-row {
+  display:flex;
+  flex-wrap:nowrap;
+  gap:0;
+}
+html[data-theme="tongdaxin"]:root .market-monitor-card .market-chip {
+  flex:0 1 auto;
+  min-width:0;
+  border:0;
+  border-left:1px solid #4a0000;
+  padding:0 5px;
+  overflow:hidden;
+  background:transparent;
+  color:#aaa;
+  font-size:10px;
+  line-height:18px;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+html[data-theme="tongdaxin"]:root .market-monitor-card .market-chip:first-child { border-left:0; padding-left:0; }
+html[data-theme="tongdaxin"]:root .market-monitor-card .market-chip.up { color:#ff5555; }
+html[data-theme="tongdaxin"]:root .market-monitor-card .market-chip.down { color:#21eff6; }
+html[data-theme="tongdaxin"]:root .market-monitor-card .market-type {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#fff200;
+  font-size:11px;
+  font-weight:400;
+}
+html[data-theme="tongdaxin"]:root .market-monitor-card .market-chevron {
+  display:grid;
+  width:auto;
+  place-items:center;
+  padding:2px;
+  color:#d8d8d8;
+  font-family:Tahoma,Arial,sans-serif;
+  font-size:0;
+  line-height:1;
+  transform:none;
+}
+html[data-theme="tongdaxin"]:root .market-monitor-card .market-chevron::before {
+  content:'+';
+  display:grid;
+  width:14px;
+  height:14px;
+  place-items:center;
+  border:1px solid #666;
+  background:#1b1b1b;
+  font-size:11px;
+}
+html[data-theme="tongdaxin"]:root .market-monitor-card.open .market-chevron { color:#fff200; transform:none; }
+html[data-theme="tongdaxin"]:root .market-monitor-card.open .market-chevron::before { content:'\2212'; border-color:#fff200; }
+
+html[data-theme="tongdaxin"]:root .us-market-summary-card {
+  margin-top:3px;
+  border-color:var(--line2);
+  background:var(--terminal-row);
+}
+html[data-theme="tongdaxin"]:root .us-market-summary-card::before { display:none; }
+html[data-theme="tongdaxin"]:root .us-market-head {
+  display:grid;
+  grid-template-columns:170px minmax(0,1fr) 54px 20px;
+  gap:0;
+  padding:0;
+  background:var(--terminal-row);
+}
+html[data-theme="tongdaxin"]:root .us-market-summary-card.open .us-market-head {
+  border-bottom:1px solid #2949ff;
+  background:var(--terminal-selection);
+}
+html[data-theme="tongdaxin"]:root .us-market-head > span:first-child,
+html[data-theme="tongdaxin"]:root .us-market-head-actions { display:contents; }
+html[data-theme="tongdaxin"]:root .us-market-sub { display:none; }
+html[data-theme="tongdaxin"]:root .us-market-title,
+html[data-theme="tongdaxin"]:root .us-market-preview,
+html[data-theme="tongdaxin"]:root .us-market-tone,
+html[data-theme="tongdaxin"]:root .us-market-chevron {
+  box-sizing:border-box;
+  min-width:0;
+  min-height:24px;
+  margin:0;
+  border:0;
+  border-left:1px solid var(--line);
+  padding:3px 6px;
+  overflow:hidden;
+  background:transparent;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+html[data-theme="tongdaxin"]:root .us-market-title { display:flex; align-items:center; border-left:0; color:#e0e0e0; font-size:12px; }
+html[data-theme="tongdaxin"]:root .us-market-preview { display:block; color:#c0c0c0; font-size:11px; line-height:18px; }
+html[data-theme="tongdaxin"]:root .us-market-tone { display:flex; align-items:center; justify-content:center; color:#fff200; font-size:11px; font-weight:400; }
+html[data-theme="tongdaxin"]:root .us-market-chevron {
+  display:grid;
+  width:auto;
+  place-items:center;
+  padding:2px;
+  color:#d8d8d8;
+  font-size:0;
+  transform:none;
+}
+html[data-theme="tongdaxin"]:root .us-market-chevron::before {
+  content:'+';
+  display:grid;
+  width:14px;
+  height:14px;
+  place-items:center;
+  border:1px solid #666;
+  background:#1b1b1b;
+  font-family:Tahoma,Arial,sans-serif;
+  font-size:11px;
+}
+html[data-theme="tongdaxin"]:root .us-market-summary-card.open .us-market-chevron { color:#fff200; transform:none; }
+html[data-theme="tongdaxin"]:root .us-market-summary-card.open .us-market-chevron::before { content:'\2212'; border-color:#fff200; }
+
+html[data-theme="tongdaxin"]:root .market-day-pager {
+  gap:8px;
+  margin-top:3px;
+  border-color:var(--line2);
+  padding:4px 6px;
+  background:var(--terminal-header);
+}
+html[data-theme="tongdaxin"]:root .market-day-pager > div:first-child { display:flex; align-items:center; gap:9px; }
+html[data-theme="tongdaxin"]:root .market-day-title { color:#e0e0e0; font-size:12px; font-weight:700; }
+html[data-theme="tongdaxin"]:root .market-day-sub { margin:0; color:#929292; font-size:10px; }
+html[data-theme="tongdaxin"]:root .market-day-actions { gap:2px; }
+html[data-theme="tongdaxin"]:root .market-day-btn { min-height:22px; padding:2px 7px; font-size:11px; }
+
 /* Market reports follow the dense quote-table typography of the terminal. */
 html[data-theme="tongdaxin"]:root .market-card-detail {
   padding:0 4px 4px;
@@ -750,6 +961,115 @@ html[data-theme="tongdaxin"]:root .market-card-detail .market-flow-label { font-
 html[data-theme="tongdaxin"]:root .market-card-detail :where(.market-num,.market-symbol) {
   padding:0 1px;
   font-size:inherit;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-overview {
+  border-color:var(--line);
+  background:#000;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-mood-panel {
+  display:grid;
+  grid-template-columns:58px minmax(0,1fr);
+  align-items:center;
+  gap:6px;
+  border-color:var(--line);
+  background:#050505;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-mood-label {
+  margin:0;
+  border-right:1px solid #4a0000;
+  color:#999;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-mood-text { color:#e0e0e0; font-weight:400; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-metric-item {
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+  align-items:center;
+  gap:6px;
+  background:#000;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-metric-label { color:#888; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-metric-value {
+  margin:0;
+  color:#d8d8d8;
+  font-family:Tahoma,Arial,sans-serif;
+  font-weight:700;
+  text-align:right;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section-list { grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section {
+  border-color:var(--line);
+  background:#000;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section-head {
+  border-color:var(--line);
+  background:var(--terminal-header);
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section-title { color:#d8d8d8; font-weight:700; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section.hot .market-section-title { color:#ff5555; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section.flow .market-section-title { color:#21eff6; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section.risk .market-section-title { color:#ff5555; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section.tip .market-section-title { color:#fff200; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section-count { color:#929292; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section-body { background:#000; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-line.item,
+html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-line.flow { border-color:#4a0000; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-line.item::before {
+  border-right:1px solid #4a0000;
+  color:#777;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-line.risk,
+html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-line.risk::before { color:#ff5555; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-line.tip::before,
+html[data-theme="tongdaxin"]:root .market-card-detail .market-flow-label { color:#e8df00; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-num.up,
+html[data-theme="tongdaxin"]:root .market-card-detail .market-metric-value.up { color:#ff4141; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-num.down,
+html[data-theme="tongdaxin"]:root .market-card-detail .market-metric-value.down { color:#21eff6; }
+
+@media (max-width:720px) {
+  html[data-theme="tongdaxin"]:root .market-monitor-grid { gap:2px; border:0; background:transparent; }
+  html[data-theme="tongdaxin"]:root .market-monitor-table-head { display:none; }
+  html[data-theme="tongdaxin"]:root .market-monitor-card { border:1px solid var(--line); }
+  html[data-theme="tongdaxin"]:root .market-monitor-card .market-card-head {
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:5px;
+    padding:4px 5px;
+  }
+  html[data-theme="tongdaxin"]:root .market-monitor-card :where(.market-card-main,.market-card-title-row,.market-card-side) { display:flex; }
+  html[data-theme="tongdaxin"]:root .market-monitor-card .market-card-main { display:block; min-width:0; }
+  html[data-theme="tongdaxin"]:root .market-monitor-card .market-card-title-row { align-items:center; gap:6px; }
+  html[data-theme="tongdaxin"]:root .market-monitor-card .market-card-side { align-items:center; gap:3px; }
+  html[data-theme="tongdaxin"]:root .market-monitor-card :where(
+    .market-card-title,
+    .market-card-time,
+    .market-card-preview,
+    .market-chip-row,
+    .market-type,
+    .market-chevron
+  ) { min-height:0; border-left:0; padding:0; }
+  html[data-theme="tongdaxin"]:root .market-monitor-card .market-card-title { font-size:12px; }
+  html[data-theme="tongdaxin"]:root .market-monitor-card .market-card-time { font-size:10px; }
+  html[data-theme="tongdaxin"]:root .market-monitor-card .market-card-preview { margin-top:3px; line-height:1.35; }
+  html[data-theme="tongdaxin"]:root .market-monitor-card .market-chip-row { margin-top:3px; }
+  html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-overview,
+  html[data-theme="tongdaxin"]:root .market-card-detail .market-section-list { grid-template-columns:minmax(0,1fr); }
+  html[data-theme="tongdaxin"]:root .market-card-detail .market-mood-panel { border-right:0; border-bottom:1px solid var(--line); }
+  html[data-theme="tongdaxin"]:root .us-market-head {
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:5px;
+    padding:4px 5px;
+  }
+  html[data-theme="tongdaxin"]:root .us-market-head > span:first-child { display:block; min-width:0; }
+  html[data-theme="tongdaxin"]:root .us-market-head-actions { display:flex; align-items:center; gap:3px; }
+  html[data-theme="tongdaxin"]:root .us-market-sub { display:block; margin-top:2px; }
+  html[data-theme="tongdaxin"]:root :where(.us-market-title,.us-market-preview,.us-market-tone,.us-market-chevron) {
+    min-height:0;
+    border-left:0;
+    padding:0;
+  }
+  html[data-theme="tongdaxin"]:root .us-market-preview { margin-top:3px; line-height:1.35; }
+  html[data-theme="tongdaxin"]:root .market-day-pager { display:grid; }
+  html[data-theme="tongdaxin"]:root .market-day-pager > div:first-child { justify-content:space-between; }
 }
 
 html[data-theme="tongdaxin"]:root .sector-item.up,
@@ -1628,7 +1948,7 @@ html[data-theme="tongdaxin"]:root :where(.primary-btn,.danger-btn,.save-btn) {
 /* Shared Windows-era push-button chrome for every terminal action control. */
 html[data-theme="tongdaxin"]:root body :where(
   button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
-  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card),
   a.header-link,
   a.settings-link,
   a.toplink,
@@ -1651,7 +1971,7 @@ html[data-theme="tongdaxin"]:root body :where(
 
 html[data-theme="tongdaxin"]:root body :where(
   button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
-  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card),
   a.header-link,
   a.settings-link,
   a.toplink,
@@ -1669,7 +1989,7 @@ html[data-theme="tongdaxin"]:root body :where(
 
 html[data-theme="tongdaxin"]:root body :where(
   button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
-  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card),
   a.header-link,
   a.settings-link,
   a.toplink,
@@ -1686,7 +2006,7 @@ html[data-theme="tongdaxin"]:root body :where(
 
 html[data-theme="tongdaxin"]:root body :where(
   button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
-  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card),
   a.header-link,
   a.settings-link,
   a.toplink,
