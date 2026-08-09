@@ -660,6 +660,98 @@ html[data-theme="tongdaxin"]:root :where(
   color:#aaa;
 }
 
+html[data-theme="tongdaxin"]:root .market-section-count {
+  border:0;
+  border-left:1px solid var(--line);
+  padding:1px 0 1px 7px;
+  background:transparent;
+}
+html[data-theme="tongdaxin"]:root .market-detail-overview { padding:0; }
+html[data-theme="tongdaxin"]:root .market-mood-panel {
+  border-right:1px solid var(--line);
+  background:#050505;
+}
+html[data-theme="tongdaxin"]:root .market-metric-grid {
+  gap:1px;
+  background:var(--line);
+}
+html[data-theme="tongdaxin"]:root .market-metric-item { border:0; }
+
+/* Market reports follow the dense quote-table typography of the terminal. */
+html[data-theme="tongdaxin"]:root .market-card-detail {
+  padding:0 4px 4px;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-box {
+  gap:3px;
+  padding-top:3px;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-mood-panel {
+  padding:5px 6px;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-mood-label {
+  margin-bottom:2px;
+  font-size:9px;
+  line-height:1.2;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-mood-text {
+  font-size:12px;
+  line-height:1.3;
+  font-weight:700;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-metric-item {
+  padding:4px 5px;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-metric-label {
+  font-size:9px;
+  line-height:1.15;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-metric-value {
+  margin-top:1px;
+  font-size:12px;
+  line-height:1.15;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section-list { gap:3px; }
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section-head {
+  min-height:22px;
+  padding:3px 5px;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section-title {
+  font-size:11px;
+  line-height:1.2;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section-count {
+  padding-left:5px;
+  font-size:9px;
+  line-height:1.2;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-section-body {
+  padding:2px 5px 3px;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-line {
+  font-size:11px;
+  line-height:1.35;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-line.item {
+  grid-template-columns:18px minmax(0,1fr);
+  gap:3px;
+  padding:2px 0;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-line.item::before {
+  margin-top:.1em;
+  font-size:8px;
+  line-height:1.25;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-line.flow {
+  grid-template-columns:34px minmax(0,1fr);
+  gap:5px;
+  padding:3px 0;
+}
+html[data-theme="tongdaxin"]:root .market-card-detail .market-flow-label { font-size:10px; }
+html[data-theme="tongdaxin"]:root .market-card-detail :where(.market-num,.market-symbol) {
+  padding:0 1px;
+  font-size:inherit;
+}
+
 html[data-theme="tongdaxin"]:root .sector-item.up,
 html[data-theme="tongdaxin"]:root .hot-item.up,
 html[data-theme="tongdaxin"]:root .index-card.index-up,

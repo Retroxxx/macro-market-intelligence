@@ -149,11 +149,11 @@
   html:not([data-theme="tongdaxin"]) .market-chip-row { gap:3px; margin-top:5px; }
   html:not([data-theme="tongdaxin"]) .market-chip { padding:2px 6px; font-size:9px; }
   html:not([data-theme="tongdaxin"]) .market-card-detail { padding:0 10px 9px; }
-  html:not([data-theme="tongdaxin"]) .market-detail-box { gap:7px; padding-top:7px; }
-  html:not([data-theme="tongdaxin"]) .market-detail-overview { gap:7px; padding:7px; }
+  html:not([data-theme="tongdaxin"]) .market-detail-box { gap:6px; padding-top:7px; }
+  html:not([data-theme="tongdaxin"]) .market-detail-overview { gap:0; padding:0; }
   html:not([data-theme="tongdaxin"]) .market-section-list { gap:6px; }
-  html:not([data-theme="tongdaxin"]) .market-section-head { padding:6px 8px; }
-  html:not([data-theme="tongdaxin"]) .market-section-body { padding:5px 8px 6px; }
+  html:not([data-theme="tongdaxin"]) .market-section-head { padding:5px 8px; }
+  html:not([data-theme="tongdaxin"]) .market-section-body { padding:3px 8px 5px; }
   html:not([data-theme="tongdaxin"]) .market-detail-line { font-size:11px; line-height:1.4; }
   html:not([data-theme="tongdaxin"]) .market-day-pager { gap:7px; margin-top:6px; padding:7px 9px; }
   html:not([data-theme="tongdaxin"]) .market-day-title { font-size:12px; }

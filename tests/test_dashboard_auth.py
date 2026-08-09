@@ -3116,6 +3116,88 @@ process.stdout.write(JSON.stringify({
         self.assertNotIn('function renderMarketMonitor(', DASHBOARD_FRONTEND)
         self.assertNotIn('function loadMarketMonitorAuxData()', DASHBOARD_FRONTEND)
 
+    def test_market_monitor_expanded_reports_remove_emoji_and_use_financial_rows(self):
+        scenario = r"""
+import {
+  cleanMarketLine,
+  marketDetailLine,
+  marketMoodLine,
+  marketSectionDisplayItems,
+  parseMarketDetail,
+  summarizeMarketRecord,
+} from SOURCE;
+const content = [
+  '🔥 A股盘后总结',
+  '📊 市场概况',
+  '💬 结构性偏强，但需确认量能。',
+  '上涨 2856 | 下跌 2536 | 成交额 26834.02亿',
+  '💰 资金流向',
+  '流入：半导体 119.46亿',
+  '⚠️ 风险',
+  'ℹ️ 数据为快照，以交易软件为准',
+].join('\n');
+const parsed = parseMarketDetail(content);
+console.log(JSON.stringify({
+  clean: cleanMarketLine('🧭 次日盘前指引'),
+  summary: summarizeMarketRecord({content}),
+  titles: parsed.sections.map(section => section.title),
+  mood: marketMoodLine(parsed.sections),
+  items: parsed.sections.map(marketSectionDisplayItems),
+  note: marketDetailLine('ℹ️ 数据为快照，以交易软件为准'),
+}));
+"""
+        output = subprocess.check_output(
+            [
+                'node', '--input-type=module', '-e',
+                scenario.replace('SOURCE', json.dumps(MARKET_MONITOR_UTILS_PATH.as_uri())),
+            ],
+            cwd=ROOT,
+            text=True,
+        )
+        result = json.loads(output)
+        self.assertEqual(result['clean'], '次日盘前指引')
+        self.assertEqual(result['summary']['title'], 'A股盘后总结')
+        self.assertEqual(result['summary']['preview'], '结构性偏强，但需确认量能。')
+        self.assertEqual(result['titles'], ['市场概况', '资金流向', '风险'])
+        self.assertEqual(result['mood'], '结构性偏强，但需确认量能。')
+        self.assertEqual(result['items'][1], ['流入：半导体 119.46亿'])
+        self.assertEqual(result['items'][2], ['数据为快照，以交易软件为准'])
+        self.assertTrue(result['note']['note'])
+        self.assertEqual(
+            ''.join(segment['text'] for segment in result['note']['segments']),
+            '数据为快照，以交易软件为准',
+        )
+        self.assertIn('MARKET_EMOJI_PATTERN', MARKET_MONITOR_UTILS)
+        self.assertNotIn('class="market-section-icon"', MARKET_MONITOR_COMPONENTS)
+        self.assertIn('.market-section::before { display:none; }', DASHBOARD_FRONTEND)
+        self.assertIn('counter(market-detail-row, decimal-leading-zero)', DASHBOARD_FRONTEND)
+        self.assertIn('border-radius:3px; padding:0; background:', DASHBOARD_FRONTEND)
+
+        tongdaxin_stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+        self.assertIn(
+            'Market reports follow the dense quote-table typography of the terminal.',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .market-card-detail {\n  padding:0 4px 4px;',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .market-card-detail .market-mood-text {',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn('font-size:12px;\n  line-height:1.3;', tongdaxin_stylesheet)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .market-card-detail .market-detail-line {\n  font-size:11px;',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .market-card-detail .market-section-head {\n  min-height:22px;',
+            tongdaxin_stylesheet,
+        )
+
     def test_us_ratings_use_vue_revision_polling_and_lazy_enrichment(self):
         self.assertIn('const HISTORY_LIMIT = 120', US_RATING_DATA)
         self.assertIn('const REFRESH_INTERVAL_MS = 10 * 60 * 1000', US_RATING_DATA)
