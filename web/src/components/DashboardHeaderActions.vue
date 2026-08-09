@@ -1,6 +1,13 @@
 <script setup>
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import LastUpdated from './LastUpdated.vue'
 import VersionStatus from './VersionStatus.vue'
+
+const route = useRoute()
+const settingsActive = computed(() => (
+  route.path === '/admin' || route.path.startsWith('/admin/')
+))
 </script>
 
 <template>
@@ -12,7 +19,14 @@ import VersionStatus from './VersionStatus.vue'
       <span>GitHub</span>
     </a>
     <VersionStatus />
-    <RouterLink class="settings-link" to="/admin" title="进入设置页" aria-label="进入设置页">设置</RouterLink>
+    <RouterLink
+      class="settings-link"
+      :class="{ active: settingsActive }"
+      to="/admin"
+      title="进入设置页"
+      aria-label="进入设置页"
+      :aria-current="settingsActive ? 'page' : undefined"
+    >设置</RouterLink>
     <LastUpdated />
   </div>
 </template>

@@ -4586,7 +4586,13 @@ console.log(JSON.stringify([
         self.assertIn('class="header-link"', header_actions)
         self.assertIn('<VersionStatus />', header_actions)
         self.assertNotIn('<ThemeToggle', header_actions)
-        self.assertIn('<RouterLink class="settings-link" to="/admin"', header_actions)
+        self.assertIn("import { computed } from 'vue'", header_actions)
+        self.assertIn("import { useRoute } from 'vue-router'", header_actions)
+        self.assertIn("route.path === '/admin' || route.path.startsWith('/admin/')", header_actions)
+        self.assertIn('class="settings-link"', header_actions)
+        self.assertIn(':class="{ active: settingsActive }"', header_actions)
+        self.assertIn('to="/admin"', header_actions)
+        self.assertIn(':aria-current="settingsActive ? \'page\' : undefined"', header_actions)
         self.assertNotIn('<a class="settings-link" href="/admin"', header_actions)
         self.assertIn('<LastUpdated />', header_actions)
         self.assertIn("window.dispatchEvent(new CustomEvent('niuone:last-updated'", admin_page)
@@ -4595,6 +4601,8 @@ console.log(JSON.stringify([
             '.dashboard-site-header :where(.settings-link,.header-link,.version-status,.refresh-pill)',
             shared_header_styles,
         )
+        self.assertIn('.dashboard-site-header .settings-link.active', shared_header_styles)
+        self.assertIn('.settings-link.active,', stylesheet)
         self.assertIn('v-for="item in items"', category_tabs)
         self.assertIn(':data-category="item.key"', category_tabs)
         self.assertNotIn('data-category="settings"', category_tabs)

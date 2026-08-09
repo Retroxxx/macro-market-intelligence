@@ -112,6 +112,43 @@ console.log(JSON.stringify({{
             },
         )
 
+    def test_settings_routes_do_not_activate_a_dashboard_tab(self) -> None:
+        scenario = f"""
+globalThis.window = {{
+  location: {{pathname: '/admin/settings/appearance', search: '?category=practice'}},
+  setTimeout,
+  clearTimeout,
+}};
+const module = await import(
+  {json.dumps(DASHBOARD_TABS_PATH.as_uri())} + '?settings-route-test=1'
+);
+const tabs = module.useDashboardTabs();
+console.log(JSON.stringify({{
+  active: tabs.activeCategory.value,
+  activeItems: tabs.items.value.filter(item => item.active).map(item => item.key),
+  admin: module.dashboardCategoryFromLocation('/admin', ''),
+  settings: module.dashboardCategoryFromLocation('/admin/settings/appearance', 'practice'),
+}}));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", scenario],
+            cwd=ROOT / "web",
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "active": "",
+                "activeItems": [],
+                "admin": "",
+                "settings": "",
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

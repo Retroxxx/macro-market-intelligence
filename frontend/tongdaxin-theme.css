@@ -2312,6 +2312,7 @@ html[data-theme="tongdaxin"]:root body :where(
 html[data-theme="tongdaxin"]:root body :where(
   button.active,
   button[aria-pressed="true"],
+  .settings-link.active,
   .tab.active,
   .notification-channel-activation.is-active
 ):not(.practice-trade-marker):not(.theme-toggle):not(.admin-theme-toggle) {

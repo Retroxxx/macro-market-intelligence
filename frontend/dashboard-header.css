@@ -41,6 +41,7 @@
 }
 .dashboard-site-header :where(.settings-link,.header-link) { color:var(--shared-header-soft); font-size:13px; font-weight:700; text-decoration:none; transition:.16s ease; }
 .dashboard-site-header :where(.settings-link,.header-link):hover { border-color:#b9c2ce; background:var(--shared-header-panel2); }
+.dashboard-site-header .settings-link.active { border-color:var(--shared-header-accent-border); background:var(--shared-header-accent-soft); color:var(--shared-header-accent-text); }
 .dashboard-site-header :where(.settings-link,.header-link):focus-visible { outline:2px solid rgba(36,87,197,.45); outline-offset:2px; }
 .dashboard-site-header .header-link svg { width:15px; height:15px; flex:0 0 auto; fill:currentColor; }
 .dashboard-site-header .version-status { font:inherit; text-decoration:none; cursor:pointer; transition:.16s ease; }

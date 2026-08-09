@@ -32,7 +32,7 @@ const REQUEST_TIMEOUT_MS = 15 * 1000
 
 const initialQueryCategory = new URLSearchParams(window.location.search).get('category') || ''
 const initialCategory = dashboardCategoryFromLocation(window.location.pathname, initialQueryCategory)
-const activeCategory = ref(Object.hasOwn(CATEGORY_PATHS, initialCategory) ? initialCategory : 'overview')
+const activeCategory = ref(initialCategory)
 const autoVersionCheckEnabled = ref(true)
 const currentVersion = ref('dev')
 const usFeaturesEnabled = ref(false)
@@ -61,10 +61,11 @@ const items = computed(() => CATEGORY_ORDER
 
 export function dashboardCategoryFromLocation(path, queryCategory = '') {
   const normalizedQuery = LEGACY_CATEGORY_ALIASES[queryCategory] || queryCategory
-  const category = (path === '/' && normalizedQuery ? normalizedQuery : PATH_CATEGORIES[path])
-    || normalizedQuery
-    || 'overview'
-  return Object.hasOwn(CATEGORY_PATHS, category) ? category : 'overview'
+  if (path === '/') {
+    const category = normalizedQuery || 'overview'
+    return Object.hasOwn(CATEGORY_PATHS, category) ? category : 'overview'
+  }
+  return PATH_CATEGORIES[path] || ''
 }
 
 export function dashboardCategoryPath(category) {
@@ -72,7 +73,7 @@ export function dashboardCategoryPath(category) {
 }
 
 function setActiveCategory(category) {
-  activeCategory.value = dashboardCategoryFromLocation(CATEGORY_PATHS[category] || '', category)
+  activeCategory.value = Object.hasOwn(CATEGORY_PATHS, category) ? category : ''
 }
 
 function setCategoryCount(category, count) {

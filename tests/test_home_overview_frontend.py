@@ -293,7 +293,8 @@ console.log(JSON.stringify({{
         self.assertNotIn("redirect: '/practice'", router)
         self.assertIn("overview: '/'", tabs)
         self.assertIn("overview: '总览'", tabs)
-        self.assertIn("path === '/' && normalizedQuery", tabs)
+        self.assertIn("if (path === '/')", tabs)
+        self.assertIn("return PATH_CATEGORIES[path] || ''", tabs)
         for activation in (
             "activateIndices()",
             "activateNiuOneMainline()",
