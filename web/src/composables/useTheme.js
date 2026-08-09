@@ -113,10 +113,6 @@ export function useTheme() {
     applyTheme('tongdaxin', true)
   }
 
-  function toggleTheme() {
-    applyTheme(theme.value === 'light' ? 'dark' : 'light', true)
-  }
-
   function handleSystemTheme(event) {
     if (!storedTheme()) applyTheme(event.matches ? 'dark' : 'light')
   }
@@ -154,16 +150,10 @@ export function useTheme() {
     window.removeEventListener('storage', handleStorage)
   })
 
-  const label = computed(() => (
-    theme.value === 'light' ? '切换为深色主题' : '切换为浅色主题'
-  ))
-
   return {
     cornerStyle: computed(() => cornerStyle.value),
-    isDark: computed(() => theme.value !== 'light'),
     isSquare: computed(() => cornerStyle.value === 'square'),
     isTongdaxin: computed(() => theme.value === 'tongdaxin'),
-    label,
     setCornerStyle,
     setStandardCornerStyle,
     setStandardTheme,
@@ -171,6 +161,5 @@ export function useTheme() {
     setTongdaxinTheme,
     standardTheme: computed(() => standardTheme.value),
     theme: computed(() => theme.value),
-    toggleTheme,
   }
 }

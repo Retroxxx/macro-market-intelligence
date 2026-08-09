@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AdminLogin from './AdminLogin.vue'
 import AdminPageTitle from './AdminPageTitle.vue'
-import ThemeToggle from './ThemeToggle.vue'
 import { useAdminConfig } from '../composables/useAdminConfig.js'
 
 document.title = '牛牛1号 · 策略回测'
@@ -578,7 +577,6 @@ onBeforeUnmount(stopPolling)
     <div class="admin-header-inner">
       <div><div class="eyebrow">牛牛1号 · 策略历史回测</div><AdminPageTitle /></div>
       <div class="admin-header-actions">
-        <ThemeToggle button-id="backtestThemeToggle" button-class="admin-theme-toggle" />
         <RouterLink class="toplink" to="/admin/settings/stock-strategy">返回策略设置</RouterLink>
         <a class="toplink" href="/">返回首页</a>
       </div>

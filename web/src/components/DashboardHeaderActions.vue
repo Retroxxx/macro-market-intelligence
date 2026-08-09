@@ -1,6 +1,5 @@
 <script setup>
 import LastUpdated from './LastUpdated.vue'
-import ThemeToggle from './ThemeToggle.vue'
 import VersionStatus from './VersionStatus.vue'
 </script>
 
@@ -13,7 +12,6 @@ import VersionStatus from './VersionStatus.vue'
       <span>GitHub</span>
     </a>
     <VersionStatus />
-    <ThemeToggle button-id="themeToggle" button-class="theme-toggle" />
     <RouterLink class="settings-link" to="/admin" title="进入设置页" aria-label="进入设置页">设置</RouterLink>
     <LastUpdated />
   </div>
