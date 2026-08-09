@@ -48,6 +48,10 @@ def complete_context(**overrides):
         "entry_niuone_lifecycle_entry_policy": "probe_only",
         "entry_mainline_state": "candidate",
         "entry_signal_score": 9.1,
+        "entry_stock_activity_score": 84.25,
+        "entry_stock_market_amount_percentile": 90.0,
+        "entry_stock_theme_amount_percentile": 75.0,
+        "entry_stock_activity_confirmed": True,
         "entry_same_stage_candidate_rank": 1,
         "entry_execution_gap_pct": 0.5,
         "entry_daily_v_recovery_ratio": 1.5,
@@ -358,7 +362,7 @@ def complete_operating_states(
             }
             decision_rows.extend({
                 "_forward_payload_available": True,
-                "candidate_evidence_schema_version": 1,
+                "candidate_evidence_schema_version": 2,
                 "execution_evidence_schema_version": 2,
                 "candidate_evidence": [],
                 "schedule_slot": f"{day_key} {hhmm}",
@@ -389,6 +393,11 @@ def candidate_evidence(
             "not_selected_for_decision"
         ],
         "niuone_lifecycle_stage": stage,
+        "stock_activity_data_available": True,
+        "stock_market_amount_percentile": 90.0,
+        "stock_theme_amount_percentile": 75.0,
+        "stock_activity_score": 84.25,
+        "stock_activity_confirmed": True,
     }
 
 
@@ -1080,7 +1089,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
         rows = [
             {
                 "_forward_payload_available": True,
-                "candidate_evidence_schema_version": 1,
+                "candidate_evidence_schema_version": 2,
                 "execution_evidence_schema_version": 2,
                 "candidate_evidence": [],
                 "time": "2026-08-03 09:25:05",
@@ -1092,7 +1101,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
             },
             {
                 "_forward_payload_available": True,
-                "candidate_evidence_schema_version": 1,
+                "candidate_evidence_schema_version": 2,
                 "execution_evidence_schema_version": 2,
                 "candidate_evidence": [candidate_evidence("600000")],
                 "time": "2026-08-03 09:30:01",
@@ -1119,7 +1128,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
             },
             {
                 "_forward_payload_available": True,
-                "candidate_evidence_schema_version": 1,
+                "candidate_evidence_schema_version": 2,
                 "execution_evidence_schema_version": 2,
                 "candidate_evidence": [candidate_evidence(
                     "600001",
@@ -1298,7 +1307,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
     def test_eligible_candidate_with_mismatched_route_is_invalid_evidence(self):
         row = {
             "_forward_payload_available": True,
-            "candidate_evidence_schema_version": 1,
+            "candidate_evidence_schema_version": 2,
             "execution_evidence_schema_version": 2,
             "candidate_evidence": [candidate_evidence(
                 "600000",
@@ -1332,7 +1341,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
     def test_rejected_model_buy_retains_structured_sizing_evidence(self):
         row = {
             "_forward_payload_available": True,
-            "candidate_evidence_schema_version": 1,
+            "candidate_evidence_schema_version": 2,
             "execution_evidence_schema_version": 2,
             "candidate_evidence": [candidate_evidence("600000")],
             "time": "2026-08-03 10:00:05",
@@ -2626,7 +2635,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
 
         self.assertEqual(report["overall"]["completed_trade_count"], 1)
         self.assertEqual(report["coverage"]["duplicate_trade_count"], 2)
-        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v31")
+        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v32")
         self.assertEqual(
             report["protocol"][
                 "niuone_markup_upgrade_absolute_position_cap_pct"
@@ -2669,7 +2678,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
             report["protocol"]
             ["niuone_markup_rebalance_lifetime_add_limit"]
         )
-        self.assertEqual(report["protocol"]["candidate_evidence_schema_version"], 1)
+        self.assertEqual(report["protocol"]["candidate_evidence_schema_version"], 2)
         self.assertEqual(report["protocol"]["execution_evidence_schema_version"], 2)
         self.assertEqual(
             report["protocol"]["required_executed_buy_sizing_fields"],
@@ -2913,7 +2922,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
                 "schedule_slot": "2026-08-04 10:00",
                 "schedule_run_kind": "scheduled",
                 "trade_allowed": True,
-                "candidate_evidence_schema_version": 1,
+                "candidate_evidence_schema_version": 2,
                 "candidate_evidence": [{
                     "code": "600000",
                     "best_strategy": "niu_emerging",

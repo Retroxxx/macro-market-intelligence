@@ -23,6 +23,8 @@ from .registry import STRATEGY_DEFINITIONS, STRATEGY_POSITION_LIMIT_PCT
 
 NIUONE_TODAY_OBSERVATION_THRESHOLD = 60.0
 NIUONE_LEADER_MIN_SECTOR_RANK = 80.0
+NIUONE_MATURE_MIN_MARKET_AMOUNT_PERCENTILE = 60.0
+NIUONE_MATURE_MIN_THEME_AMOUNT_PERCENTILE = 50.0
 NIUONE_DAILY_V_MIN_RECOVERY_RATIO = 0.60
 NIUONE_DAILY_V_MAX_RECOVERY_RATIO = 2.0
 NIUONE_REVERSAL_CONTINUATION_MIN_STRONG_COUNT = 6
@@ -77,6 +79,48 @@ def niu_startup_theme_blocker(values: Mapping[str, Any]) -> str | None:
         return "主题不处于跨日延续的待确认启动阶段"
     if values.get("mainline_cross_day_persistent") is not True:
         return "启动主题尚未跨交易日延续"
+    return None
+
+
+def niuone_stock_activity_blocker(
+    strategy_id: str,
+    values: Mapping[str, Any],
+) -> str | None:
+    """Require deterministic capital participation for mature mainline entries.
+
+    The gate is opt-in so legacy/manual contexts remain readable. Current
+    NiuOne contexts always set ``stock_activity_gate_required`` and therefore
+    fail closed when turnover-amount evidence is unavailable or too weak.
+    Probe entries stay exempt because their small risk budget is intended to
+    discover an early theme before it becomes broadly visible.
+    """
+    if (
+        strategy_id == "niu_reversal_probe"
+        or strategy_id not in {"niu_leader", "niu_pullback", "niu_emerging"}
+        or values.get("stock_activity_gate_required") is not True
+    ):
+        return None
+    if values.get("stock_activity_data_available") is not True:
+        return "个股成交活跃度数据不可用，成熟主线路径暂停入选"
+    market_percentile = _safe_float(
+        values.get("stock_market_amount_percentile"),
+        -1.0,
+    )
+    theme_percentile = _safe_float(
+        values.get("stock_theme_amount_percentile"),
+        -1.0,
+    )
+    if (
+        market_percentile + 1e-9
+        < NIUONE_MATURE_MIN_MARKET_AMOUNT_PERCENTILE
+        or theme_percentile + 1e-9
+        < NIUONE_MATURE_MIN_THEME_AMOUNT_PERCENTILE
+    ):
+        return (
+            "个股成交活跃度不足（全市场成交额分位需≥"
+            f"{NIUONE_MATURE_MIN_MARKET_AMOUNT_PERCENTILE:g}，题材内需≥"
+            f"{NIUONE_MATURE_MIN_THEME_AMOUNT_PERCENTILE:g}）"
+        )
     return None
 
 
@@ -337,6 +381,12 @@ def candidate_buy_blockers(
         )
         if lifecycle_blocker and lifecycle_blocker not in blockers:
             blockers.append(lifecycle_blocker)
+        activity_blocker = niuone_stock_activity_blocker(
+            strategy_id,
+            candidate,
+        )
+        if activity_blocker and activity_blocker not in blockers:
+            blockers.append(activity_blocker)
     raw_score = candidate.get("best_score")
     if raw_score is None:
         raw_score = candidate.get("score")

@@ -204,6 +204,14 @@ function toggleCandidateDetails() {
               <span>龙头梯队</span>
               <strong>#{{ item.stock_leader_rank ?? '--' }} · 强度 {{ formatPracticeNumber(item.stock_strong_score) }}</strong>
             </div>
+            <div class="niuone-fact">
+              <span>个股资金活跃度</span>
+              <strong>{{ formatPracticeNumber(item.stock_activity_score) }} · {{ item.stock_activity_confirmed ? '已确认' : '未确认' }}</strong>
+            </div>
+            <div class="niuone-fact">
+              <span>成交额分位</span>
+              <strong>全市场 {{ formatPracticeNumber(item.stock_market_amount_percentile) }} · 题材内 {{ formatPracticeNumber(item.stock_theme_amount_percentile) }}</strong>
+            </div>
             <div v-if="reversalStrategy" class="niuone-fact">
               <span>日线V型区间</span>
               <strong>{{ item.daily_v_left_days ?? '--' }}日回落 · {{ item.daily_v_right_days ?? '--' }}日修复</strong>

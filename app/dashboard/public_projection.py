@@ -14,7 +14,7 @@ from typing import Any
 from app.dashboard.niuone_mainline import build_niuone_mainline_view
 
 
-PUBLIC_SCHEMA_VERSION = 8
+PUBLIC_SCHEMA_VERSION = 9
 
 ACCOUNT_FIELDS = (
     "initial_cash",
@@ -118,6 +118,12 @@ CANDIDATE_FIELDS = (
     "sector_status",
     "sector_score",
     "stock_sector_rank",
+    "stock_activity_data_available",
+    "stock_market_amount_percentile",
+    "stock_theme_amount_percentile",
+    "stock_volume_participation_percentile",
+    "stock_activity_score",
+    "stock_activity_confirmed",
     "reversal_basis",
     "daily_v_reversal",
     "daily_v_left_peak_date",

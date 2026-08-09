@@ -2248,7 +2248,7 @@ class SellStrategyRuleTests(unittest.TestCase):
                             "summary": "午休前策略",
                             "actions": [{"action": "BUY", "code": "600000", "name": "测试股", "shares": 1000}],
                         },
-                        "candidate_evidence_schema_version": 1,
+                        "candidate_evidence_schema_version": 2,
                         "candidate_evidence": [{
                             "code": "600000",
                             "strategy_id": "niu_leader",

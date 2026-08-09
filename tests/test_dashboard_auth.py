@@ -4850,6 +4850,8 @@ console.log(JSON.stringify([
         self.assertNotIn('所属板块', PRACTICE_CANDIDATE_COMPONENTS)
         for label in ('主线与龙头', '生命周期', '风控与执行', '未通过条件', '评分依据', '仓位规则', '退出规则'):
             self.assertIn(label, PRACTICE_CANDIDATE_COMPONENTS)
+        self.assertIn('个股资金活跃度', PRACTICE_CANDIDATE_COMPONENTS)
+        self.assertIn('全市场 {{ formatPracticeNumber(item.stock_market_amount_percentile) }}', PRACTICE_CANDIDATE_COMPONENTS)
         self.assertIn("hardBlockers.value.length ? '未达标' : '等确认'", PRACTICE_CANDIDATE_COMPONENTS)
         self.assertNotIn("hardBlockers.value.length ? '硬过滤'", PRACTICE_CANDIDATE_COMPONENTS)
         self.assertNotIn("hardBlockers.value.length ? '未通过交易条件'", PRACTICE_CANDIDATE_COMPONENTS)

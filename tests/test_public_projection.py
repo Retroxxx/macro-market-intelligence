@@ -76,6 +76,10 @@ class PublicProjectionTests(unittest.TestCase):
                     "daily_v_trough_date": "2026-07-15",
                     "daily_v_decline_pct": 12.5,
                     "daily_v_rebound_pct": 8.2,
+                    "stock_activity_score": 84.25,
+                    "stock_market_amount_percentile": 90.0,
+                    "stock_theme_amount_percentile": 75.0,
+                    "stock_activity_confirmed": True,
                     "hard_blockers": ["停牌"],
                     "private_note": "secret",
                 }],
@@ -156,6 +160,15 @@ class PublicProjectionTests(unittest.TestCase):
                 "signal_theme_return_correlation_rank_score"
             ],
             100.0,
+        )
+        self.assertEqual(
+            sections["candidates"]["items"][0]["stock_activity_score"],
+            84.25,
+        )
+        self.assertTrue(
+            sections["candidates"]["items"][0][
+                "stock_activity_confirmed"
+            ]
         )
         self.assertEqual(
             sections["candidates"]["items"][0][

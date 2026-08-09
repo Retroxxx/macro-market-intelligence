@@ -1990,6 +1990,25 @@ def refresh_b1_candidate_cache_from_current_pool() -> dict[str, Any]:
                 "stock_leader_tier": best.get("stock_leader_tier"),
                 "stock_strong": best.get("stock_strong"),
                 "stock_strong_score": best.get("stock_strong_score"),
+                "stock_activity_gate_required": best.get(
+                    "stock_activity_gate_required"
+                ),
+                "stock_activity_data_available": best.get(
+                    "stock_activity_data_available"
+                ),
+                "stock_market_amount_percentile": best.get(
+                    "stock_market_amount_percentile"
+                ),
+                "stock_theme_amount_percentile": best.get(
+                    "stock_theme_amount_percentile"
+                ),
+                "stock_volume_participation_percentile": best.get(
+                    "stock_volume_participation_percentile"
+                ),
+                "stock_activity_score": best.get("stock_activity_score"),
+                "stock_activity_confirmed": best.get(
+                    "stock_activity_confirmed"
+                ),
                 "stock_sector_rank": best.get("stock_sector_rank"),
                 "stock_market_rank": best.get("stock_market_rank"),
                 "score_before_industry_flow": best.get("score_before_industry_flow"),

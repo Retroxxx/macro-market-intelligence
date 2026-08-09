@@ -180,6 +180,13 @@ def niu_candidate(**updates) -> dict:
         "stock_leader_rank": 1,
         "stock_leader_tier": True,
         "stock_strong_score": 92.0,
+        "stock_activity_gate_required": True,
+        "stock_activity_data_available": True,
+        "stock_market_amount_percentile": 90.0,
+        "stock_theme_amount_percentile": 75.0,
+        "stock_volume_participation_percentile": 80.0,
+        "stock_activity_score": 84.25,
+        "stock_activity_confirmed": True,
         "stock_sector_rank": 95.0,
         "today_strength_score": 80.0,
         "distance_pct": 1.0,
@@ -426,6 +433,39 @@ class NiuOneStrategyTests(unittest.TestCase):
                 key.startswith("reversal_")
                 for key in theme
             ))
+
+    def test_mature_mainline_requires_market_and_theme_amount_activity(self):
+        prepared = self._prepared_market()
+        prepared[0]["quote"]["amount"] = 1.0e6
+
+        context = build_niuone_context(prepared)
+        cold = context["stocks"]["600000"]
+
+        self.assertTrue(cold["activity_gate_required"])
+        self.assertTrue(cold["amount_available"])
+        self.assertLess(cold["market_amount_percentile"], 60.0)
+        self.assertLess(cold["theme_amount_percentile"], 50.0)
+        self.assertFalse(cold["activity_confirmed"])
+
+        mature_candidate = niu_candidate(
+            stock_market_amount_percentile=cold["market_amount_percentile"],
+            stock_theme_amount_percentile=cold["theme_amount_percentile"],
+            stock_activity_score=cold["activity_score"],
+            stock_activity_confirmed=False,
+        )
+        mature_blockers = trader.candidate_buy_blockers(mature_candidate)
+        self.assertIn(
+            "个股成交活跃度不足（全市场成交额分位需≥60，题材内需≥50）",
+            mature_blockers,
+        )
+
+        probe_blockers = trader.candidate_buy_blockers(reversal_candidate(
+            stock_market_amount_percentile=cold["market_amount_percentile"],
+            stock_theme_amount_percentile=cold["theme_amount_percentile"],
+            stock_activity_score=cold["activity_score"],
+            stock_activity_confirmed=False,
+        ))
+        self.assertFalse(any("成交活跃度" in item for item in probe_blockers))
 
     def test_reversal_probe_uses_multi_session_daily_v(self):
         rows = make_daily_v_rows("600000", "半导体")
@@ -3059,6 +3099,10 @@ class NiuOneStrategyTests(unittest.TestCase):
                 "entry_stock_sector_rank": 95.0,
                 "entry_stock_strong": False,
                 "entry_stock_leader_tier": False,
+                "entry_stock_activity_score": 84.25,
+                "entry_stock_market_amount_percentile": 90.0,
+                "entry_stock_theme_amount_percentile": 75.0,
+                "entry_stock_activity_confirmed": True,
                 "entry_daily_v_recovery_ratio": 0.7,
                 "entry_signal_score": 9.0,
                 "entry_candidate_pool_size": 5,

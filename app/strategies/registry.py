@@ -209,7 +209,7 @@ STRATEGY_DEFINITIONS: dict[str, dict[str, Any]] = {
         "profile": {
             "priority": 91,
             "entry_threshold": 8.0,
-            "score_basis": "跨日主线确认/龙头梯队排名/买点质量/涨停禁买",
+            "score_basis": "跨日主线确认/龙头梯队/成交活跃度/买点质量/涨停禁买",
             "position_hint": "按有效损失距离动态定仓，单票绝对上限30%",
             "time_stop": "5个交易日未创新高或主线连续转弱退出",
             "certainty_rank": 1,
@@ -229,7 +229,7 @@ STRATEGY_DEFINITIONS: dict[str, dict[str, Any]] = {
         "profile": {
             "priority": 84,
             "entry_threshold": 8.2,
-            "score_basis": "主线仍在/核心股调整后转强/涨停禁买",
+            "score_basis": "主线仍在/核心股转强/成交活跃度/涨停禁买",
             "position_hint": "按轮动风险预算动态定仓，单票绝对上限25%",
             "time_stop": "3个交易日未恢复强势或主线确认退潮退出",
             "certainty_rank": 2,
@@ -250,7 +250,7 @@ STRATEGY_DEFINITIONS: dict[str, dict[str, Any]] = {
             "priority": 70,
             "entry_threshold": 7.6,
             "daily_candidate_limit": 2,
-            "score_basis": "酝酿/主升早段路由/日线左侧回落/右侧至少2/3上涨/跌幅收复比例",
+            "score_basis": "酝酿早期路由/日线V型修复/活跃度仅提示不硬拦截",
             "position_hint": "通过延续质量门槛后按早期反转风险预算参与，单票绝对上限6.25%",
             "time_stop": "3个交易日未延续右侧趋势退出",
             "certainty_rank": 4,
@@ -270,7 +270,7 @@ STRATEGY_DEFINITIONS: dict[str, dict[str, Any]] = {
         "profile": {
             "priority": 76,
             "entry_threshold": 8.4,
-            "score_basis": "跨日行业延续/至少双强势股共振/龙头梯队小仓验证",
+            "score_basis": "跨日题材延续/双强势股共振/龙头梯队/成交活跃度",
             "position_hint": "观察仓，单票绝对上限15%，次日确认后才允许加仓",
             "time_stop": "T+2未升级为确认主线则退出",
             "certainty_rank": 3,

@@ -4486,6 +4486,10 @@ NIUONE_ENTRY_CONTEXT_FIELDS = (
     "entry_stock_sector_rank",
     "entry_stock_strong",
     "entry_stock_leader_tier",
+    "entry_stock_activity_score",
+    "entry_stock_market_amount_percentile",
+    "entry_stock_theme_amount_percentile",
+    "entry_stock_activity_confirmed",
     "entry_daily_v_recovery_ratio",
     "entry_signal_score",
     "entry_candidate_pool_size",
@@ -4845,6 +4849,12 @@ PRACTICE_CANDIDATE_EVIDENCE_FIELDS = (
     "stock_leader_rank",
     "stock_leader_tier",
     "stock_strong",
+    "stock_activity_data_available",
+    "stock_market_amount_percentile",
+    "stock_theme_amount_percentile",
+    "stock_volume_participation_percentile",
+    "stock_activity_score",
+    "stock_activity_confirmed",
     "daily_v_reversal",
     "daily_v_recovery_ratio",
     "stop_price",
@@ -9641,6 +9651,18 @@ def execute_actions(
                     if old_qty <= 0:
                         pos["entry_theme"] = signal_theme
                         pos["active_theme"] = signal_theme
+                        pos["entry_stock_activity_score"] = candidate.get(
+                            "stock_activity_score"
+                        )
+                        pos["entry_stock_market_amount_percentile"] = candidate.get(
+                            "stock_market_amount_percentile"
+                        )
+                        pos["entry_stock_theme_amount_percentile"] = candidate.get(
+                            "stock_theme_amount_percentile"
+                        )
+                        pos["entry_stock_activity_confirmed"] = bool(
+                            candidate.get("stock_activity_confirmed")
+                        )
                         pos["entry_theme_basis"] = str(
                             candidate.get("theme_basis") or ""
                         )
@@ -10458,7 +10480,7 @@ def queue_deferred_decision(
             if isinstance(decision.get("preset_strategy_audit"), Mapping)
             else candidates[:20]
         ),
-        "candidate_evidence_schema_version": 1,
+        "candidate_evidence_schema_version": 2,
         "execution_evidence_schema_version": (
             FORWARD_EXECUTION_EVIDENCE_SCHEMA_VERSION
         ),
@@ -10904,7 +10926,7 @@ def run_decision_after_b1(b1_payload: dict[str, Any], force: bool = False) -> di
         "decision": decision,
         "executed": executed,
         "market_decision_context": compact_market_ctx,
-        "candidate_evidence_schema_version": 1,
+        "candidate_evidence_schema_version": 2,
         "execution_evidence_schema_version": (
             FORWARD_EXECUTION_EVIDENCE_SCHEMA_VERSION
         ),

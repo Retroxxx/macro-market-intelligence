@@ -55,7 +55,7 @@ DEFAULT_HISTORICAL_REFERENCE_WIN_RATE_PCT = 59.71
 DEFAULT_WIN_RATE_CONFIDENCE_LEVEL = 0.95
 DEFAULT_MAX_PORTFOLIO_DRAWDOWN_PCT = 6.0
 DEFAULT_MIN_RETURN_TO_DRAWDOWN_RATIO = 1.0
-FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v31"
+FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v32"
 FORWARD_PERFORMANCE_CLUSTER_UNIT = "entry_date_x_entry_theme"
 FORWARD_SHADOW_CANDIDATES = {
     "execution_gap": "round13_execution_gap_le_1pct",
@@ -67,6 +67,10 @@ FORWARD_REQUIRED_ENTRY_CONTEXT_FIELDS = (
     "entry_niuone_lifecycle_entry_policy",
     "entry_mainline_state",
     "entry_signal_score",
+    "entry_stock_activity_score",
+    "entry_stock_market_amount_percentile",
+    "entry_stock_theme_amount_percentile",
+    "entry_stock_activity_confirmed",
     "entry_same_stage_candidate_rank",
     "entry_execution_gap_pct",
     "entry_daily_v_recovery_ratio",
@@ -129,7 +133,7 @@ FORWARD_REQUIRED_OPERATING_DAY_EVENTS = (
     "closing_equity_snapshot_ok",
     "post_close_forward_evaluation_ok",
 )
-FORWARD_CANDIDATE_EVIDENCE_SCHEMA_VERSION = 1
+FORWARD_CANDIDATE_EVIDENCE_SCHEMA_VERSION = 2
 FORWARD_EXECUTION_EVIDENCE_SCHEMA_VERSION = 2
 FORWARD_SELL_EXECUTION_EVIDENCE_SCHEMA_VERSION = 1
 FORWARD_REQUIRED_EXECUTED_BUY_SIZING_FIELDS = (
@@ -464,6 +468,29 @@ def decision_candidate_evidence_gaps(
             )
             if score is None:
                 gaps.add("candidate_evidence.niuone_score")
+            for field in (
+                "stock_activity_score",
+                "stock_market_amount_percentile",
+                "stock_theme_amount_percentile",
+            ):
+                value = _number(candidate.get(field))
+                if value is None or value < 0 or value > 100:
+                    gaps.add(f"candidate_evidence.{field}")
+            if not isinstance(
+                candidate.get("stock_activity_data_available"),
+                bool,
+            ):
+                gaps.add("candidate_evidence.stock_activity_data_available")
+            activity_confirmed = candidate.get("stock_activity_confirmed")
+            if not isinstance(activity_confirmed, bool):
+                gaps.add("candidate_evidence.stock_activity_confirmed")
+            elif (
+                candidate.get("eligible_for_decision") is True
+                and strategy_id
+                in {"niu_leader", "niu_pullback", "niu_emerging"}
+                and activity_confirmed is not True
+            ):
+                gaps.add("candidate_evidence.stock_activity_consistency")
     return tuple(sorted(gaps))
 
 
@@ -1485,6 +1512,23 @@ def _entry_attribution_gaps(row: Mapping[str, Any]) -> tuple[str, ...]:
     ):
         if _number(context.get(field)) is None:
             gaps.append(field)
+    for field in (
+        "entry_stock_activity_score",
+        "entry_stock_market_amount_percentile",
+        "entry_stock_theme_amount_percentile",
+    ):
+        value = _number(context.get(field))
+        if value is None or value < 0 or value > 100:
+            gaps.append(field)
+    activity_confirmed = context.get("entry_stock_activity_confirmed")
+    if not isinstance(activity_confirmed, bool):
+        gaps.append("entry_stock_activity_confirmed")
+    elif (
+        str(row.get("entry_strategy") or "").strip()
+        in {"niu_leader", "niu_pullback", "niu_emerging"}
+        and activity_confirmed is not True
+    ):
+        gaps.append("entry_stock_activity_confirmed")
     rank = _number(context.get("entry_same_stage_candidate_rank"))
     if rank is None or rank <= 0 or not float(rank).is_integer():
         gaps.append("entry_same_stage_candidate_rank")

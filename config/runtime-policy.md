@@ -34,7 +34,7 @@
 | `.local-data/runtime/dashboard_users.db` | 本地访问用户和认证数据 |
 | `.local-data/runtime/push_history.db` | 消息历史 |
 | `.local-data/runtime/niuniu.db` | 实战页面交易、账户、完整候选机会集、持仓五阶段路径/退出阶段、决策耐久证据，以及只追加的成交/决策/权益历史版本 |
-| `.local-data/runtime/cron/output/niuone_forward_evaluation.json` | 牛牛严格前向聚合、五阶段机会/定仓漏斗、持仓路径/阶段转移/退出阶段、拒单分类、交易级与日期×行业簇稳健胜率区间、每日组合收益/回撤、成效门、覆盖诊断和影子分组结果 |
+| `.local-data/runtime/cron/output/niuone_forward_evaluation.json` | 牛牛严格前向聚合、五阶段机会/定仓漏斗、个股资金活跃度与全市场/题材内成交额分位、持仓路径/阶段转移/退出阶段、拒单分类、交易级与日期×行业簇稳健胜率区间、每日组合收益/回撤、成效门、覆盖诊断和影子分组结果 |
 | `.local-data/runtime/cron/state/niuone_forward_protocol.json` | 牛牛严格前向队列冻结的代码/非密钥运行配置指纹、不含股票代码的起始账户边界，以及每日牛牛新仓上限与跨决策轮次计数口径 |
 | `.local-data/runtime/cron/state/niuone_cron_scheduler.json` | 有界保留的 Cron 运行键与严格前向每日任务结果 |
 | `.local-data/runtime/cron/state/b1_schedule_state.json` | 有界保留的 Practice 配置时点扫描/决策终态 |
