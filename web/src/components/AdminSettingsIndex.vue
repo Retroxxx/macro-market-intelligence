@@ -12,7 +12,7 @@ const appearanceGroup = Object.freeze({
   slug: 'appearance',
   name: '界面主题',
   icon: '主题',
-  summary: '选择浅色或深色主题，以及圆角或直角界面。',
+  summary: '在常规外观与互斥的通达信模式之间切换。',
   item_count: 2,
 })
 
@@ -50,6 +50,7 @@ const itemCount = computed(() => Array.isArray(props.config.items) ? props.confi
         class="settings-card"
         :to="`/admin/settings/${group.slug}`"
         :aria-label="`进入${group.name}设置`"
+        :title="group.summary || '维护该分组的业务配置。'"
       >
         <span class="settings-card-icon" aria-hidden="true">{{ group.icon || '设置' }}</span>
         <span class="settings-card-copy">

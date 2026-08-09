@@ -1252,30 +1252,30 @@ onBeforeUnmount(() => {
 }
 
 @media (min-width: 721px) {
-  :global(body.overview-terminal-open) { overflow: hidden; }
-  :global(body.overview-terminal-open header) {
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open) { overflow: hidden; }
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open header) {
     padding: 7px max(clamp(10px, 1.8vw, 24px), calc((100vw - 1440px) / 2));
   }
-  :global(body.overview-terminal-open .header-row) { gap: 8px; min-height: 30px; }
-  :global(body.overview-terminal-open .dashboard-brand) { gap: 7px; font-size: 19px; }
-  :global(body.overview-terminal-open .dashboard-brand-logo) { height: 30px; width: 30px; }
-  :global(body.overview-terminal-open .header-actions) {
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .header-row) { gap: 8px; min-height: 30px; }
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .dashboard-brand) { gap: 7px; font-size: 19px; }
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .dashboard-brand-logo) { height: 30px; width: 30px; }
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .header-actions) {
     --header-control-height: 28px;
     flex-wrap: nowrap;
     gap: 5px;
     min-width: 0;
   }
-  :global(body.overview-terminal-open .settings-link),
-  :global(body.overview-terminal-open .header-link),
-  :global(body.overview-terminal-open .version-status),
-  :global(body.overview-terminal-open .refresh-pill) { font-size: 11px; padding: 4px 7px; }
-  :global(body.overview-terminal-open .version-status span),
-  :global(body.overview-terminal-open .version-status b),
-  :global(body.overview-terminal-open .refresh-pill span),
-  :global(body.overview-terminal-open .refresh-pill b) { font-size: 10px; }
-  :global(body.overview-terminal-open .category-tabs) { margin-top: 5px; padding: 2px; }
-  :global(body.overview-terminal-open .tab) { font-size: 11px; padding: 5px 9px; }
-  :global(body.overview-terminal-open main) {
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .settings-link),
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .header-link),
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .version-status),
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .refresh-pill) { font-size: 11px; padding: 4px 7px; }
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .version-status span),
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .version-status b),
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .refresh-pill span),
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .refresh-pill b) { font-size: 10px; }
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .category-tabs) { margin-top: 5px; padding: 2px; }
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .tab) { font-size: 11px; padding: 5px 9px; }
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open main) {
     padding: 6px max(clamp(9px, 1.8vw, 24px), calc((100vw - 1440px) / 2));
   }
 
@@ -1580,9 +1580,9 @@ onBeforeUnmount(() => {
 }
 
 @media (min-width: 721px) and (max-width: 1040px) {
-  :global(body.overview-terminal-open .header-link),
-  :global(body.overview-terminal-open .version-status),
-  :global(body.overview-terminal-open .refresh-pill) { display: none; }
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .header-link),
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .version-status),
+  :global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open .refresh-pill) { display: none; }
 }
 
 /* 直角主题采用金融终端式边框；状态圆点和数据进度轨道保留原有几何语义。 */

@@ -1180,7 +1180,7 @@ class FastApiDashboardTests(unittest.TestCase):
         self.assertIn(".dashboard-info-trigger:hover { color:#eef2ff;", stylesheet)
         self.assertIn(".dashboard-info-trigger:focus-visible {", stylesheet)
         self.assertIn(
-            'html:not([data-theme="dark"]) .dashboard-info-trigger { --dashboard-info-color:#315aa8;',
+            'html[data-theme="light"] .dashboard-info-trigger { --dashboard-info-color:#315aa8;',
             stylesheet,
         )
         self.assertIn('html[data-theme="dark"] .dashboard-info-trigger {', stylesheet)
@@ -1275,28 +1275,28 @@ class FastApiDashboardTests(unittest.TestCase):
         self.assertIn("同花顺问财归纳，仅供研究参考", component)
         self.assertIn('aria-label="上榜理由"', component)
         self.assertIn(
-            'html:not([data-theme="dark"]) .dragon-tiger-limit-up-reason '
+            'html[data-theme="light"] .dragon-tiger-limit-up-reason '
             "{ border-color:#efc9c5; border-left-color:#c43d35; "
             "background:#fff7f6; }",
             stylesheet,
         )
         self.assertIn(
-            'html:not([data-theme="dark"]) .dragon-tiger-limit-up-reason p '
+            'html[data-theme="light"] .dragon-tiger-limit-up-reason p '
             "{ color:#344054; }",
             stylesheet,
         )
         self.assertIn(
-            'html:not([data-theme="dark"]) .dragon-tiger-limit-up-reason > small '
+            'html[data-theme="light"] .dragon-tiger-limit-up-reason > small '
             "{ color:#667085; }",
             stylesheet,
         )
         self.assertIn(
-            'html:not([data-theme="dark"]) .dragon-tiger-status.querying '
+            'html[data-theme="light"] .dragon-tiger-status.querying '
             "{ border-color:#b9c9ea; background:#edf3ff; color:#214b9c; }",
             stylesheet,
         )
         self.assertIn(
-            'html:not([data-theme="dark"]) '
+            'html[data-theme="light"] '
             ".dragon-tiger-continuous-tooltip-head em.negative "
             "{ border-color:#b9dfd0; background:#eff9f5; color:#087052; }",
             stylesheet,
@@ -1320,7 +1320,7 @@ class FastApiDashboardTests(unittest.TestCase):
             stylesheet,
         )
         self.assertIn(
-            'html:not([data-theme="dark"]) '
+            'html[data-theme="light"] '
             ".dragon-tiger-name-has-limit-up-reason { color:#a8173a;",
             stylesheet,
         )

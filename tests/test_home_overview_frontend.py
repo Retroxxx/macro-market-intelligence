@@ -436,7 +436,15 @@ console.log(JSON.stringify({{
             component,
         )
         self.assertIn("@media (min-width: 721px)", component)
-        self.assertIn(":global(body.overview-terminal-open) { overflow: hidden; }", component)
+        self.assertIn(
+            ':global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open) { overflow: hidden; }',
+            component,
+        )
+        self.assertNotIn(':global(body.overview-terminal-open header)', component)
+        self.assertIn(
+            ':global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open header)',
+            component,
+        )
         self.assertIn(":payload=\"indicesState.marketBreadth\" terminal", component)
         self.assertIn("terminal: { type: Boolean, default: false }", breadth_component)
         self.assertIn("const showVolume = ref(!props.terminal)", breadth_component)

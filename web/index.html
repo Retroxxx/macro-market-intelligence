@@ -14,7 +14,7 @@
           theme = localStorage.getItem(themeStorageKey) || '';
           corners = localStorage.getItem(cornerStorageKey) || '';
         } catch (error) {}
-        if (theme !== 'light' && theme !== 'dark') {
+        if (theme !== 'light' && theme !== 'dark' && theme !== 'tongdaxin') {
           theme = window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
         if (corners !== 'rounded' && corners !== 'square') corners = 'square';

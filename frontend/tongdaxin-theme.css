@@ -1,0 +1,1254 @@
+/* Classic Tongdaxin terminal theme: dense black canvas, grey headers and red chart grids. */
+html[data-theme="tongdaxin"]:root {
+  color-scheme:dark;
+  scrollbar-gutter:stable;
+  --bg:#000;
+  --panel:#000;
+  --panel2:#050505;
+  --surface:#000;
+  --surface2:#050505;
+  --field:#000;
+  --text:#c8c8c8;
+  --muted:#898989;
+  --soft:#b5b5b5;
+  --line:#730000;
+  --line2:#a00000;
+  --accent:#d40000;
+  --accent-soft:#270000;
+  --accent-border:#ac1616;
+  --accent-text:#f0df00;
+  --primary:#a80000;
+  --primary-text:#fff;
+  --green:#00dfe8;
+  --green-soft:#001f22;
+  --green-border:#007b82;
+  --green-text:#21eff6;
+  --red:#ff4141;
+  --red-soft:#2b0000;
+  --red-border:#9e0000;
+  --red-text:#ff5555;
+  --yellow:#e8df00;
+  --yellow-soft:#252300;
+  --yellow-border:#7e7900;
+  --yellow-text:#fff200;
+  --danger-button-bg:#940000;
+  --danger-button-hover:#bd0000;
+  --danger-button-border:#e03535;
+  --danger-button-text:#fff;
+  --terminal-header:#292929;
+  --terminal-header-deep:#181818;
+  --terminal-row:#050505;
+  --terminal-row-alt:#0d0d0d;
+  --terminal-selection:#07155c;
+  --terminal-selection-border:#2949ff;
+  --terminal-grid:#b40000;
+  --terminal-orange:#ff9000;
+  --terminal-magenta:#ff00ff;
+  --chart-grid:rgba(205,0,0,.68);
+  --chart-grid-soft:rgba(180,0,0,.40);
+  --chart-zero:rgba(255,48,48,.76);
+  --chart-marker:#fff;
+  --terminal-page-title-height:38px;
+  --terminal-page-title-padding:6px 8px;
+  --terminal-page-title-size:16px;
+  --terminal-header-row-height:30px;
+  --terminal-header-control-height:24px;
+  --terminal-header-control-padding:4px 7px;
+  --terminal-header-meta-font-size:10px;
+  --terminal-header-action-gap:2px;
+  --page-shadow:none;
+}
+
+html[data-theme="tongdaxin"]:root body {
+  background:#000;
+  color:var(--text);
+  font-family:SimSun,"宋体","Songti SC",Tahoma,Arial,sans-serif;
+  font-size:12px;
+  font-variant-numeric:tabular-nums;
+  line-height:1.25;
+}
+
+html[data-theme="tongdaxin"]:root body * {
+  background-image:none !important;
+  border-radius:0 !important;
+  letter-spacing:0;
+  text-shadow:none;
+  transition:none !important;
+}
+html[data-theme="tongdaxin"]:root :where(
+  .practice-current-marker,
+  .practice-hover-marker,
+  .practice-trade-marker,
+  .benchmark-dot
+) { border-radius:50% !important; }
+html[data-theme="tongdaxin"]:root .theme-state::before { border-radius:50% !important; }
+html[data-theme="tongdaxin"]:root :where(button,input,select,textarea) { font-family:inherit; }
+html[data-theme="tongdaxin"]:root :where(
+  .inline-value,
+  .position-value,
+  .position-brief-item b,
+  .practice-kpi-value,
+  .index-price,
+  .sector-pct,
+  .market-metric-value,
+  .market-num,
+  .rating-table,
+  .backtest-table-wrap table
+) { font-family:Tahoma,Arial,sans-serif; }
+html[data-theme="tongdaxin"]:root a { color:var(--accent-text); }
+html[data-theme="tongdaxin"]:root ::selection { background:#890000; color:#fff; }
+html[data-theme="tongdaxin"]:root { scrollbar-color:#8e0000 #000; }
+html[data-theme="tongdaxin"]:root ::-webkit-scrollbar { width:12px; height:12px; }
+html[data-theme="tongdaxin"]:root ::-webkit-scrollbar-track {
+  border:1px solid #3f0000;
+  background:#080808;
+}
+html[data-theme="tongdaxin"]:root ::-webkit-scrollbar-thumb {
+  border:1px solid #8e0000;
+  background:#333;
+  box-shadow:inset 1px 1px 0 #4d4d4d,inset -1px -1px 0 #111;
+}
+html[data-theme="tongdaxin"]:root ::-webkit-scrollbar-corner { background:#000; }
+
+html[data-theme="tongdaxin"]:root .theme-icon-sun { display:none; }
+html[data-theme="tongdaxin"]:root .theme-icon-moon { display:inline-flex; }
+
+/* Dashboard chrome */
+html[data-theme="tongdaxin"]:root header,
+html[data-theme="tongdaxin"]:root .admin-header {
+  border-color:var(--line2);
+  background:#0b0b0b;
+  box-shadow:inset 0 -1px 0 var(--line2);
+  backdrop-filter:none;
+}
+
+html[data-theme="tongdaxin"]:root header {
+  padding:3px max(clamp(6px,1vw,12px),calc((100vw - 1600px) / 2));
+}
+
+html[data-theme="tongdaxin"]:root .header-row {
+  min-height:var(--terminal-header-row-height);
+  gap:5px;
+}
+html[data-theme="tongdaxin"]:root h1 { font-size:17px; font-weight:700; letter-spacing:0; }
+html[data-theme="tongdaxin"]:root .dashboard-brand { gap:5px; color:#d8d8d8; }
+html[data-theme="tongdaxin"]:root .dashboard-brand-logo { width:23px; height:23px; }
+html[data-theme="tongdaxin"]:root .header-actions {
+  --header-control-height:var(--terminal-header-control-height) !important;
+  gap:var(--terminal-header-action-gap) !important;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .settings-link,
+  .header-link,
+  .version-status,
+  .refresh-pill,
+  .theme-toggle,
+  .toplink,
+  .admin-theme-toggle
+) {
+  border-color:#555 #090909 #090909 #555;
+  background:#202020;
+  color:#c4c4c4;
+  box-shadow:none !important;
+}
+
+html[data-theme="tongdaxin"]:root :where(.settings-link,.header-link,.toplink) { color:#c4c4c4; }
+html[data-theme="tongdaxin"]:root :where(.settings-link,.header-link,.version-status,.refresh-pill,.toplink) {
+  gap:3px;
+  padding:var(--terminal-header-control-padding) !important;
+  font-size:11px;
+}
+html[data-theme="tongdaxin"]:root :where(.version-status,.refresh-pill) :where(span,b) {
+  font-size:var(--terminal-header-meta-font-size) !important;
+  line-height:1 !important;
+}
+html[data-theme="tongdaxin"]:root :where(.version-status,.refresh-pill) span { color:#888; }
+html[data-theme="tongdaxin"]:root :where(.version-status,.refresh-pill) b { color:#e3e3e3; }
+html[data-theme="tongdaxin"]:root :where(
+  .settings-link,
+  .header-link,
+  .version-status,
+  .theme-toggle,
+  .toplink,
+  .admin-theme-toggle
+):hover {
+  border-color:#e00000;
+  background:#2b0000;
+  color:#fff200;
+}
+
+html[data-theme="tongdaxin"]:root .category-tabs {
+  width:100%;
+  margin-top:2px;
+  padding:0;
+  border-color:var(--line2);
+  background:#000;
+  box-shadow:none;
+}
+
+html[data-theme="tongdaxin"]:root .tab {
+  justify-content:center;
+  min-height:22px;
+  border-color:transparent;
+  border-right:1px solid var(--line);
+  padding:2px 9px;
+  background:transparent;
+  color:#aaa;
+  font-size:12px;
+}
+
+html[data-theme="tongdaxin"]:root .tab + .tab::before { display:none; }
+html[data-theme="tongdaxin"]:root .tab:hover { background:#210000; color:#fff200; }
+html[data-theme="tongdaxin"]:root .tab.active {
+  border-color:#ef2020;
+  background:#a80000;
+  color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12);
+}
+
+html[data-theme="tongdaxin"]:root main {
+  padding:3px max(clamp(3px,.8vw,8px),calc((100vw - 1600px) / 2)) 10px;
+}
+
+html[data-theme="tongdaxin"]:root .feed,
+html[data-theme="tongdaxin"]:root .indices-page,
+html[data-theme="tongdaxin"]:root .overview-page,
+html[data-theme="tongdaxin"]:root .mainline-page { gap:4px; }
+
+html[data-theme="tongdaxin"]:root :where(
+  .card,
+  .sector-cloud,
+  .market-breadth-card,
+  .market-monitor-card,
+  .us-market-summary-card,
+  .market-detail-overview,
+  .market-section,
+  .x-monitor-panel,
+  .x-detail,
+  .practice-log-panel,
+  .practice-chart-card,
+  .rating-card,
+  .rating-table-wrap,
+  .practice-log-detail-card,
+  .practice-rule-card,
+  .practice-calendar-card,
+  .practice-calendar-day-curve,
+  .dragon-tiger-unavailable,
+  .mainline-hero,
+  .theme-ranking-panel
+) {
+  border-color:var(--line);
+  background:var(--panel);
+  box-shadow:none;
+}
+
+html[data-theme="tongdaxin"]:root .card,
+html[data-theme="tongdaxin"]:root .sector-cloud { padding:5px; }
+
+html[data-theme="tongdaxin"]:root :where(
+  .sector-item,
+  .hot-item,
+  .index-card,
+  .market-metric-item,
+  .inline-field,
+  .position-card,
+  .position-brief-card,
+  .practice-log-row,
+  .practice-kpi,
+  .rating-inline-grid .inline-field,
+  .dragon-tiger-detail-meta,
+  .dragon-tiger-seat-side,
+  .dragon-tiger-detail-record,
+  .mainline-summary-card,
+  .theme-stock-detail-row
+) {
+  border-color:var(--line);
+  background:var(--panel2);
+  box-shadow:none;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .market-card-head,
+  .x-monitor-head,
+  .market-section-head,
+  .practice-log-head,
+  .practice-log-detail-head,
+  .practice-rule-head,
+  .practice-calendar-head,
+  .rating-table th,
+  .rating-table-title,
+  .dragon-tiger-head,
+  .dragon-tiger-list-head,
+  .theme-ranking-head
+) {
+  border-color:var(--line);
+  background:var(--terminal-header);
+  color:#e3e3e3;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .market-card-head,
+  .x-monitor-head,
+  .practice-log-head,
+  .practice-log-detail-head,
+  .practice-rule-head,
+  .practice-calendar-head,
+  .rating-table-title,
+  .dragon-tiger-head,
+  .theme-ranking-head
+) { padding:7px 9px; }
+
+html[data-theme="tongdaxin"]:root .market-section-head { padding:5px 8px; }
+
+/* Route title bars share the overview command bar geometry. */
+html[data-theme="tongdaxin"]:root .dragon-tiger-panel,
+html[data-theme="tongdaxin"]:root .x-monitor-panel {
+  padding:0;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .overview-command-head,
+  .practice-account-head,
+  .mainline-heading,
+  .indices-part-head,
+  .dragon-tiger-head,
+  .x-monitor-head,
+  .rating-table-title
+) {
+  box-sizing:border-box;
+  width:100%;
+  flex:0 0 var(--terminal-page-title-height) !important;
+  height:var(--terminal-page-title-height) !important;
+  min-height:var(--terminal-page-title-height) !important;
+  padding:var(--terminal-page-title-padding) !important;
+  align-items:center;
+  overflow:hidden;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .overview-command-head h2,
+  .practice-account-head h3,
+  .mainline-heading h2,
+  .indices-part-title,
+  .dragon-tiger-head h2,
+  .x-monitor-title,
+  .rating-table-title
+) {
+  margin:0;
+  font-size:var(--terminal-page-title-size) !important;
+  line-height:1.2;
+  font-weight:700;
+  white-space:nowrap;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .mainline-heading > div:first-child,
+  .dragon-tiger-head > div:first-child,
+  .x-monitor-head > div:first-child
+) {
+  display:flex;
+  min-width:0;
+  align-items:baseline;
+  gap:10px;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .mainline-heading p,
+  .dragon-tiger-sub,
+  .x-monitor-sub
+) {
+  min-width:0;
+  margin:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .practice-account-head,
+  .mainline-heading,
+  .indices-part-head,
+  .dragon-tiger-head,
+  .x-monitor-head,
+  .rating-table-title
+) { padding:var(--terminal-page-title-padding); }
+
+html[data-theme="tongdaxin"]:root :where(.sector-item,.hot-item) { padding:6px; }
+html[data-theme="tongdaxin"]:root .index-card { min-width:124px; padding:7px 9px; }
+html[data-theme="tongdaxin"]:root .market-metric-item { padding:5px 6px; }
+
+/* Flat, compact Windows-era terminal chrome. */
+html[data-theme="tongdaxin"]:root :where(
+  .practice-manual-cycle-btn,
+  .practice-market-summary-btn,
+  .practice-market-summary-view-btn,
+  .practice-calendar-open-btn,
+  .practice-rule-btn,
+  .mainline-actions button,
+  .dragon-tiger-unavailable a,
+  .x-page-btn,
+  .dragon-tiger-date-controls button
+) {
+  min-height:22px;
+  border-color:#5b5b5b #080808 #080808 #5b5b5b;
+  padding:2px 7px;
+  background:#202020;
+  color:#d8d8d8;
+  box-shadow:inset 1px 1px 0 #383838,inset -1px -1px 0 #000;
+  font-size:12px;
+  font-weight:400;
+  transform:none;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .practice-manual-cycle-btn,
+  .practice-market-summary-btn,
+  .practice-market-summary-view-btn,
+  .practice-calendar-open-btn,
+  .practice-rule-btn,
+  .mainline-actions button,
+  .dragon-tiger-unavailable a,
+  .x-page-btn,
+  .dragon-tiger-date-controls button
+):hover:not(:disabled) {
+  border-color:#777 #111 #111 #777;
+  background:#292929;
+  color:#fff200;
+  transform:none;
+}
+
+html[data-theme="tongdaxin"]:root .sector-cloud { margin-bottom:4px !important; }
+html[data-theme="tongdaxin"]:root .practice-account-head {
+  margin:-5px -5px 4px;
+  border-bottom:1px solid var(--line2);
+  background:var(--terminal-header);
+}
+html[data-theme="tongdaxin"]:root .practice-account-head h3 {
+  color:#e0e0e0;
+}
+html[data-theme="tongdaxin"]:root .practice-account-actions { gap:3px; }
+html[data-theme="tongdaxin"]:root .practice-data-readiness {
+  margin:3px 0;
+  padding:5px 7px;
+  border-color:#777000;
+  background:#171700;
+  font-size:11px;
+}
+html[data-theme="tongdaxin"]:root .practice-data-readiness p { margin-top:3px; }
+html[data-theme="tongdaxin"]:root .practice-data-progress { height:3px; margin-top:4px; background:#3a3a00; }
+html[data-theme="tongdaxin"]:root .practice-stats {
+  gap:1px !important;
+  margin:3px 0 !important;
+  border:1px solid var(--line);
+  background:var(--line);
+}
+html[data-theme="tongdaxin"]:root .practice-stats .inline-field {
+  min-height:42px;
+  border:0;
+  padding:4px 6px;
+  background:#050505;
+}
+html[data-theme="tongdaxin"]:root .inline-label { margin-bottom:1px; font-size:11px; font-weight:400; }
+html[data-theme="tongdaxin"]:root .inline-value { font-size:14px; line-height:1.25; font-weight:700; }
+
+html[data-theme="tongdaxin"]:root .practice-chart-card {
+  margin:4px 0;
+  padding:0;
+  border-color:var(--line2);
+}
+html[data-theme="tongdaxin"]:root .practice-chart-head {
+  min-height:29px;
+  margin:0;
+  padding:3px 5px;
+  border-bottom:1px solid var(--line);
+  background:var(--terminal-header-deep);
+}
+html[data-theme="tongdaxin"]:root .practice-chart-title-row { gap:5px; }
+html[data-theme="tongdaxin"]:root .practice-chart-title { color:#e3e3e3; font-size:12px; font-weight:700; }
+html[data-theme="tongdaxin"]:root .practice-chart-sub { margin-top:1px; font-size:10px; }
+html[data-theme="tongdaxin"]:root .practice-chart-kpis { gap:1px; }
+html[data-theme="tongdaxin"]:root .practice-kpi {
+  min-width:88px;
+  padding:3px 5px;
+  border-color:var(--line);
+  background:#000;
+}
+html[data-theme="tongdaxin"]:root .practice-kpi-label { color:#9a9a9a; font-size:10px; font-weight:400; }
+html[data-theme="tongdaxin"]:root .practice-kpi-value { margin-top:1px; font-size:13px; }
+html[data-theme="tongdaxin"]:root .practice-mode-control { gap:0; padding:0; }
+html[data-theme="tongdaxin"]:root .practice-mode-btn { min-height:20px; padding:2px 6px; font-weight:400; }
+html[data-theme="tongdaxin"]:root .practice-mode-btn.active {
+  border:1px solid #d00000;
+  background:#850000;
+  color:#fff;
+}
+html[data-theme="tongdaxin"]:root .benchmark-toggle { padding:2px 5px; color:#d0d0d0; }
+html[data-theme="tongdaxin"]:root .practice-chart-wrap { height:200px; margin:0 4px; }
+
+html[data-theme="tongdaxin"]:root .practice-positions-section { margin-top:4px; }
+html[data-theme="tongdaxin"]:root .practice-position-bar {
+  min-height:24px;
+  margin-bottom:2px;
+  padding:2px 4px;
+  border:1px solid var(--line);
+  background:var(--terminal-header);
+}
+html[data-theme="tongdaxin"]:root .practice-position-heading-copy h4 { font-size:12px; font-weight:700; }
+html[data-theme="tongdaxin"]:root .practice-position-context,
+html[data-theme="tongdaxin"]:root .practice-position-toolbar { gap:3px; }
+html[data-theme="tongdaxin"]:root .position-card-list { gap:1px; margin-bottom:4px; }
+html[data-theme="tongdaxin"]:root .position-card {
+  padding:4px 5px;
+  border-color:var(--line);
+  background:#000;
+}
+html[data-theme="tongdaxin"]:root .position-card > div:first-child {
+  min-height:20px;
+  margin-bottom:2px !important;
+  padding:1px 3px 3px;
+  border-bottom:1px solid var(--line);
+  background:#151515;
+}
+html[data-theme="tongdaxin"]:root .position-card > div:first-child > span:first-child {
+  color:#e0e0e0 !important;
+  font-size:13px !important;
+  font-weight:700 !important;
+}
+html[data-theme="tongdaxin"]:root .position-card > div:first-child > span:last-child { font-size:11px !important; }
+html[data-theme="tongdaxin"]:root .position-metrics {
+  grid-template-columns:repeat(8,minmax(78px,1fr));
+  gap:0;
+  border:1px solid #3f0000;
+}
+html[data-theme="tongdaxin"]:root .position-metric { min-height:36px; padding:3px 5px; }
+html[data-theme="tongdaxin"]:root .position-metric + .position-metric { border-left:1px solid #3f0000; }
+html[data-theme="tongdaxin"]:root .position-label { color:#929292; font-size:10px; }
+html[data-theme="tongdaxin"]:root .position-value { margin-top:1px; color:#d0d0d0; font-size:12px; }
+html[data-theme="tongdaxin"]:root .position-reason-block {
+  margin-top:2px;
+  gap:2px;
+  padding:3px 5px;
+  border-top:1px solid #3f0000;
+  background:#050505;
+  font-size:11px;
+  line-height:1.35;
+}
+html[data-theme="tongdaxin"]:root .position-reason-text { color:#b8b8b8; }
+html[data-theme="tongdaxin"]:root .empty { padding:14px 8px !important; border-color:#520000; background:#000; }
+html[data-theme="tongdaxin"]:root .practice-log-panel { margin-top:4px; }
+html[data-theme="tongdaxin"]:root .practice-log-head { padding:4px 6px; }
+html[data-theme="tongdaxin"]:root .practice-log-scroll { padding:3px; gap:1px; }
+html[data-theme="tongdaxin"]:root .practice-log-row { padding:4px 6px; }
+
+html[data-theme="tongdaxin"]:root :where(
+  .sector-name,
+  .index-name,
+  .index-head,
+  .indices-part-title,
+  .market-card-title,
+  .market-metric-value,
+  .market-section-title,
+  .market-detail-line,
+  .market-flow-value,
+  .market-symbol,
+  .us-market-title,
+  .market-day-title,
+  .x-monitor-title,
+  .x-author,
+  .inline-value,
+  .position-value,
+  .position-brief-name,
+  .practice-log-title,
+  .practice-log-summary,
+  .practice-rule-title,
+  .practice-rule-body,
+  .practice-chart-title,
+  .practice-kpi-value,
+  .practice-calendar-title,
+  .rating-table-title,
+  .rating-table .ticker,
+  .dragon-tiger-head h2,
+  .dragon-tiger-item > summary,
+  .dragon-tiger-list-name
+) { color:var(--text); }
+
+html[data-theme="tongdaxin"]:root :where(
+  .indices-part-meta,
+  .index-time,
+  .market-card-time,
+  .market-day-sub,
+  .us-market-sub,
+  .x-monitor-sub,
+  .x-handle,
+  .x-time,
+  .practice-log-count,
+  .practice-log-detail,
+  .practice-rule-meta,
+  .position-label,
+  .inline-label,
+  .rating-table-title small,
+  .rating-table .muted,
+  .dragon-tiger-sub,
+  .dragon-tiger-foot
+) { color:var(--muted); }
+
+html[data-theme="tongdaxin"]:root :where(input,select,textarea,button) {
+  border-color:var(--line2);
+  background:var(--field);
+  color:var(--text);
+}
+
+html[data-theme="tongdaxin"]:root :where(.version-status,.theme-toggle) {
+  border-color:#555 #090909 #090909 #555;
+  background:#202020;
+}
+
+html[data-theme="tongdaxin"]:root :where(.version-status,.theme-toggle):hover {
+  border-color:#e00000;
+  background:#2b0000;
+  color:#fff200;
+}
+
+html[data-theme="tongdaxin"]:root :where(input,select,textarea):focus {
+  border-color:var(--accent);
+  outline-color:var(--accent);
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .indices-switch,
+  .market-region-switch,
+  .practice-mode-control,
+  .market-breadth-controls
+) {
+  border-color:var(--line);
+  background:#000;
+  box-shadow:none;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .indices-switch-btn.active,
+  .market-region-btn.active,
+  .practice-mode-btn.active,
+  .market-breadth-toggle.active
+) {
+  border-color:var(--accent-border);
+  background:var(--accent-soft);
+  color:var(--accent-text);
+  box-shadow:none;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .market-chip,
+  .market-section-count,
+  .x-metric,
+  .x-badge,
+  .benchmark-toggle,
+  .practice-log-badge,
+  .position-reason-badge
+) {
+  border-color:var(--line);
+  background:#050505;
+  color:#aaa;
+}
+
+html[data-theme="tongdaxin"]:root .sector-item.up,
+html[data-theme="tongdaxin"]:root .hot-item.up,
+html[data-theme="tongdaxin"]:root .index-card.index-up,
+html[data-theme="tongdaxin"]:root .practice-calendar-day.has-result.up {
+  border-color:var(--red-border);
+  background:#000 !important;
+}
+
+html[data-theme="tongdaxin"]:root .sector-item.down,
+html[data-theme="tongdaxin"]:root .hot-item.down,
+html[data-theme="tongdaxin"]:root .index-card.index-down,
+html[data-theme="tongdaxin"]:root .practice-calendar-day.has-result.down {
+  border-color:var(--green-border);
+  background:#000 !important;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .sector-item.up .sector-pct,
+  .hot-item.up .sector-pct,
+  .flow-in,
+  .index-up,
+  .market-chip.up,
+  .market-metric-value.up,
+  .market-num.up,
+  .dragon-tiger-list .up,
+  .rating-table .upside.pos,
+  .practice-kpi-value.up,
+  .practice-chart-value.up,
+  .practice-calendar-rate.up,
+  .practice-calendar-amount.up,
+  .practice-calendar-stat-value.up
+) { color:var(--red); }
+
+html[data-theme="tongdaxin"]:root :where(
+  .sector-item.down .sector-pct,
+  .hot-item.down .sector-pct,
+  .flow-out,
+  .index-down,
+  .market-chip.down,
+  .market-metric-value.down,
+  .market-num.down,
+  .dragon-tiger-list .down,
+  .rating-table .upside.neg,
+  .practice-kpi-value.down,
+  .practice-chart-value.down,
+  .practice-calendar-rate.down,
+  .practice-calendar-amount.down,
+  .practice-calendar-stat-value.down
+) { color:var(--green); }
+
+html[data-theme="tongdaxin"]:root .rating-table,
+html[data-theme="tongdaxin"]:root .backtest-table-wrap table { font-size:12px; }
+html[data-theme="tongdaxin"]:root :where(.rating-table th,.rating-table td,.backtest-table-wrap th,.backtest-table-wrap td) {
+  border-color:var(--line);
+  padding:5px 7px;
+}
+html[data-theme="tongdaxin"]:root :where(.rating-table th,.backtest-table-wrap th) {
+  background:var(--terminal-header);
+  color:#e3e3e3;
+  font-size:11px;
+  letter-spacing:0;
+}
+html[data-theme="tongdaxin"]:root :where(.rating-table tbody tr,.backtest-table-wrap tbody tr) { background:var(--terminal-row); }
+html[data-theme="tongdaxin"]:root :where(.rating-table tbody tr:nth-child(even),.backtest-table-wrap tbody tr:nth-child(even)) {
+  background:var(--terminal-row-alt);
+}
+html[data-theme="tongdaxin"]:root :where(.rating-table tbody tr:hover,.backtest-table-wrap tbody tr:hover) {
+  background:#252000;
+  box-shadow:inset 2px 0 0 var(--terminal-orange);
+}
+html[data-theme="tongdaxin"]:root .rating-table tbody tr.expanded {
+  background:var(--terminal-selection);
+  box-shadow:inset 2px 0 0 var(--terminal-selection-border);
+}
+
+/* Tongdaxin reserves bright red for chart grids and hard market boundaries. */
+html[data-theme="tongdaxin"]:root .market-breadth-grid { stroke:var(--chart-grid); }
+html[data-theme="tongdaxin"]:root .market-breadth-grid-vertical { opacity:.82; stroke-dasharray:2 4; }
+html[data-theme="tongdaxin"]:root .market-breadth-volume-grid { stroke:var(--chart-grid-soft); }
+html[data-theme="tongdaxin"]:root .market-breadth-volume-grid-zero { stroke:var(--chart-zero); }
+html[data-theme="tongdaxin"]:root .market-breadth-axis-line { stroke:var(--chart-grid-soft); }
+html[data-theme="tongdaxin"]:root .market-breadth-axis-label { fill:#9a9a9a; }
+html[data-theme="tongdaxin"]:root .market-breadth-axis-title { fill:#d0d0d0; color:#d0d0d0; }
+html[data-theme="tongdaxin"]:root .market-breadth-card {
+  --market-breadth-limit-down:#00dfe8;
+  --market-breadth-limit-up:#ff3030;
+  --market-breadth-broken-limit:#ff9000;
+  --market-breadth-red:#ff00ff;
+  --market-breadth-green:#00ff00;
+  --market-breadth-estimated-turnover:#fff200;
+  --market-breadth-actual-turnover:#ff3030;
+  --market-breadth-previous-turnover:#b8b8b8;
+  --market-breadth-turnover-increment:#00dfe8;
+  --market-breadth-same-time-delta:#ff00ff;
+}
+html[data-theme="tongdaxin"]:root .practice-axis-label { color:#a8a8a8; }
+html[data-theme="tongdaxin"]:root .practice-axis-label.zero { color:#fff200; }
+
+html[data-theme="tongdaxin"]:root .practice-hover-tooltip,
+html[data-theme="tongdaxin"]:root .practice-trade-marker-tooltip,
+html[data-theme="tongdaxin"]:root .theme-stock-details,
+html[data-theme="tongdaxin"]:root [class$="-popover"] {
+  border-color:#b50000;
+  background:#000;
+  color:var(--text);
+  box-shadow:0 10px 28px rgba(0,0,0,.48);
+  backdrop-filter:none;
+}
+
+html[data-theme="tongdaxin"]:root .overview-page {
+  --overview-surface:#000;
+  --overview-surface-raised:#090909;
+  --overview-surface-strong:#101010;
+  --overview-border:#641010;
+  --overview-border-strong:#8c1616;
+  --overview-text:#d0d0d0;
+  --overview-muted:#8c8c8c;
+  --overview-faint:#727272;
+  --overview-accent:#fff200;
+  --overview-accent-soft:rgba(154,0,0,.22);
+  --overview-up:#ff4141;
+  --overview-up-soft:rgba(255,65,65,.10);
+  --overview-down:#00dfe8;
+  --overview-down-soft:rgba(0,223,232,.09);
+  --overview-warning:#e8df00;
+  --overview-warning-soft:rgba(255,216,77,.10);
+  --overview-mainline-accent:#fff200;
+  --overview-mainline-secondary:#b8b8b8;
+}
+
+html[data-theme="tongdaxin"]:root .overview-command-head {
+  align-items:center;
+  padding:6px 8px;
+  background:var(--terminal-header-deep);
+}
+html[data-theme="tongdaxin"]:root .overview-command-head h2 { font-size:16px; letter-spacing:0; }
+html[data-theme="tongdaxin"]:root .overview-panel { padding:7px; background:var(--overview-surface); }
+html[data-theme="tongdaxin"]:root :where(.overview-terminal-grid,.overview-primary-grid,.overview-secondary-grid) { gap:4px; }
+html[data-theme="tongdaxin"]:root :where(.overview-panel-head,.overview-panel-head.compact) { margin-bottom:4px; min-height:22px; }
+html[data-theme="tongdaxin"]:root .overview-panel-head h3 { font-size:12px; }
+html[data-theme="tongdaxin"]:root .overview-kpi-strip { gap:1px; }
+html[data-theme="tongdaxin"]:root .overview-kpi { padding:5px 7px; }
+html[data-theme="tongdaxin"]:root .overview-index-grid { gap:2px; }
+html[data-theme="tongdaxin"]:root .overview-index-tile { padding:4px 6px; }
+html[data-theme="tongdaxin"]:root :where(.overview-theme-table-head,.overview-candidate-table-head) {
+  background:var(--terminal-header);
+  color:#e0e0e0;
+}
+html[data-theme="tongdaxin"]:root :where(.overview-theme-row,.overview-candidate-row,.overview-flow-row) {
+  border-color:var(--overview-border);
+}
+html[data-theme="tongdaxin"]:root :where(.overview-theme-row:nth-child(odd),.overview-candidate-row:nth-child(odd)) {
+  background:var(--terminal-row-alt);
+}
+html[data-theme="tongdaxin"]:root .overview-candidate-row { min-height:34px; padding-block:4px; }
+html[data-theme="tongdaxin"]:root .overview-flow-row { min-height:22px; }
+
+/* Full-width market windows replace modern floating cards. */
+html[data-theme="tongdaxin"]:root .indices-switch {
+  width:100%;
+  max-width:none;
+  gap:0;
+  padding:0;
+  background:var(--terminal-header-deep);
+}
+html[data-theme="tongdaxin"]:root .indices-switch-btn {
+  min-height:27px;
+  border-right:1px solid var(--line);
+  padding:3px 10px;
+  color:#c0c0c0;
+  font-size:12px;
+  font-weight:400;
+}
+html[data-theme="tongdaxin"]:root .indices-switch-btn.active {
+  border:1px solid #d00000;
+  background:#8c0000;
+  color:#fff200;
+}
+html[data-theme="tongdaxin"]:root .indices-part { gap:3px; }
+html[data-theme="tongdaxin"]:root .indices-part-head {
+  border:1px solid var(--line);
+  background:var(--terminal-header);
+}
+html[data-theme="tongdaxin"]:root .market-region-switch {
+  width:184px;
+  gap:0;
+  padding:0;
+}
+html[data-theme="tongdaxin"]:root .market-region-btn {
+  min-height:21px;
+  border-left:1px solid var(--line);
+  padding:2px 7px;
+  font-size:11px;
+  font-weight:400;
+}
+html[data-theme="tongdaxin"]:root .indices-index-stack > div {
+  margin-bottom:4px !important;
+  border:1px solid var(--line);
+  background:#000;
+}
+html[data-theme="tongdaxin"]:root .indices-index-stack > div > h3 {
+  min-height:22px;
+  margin:0 !important;
+  border-bottom:1px solid var(--line);
+  padding:3px 6px;
+  background:var(--terminal-header-deep);
+  color:#d0d0d0 !important;
+  font-size:12px !important;
+  font-weight:700;
+}
+html[data-theme="tongdaxin"]:root .market-strip {
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
+  gap:0;
+  overflow:visible;
+  margin:0 !important;
+  padding:0;
+}
+html[data-theme="tongdaxin"]:root .index-card {
+  position:relative;
+  min-width:0;
+  min-height:104px;
+  padding:5px 7px;
+  overflow:hidden;
+  border:0;
+  border-right:1px solid var(--line);
+  background:#000 !important;
+}
+html[data-theme="tongdaxin"]:root .index-card::before,
+html[data-theme="tongdaxin"]:root .index-card::after {
+  content:"";
+  position:absolute;
+  z-index:0;
+  pointer-events:none;
+}
+html[data-theme="tongdaxin"]:root .index-card::before {
+  right:0;
+  left:0;
+  top:62%;
+  border-top:1px dotted #5f0000;
+}
+html[data-theme="tongdaxin"]:root .index-card::after {
+  top:22px;
+  bottom:18px;
+  left:50%;
+  border-left:1px dotted #470000;
+}
+html[data-theme="tongdaxin"]:root .index-card > * { position:relative; z-index:1; }
+html[data-theme="tongdaxin"]:root .index-name { color:#c7c7c7; font-size:11px; font-weight:400; }
+html[data-theme="tongdaxin"]:root .index-price { margin-top:2px; font-size:18px; }
+html[data-theme="tongdaxin"]:root .index-change { margin-top:0; font-size:11px; }
+html[data-theme="tongdaxin"]:root .sparkline { height:31px; margin-top:3px; }
+html[data-theme="tongdaxin"]:root .sparkline-area { fill:none; }
+html[data-theme="tongdaxin"]:root .sparkline-line { stroke-width:1; }
+html[data-theme="tongdaxin"]:root .sparkline-zero { stroke:#700000; stroke-dasharray:2 3; }
+html[data-theme="tongdaxin"]:root .index-time { margin-top:1px; color:#858585; }
+
+html[data-theme="tongdaxin"]:root .mainline-page { --mainline-line:var(--line); }
+html[data-theme="tongdaxin"]:root .mainline-hero { padding:0; }
+html[data-theme="tongdaxin"]:root .mainline-heading {
+  border-bottom:1px solid var(--line);
+  background:var(--terminal-header);
+}
+html[data-theme="tongdaxin"]:root .mainline-heading h2 {
+  margin:0;
+  font-size:var(--terminal-page-title-size);
+  line-height:1.2;
+  font-weight:700;
+}
+html[data-theme="tongdaxin"]:root .mainline-heading p { font-size:11px; line-height:1.35; }
+html[data-theme="tongdaxin"]:root .mainline-actions { gap:4px; }
+html[data-theme="tongdaxin"]:root .mainline-actions button { min-height:22px; padding:2px 7px; font-size:11px; }
+html[data-theme="tongdaxin"]:root .mainline-loading,
+html[data-theme="tongdaxin"]:root .mainline-empty { min-height:86px; }
+html[data-theme="tongdaxin"]:root .mainline-empty strong { font-size:13px; }
+html[data-theme="tongdaxin"]:root .mainline-summary-grid { margin:4px; gap:1px; }
+html[data-theme="tongdaxin"]:root .mainline-summary-card { padding:6px; }
+html[data-theme="tongdaxin"]:root .mainline-section { margin-top:4px; }
+html[data-theme="tongdaxin"]:root .theme-rankings { gap:4px; }
+html[data-theme="tongdaxin"]:root .theme-row { height:58px; gap:3px 8px; padding:4px 7px; }
+html[data-theme="tongdaxin"]:root .theme-row { border-color:var(--line); }
+
+html[data-theme="tongdaxin"]:root .dragon-tiger-panel {
+  max-width:none;
+  margin:0;
+}
+html[data-theme="tongdaxin"]:root .dragon-tiger-head {
+  gap:6px;
+}
+html[data-theme="tongdaxin"]:root .dragon-tiger-sub { margin:0; font-size:10px; }
+html[data-theme="tongdaxin"]:root .dragon-tiger-head-actions {
+  display:flex;
+  align-items:center;
+  gap:3px;
+}
+html[data-theme="tongdaxin"]:root .dragon-tiger-date-controls { gap:2px; }
+html[data-theme="tongdaxin"]:root .dragon-tiger-date-controls input {
+  min-height:22px;
+  padding:2px 5px;
+  font-size:10px;
+}
+html[data-theme="tongdaxin"]:root .dragon-tiger-status { padding:2px 5px; }
+html[data-theme="tongdaxin"]:root .dragon-tiger-unavailable {
+  margin:4px;
+  gap:4px;
+  border-style:solid;
+  padding:10px;
+  background:#000;
+}
+html[data-theme="tongdaxin"]:root .dragon-tiger-unavailable a { margin-top:2px; }
+html[data-theme="tongdaxin"]:root .dragon-tiger-list-head,
+html[data-theme="tongdaxin"]:root .dragon-tiger-item > summary {
+  gap:0;
+  min-height:28px;
+  padding:4px 28px 4px 7px;
+}
+html[data-theme="tongdaxin"]:root .dragon-tiger-list-head > *,
+html[data-theme="tongdaxin"]:root .dragon-tiger-item > summary > span {
+  min-height:20px;
+  border-left:1px solid var(--line);
+  padding:2px 6px;
+}
+html[data-theme="tongdaxin"]:root .dragon-tiger-list-head > :first-child,
+html[data-theme="tongdaxin"]:root .dragon-tiger-item > summary > span:first-child { border-left:0; }
+html[data-theme="tongdaxin"]:root .dragon-tiger-detail { padding:5px 7px; background:#000; }
+
+html[data-theme="tongdaxin"]:root .practice-candidates-backdrop {
+  --candidate-overlay:rgba(0,0,0,.76);
+  --candidate-dialog-surface:#000;
+  --candidate-dialog-head:#090909;
+  --candidate-dialog-border:#b50000;
+  --candidate-dialog-shadow:0 24px 64px rgba(0,0,0,.52);
+  --candidate-card-surface:#050505;
+  --candidate-card-border:#8e0000;
+  --candidate-card-expanded-border:#e00000;
+  --candidate-card-divider:#760000;
+  --candidate-card-subtle:#000;
+  --candidate-card-shadow:none;
+  --candidate-card-expanded-shadow:0 8px 22px rgba(0,0,0,.32);
+  --candidate-niuone-bg:#270000;
+  --candidate-niuone-border:#b50000;
+  --candidate-niuone-text:#fff200;
+}
+
+/* Admin and backtest pages */
+html[data-theme="tongdaxin"]:root .admin-header {
+  min-height:30px;
+  padding:3px max(clamp(6px,1vw,12px),calc((100vw - 1600px) / 2));
+}
+html[data-theme="tongdaxin"]:root .admin-main {
+  width:100%;
+  margin:0;
+  padding:4px max(clamp(3px,.8vw,8px),calc((100vw - 1600px) / 2)) 10px;
+  gap:4px;
+}
+html[data-theme="tongdaxin"]:root :where(.settings-index,.settings-detail,.settings-form) { gap:4px; }
+
+html[data-theme="tongdaxin"]:root .settings-overview {
+  min-height:30px;
+  align-items:center;
+  gap:8px;
+  padding:3px 5px;
+}
+html[data-theme="tongdaxin"]:root .settings-overview-copy { display:block; }
+html[data-theme="tongdaxin"]:root .settings-overview-copy h2 { color:#d8d8d8; font-size:13px; line-height:1.1; }
+html[data-theme="tongdaxin"]:root .settings-overview-stats { gap:0; flex-wrap:nowrap; }
+html[data-theme="tongdaxin"]:root .settings-stat {
+  display:flex;
+  min-width:0;
+  align-items:baseline;
+  gap:4px;
+  border:0;
+  border-left:1px solid var(--line);
+  padding:2px 7px;
+  background:transparent;
+}
+html[data-theme="tongdaxin"]:root .settings-stat-value { color:#fff200; font-size:12px; line-height:1; }
+html[data-theme="tongdaxin"]:root .settings-stat-label { color:#929292; font-size:10px; line-height:1; }
+
+html[data-theme="tongdaxin"]:root :where(
+  .settings-overview,
+  .settings-card,
+  .settings-sidebar,
+  .settings-group,
+  .notification-channel-card,
+  .admin-login-box,
+  .backtest-hero,
+  .backtest-form,
+  .backtest-progress-card,
+  .backtest-job-summary,
+  .backtest-result-card
+) {
+  border-color:var(--line);
+  background:var(--surface);
+  box-shadow:none;
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .settings-group-head,
+  .notification-channel-card-head,
+  .notification-channel-actions,
+  .backtest-result-head
+) {
+  border-color:var(--line);
+  background:var(--terminal-header);
+}
+
+html[data-theme="tongdaxin"]:root :where(
+  .settings-stat,
+  .setting-state-item,
+  .strategy-option,
+  .notification-block,
+  .notification-compact-field,
+  .notification-channel-control,
+  .notification-channel-empty,
+  .backtest-overview > div,
+  .backtest-diagnostic-groups article,
+  .backtest-month-diagnostic
+) {
+  border-color:var(--line);
+  background:var(--surface2);
+}
+
+html[data-theme="tongdaxin"]:root .settings-breadcrumbs { min-height:24px; }
+html[data-theme="tongdaxin"]:root .settings-back-link {
+  min-height:22px;
+  gap:4px;
+  border-color:#555 #090909 #090909 #555;
+  padding:2px 7px;
+  background:#202020;
+  color:#fff200;
+  font-size:11px;
+  transform:none;
+}
+html[data-theme="tongdaxin"]:root .settings-back-link:hover,
+html[data-theme="tongdaxin"]:root .settings-back-link:focus-visible {
+  border-color:#777 #111 #111 #777;
+  background:#2b2b2b;
+  color:#fff200;
+  transform:none;
+  outline:none;
+}
+html[data-theme="tongdaxin"]:root .settings-group-head {
+  min-height:32px;
+  align-items:center;
+  padding:4px 7px;
+}
+html[data-theme="tongdaxin"]:root .settings-group-head h2 { font-size:13px; line-height:1.15; }
+html[data-theme="tongdaxin"]:root .settings-group-note {
+  max-width:min(1100px,75vw);
+  margin-top:2px;
+  overflow:hidden;
+  font-size:10px;
+  line-height:1.2;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+html[data-theme="tongdaxin"]:root .settings-count {
+  border-color:#555 #090909 #090909 #555;
+  padding:2px 6px;
+  background:#202020;
+  color:#fff200;
+  font-size:10px;
+}
+html[data-theme="tongdaxin"]:root .setting-row {
+  grid-template-columns:minmax(150px,.55fr) minmax(250px,1fr) minmax(220px,.65fr);
+  align-items:center;
+  gap:7px;
+  border-color:var(--line);
+  padding:4px 7px;
+}
+html[data-theme="tongdaxin"]:root .setting-row:hover { background:#160000; }
+html[data-theme="tongdaxin"]:root .config-label { color:#d0d0d0; font-size:12px; font-weight:400; }
+html[data-theme="tongdaxin"]:root .setting-state { grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px; }
+html[data-theme="tongdaxin"]:root .setting-state-item { gap:1px; padding:3px 5px; }
+html[data-theme="tongdaxin"]:root .setting-state-label { color:#888; font-size:9px; font-weight:400; }
+html[data-theme="tongdaxin"]:root .config-meta { color:#b8b8b8; font-size:10px; line-height:1.2; }
+html[data-theme="tongdaxin"]:root :where(
+  .setting-editor input:not([type="radio"]):not([type="checkbox"]):not([type="range"]),
+  .setting-editor select,
+  .time-list-add,
+  .time-list-remove
+) {
+  min-height:24px;
+  padding:3px 6px;
+  font-size:11px;
+}
+html[data-theme="tongdaxin"]:root .setting-editor textarea {
+  min-height:140px;
+  padding:5px 6px;
+  font-size:11px;
+  line-height:1.35;
+}
+html[data-theme="tongdaxin"]:root .strategy-option { gap:5px; padding:5px 6px; }
+html[data-theme="tongdaxin"]:root .settings-grid { display:flex; flex-wrap:wrap; align-items:flex-start; gap:2px; }
+html[data-theme="tongdaxin"]:root .settings-card:hover,
+html[data-theme="tongdaxin"]:root .settings-card:focus-visible {
+  border-color:#777 #111 #111 #777;
+  background:#2b2b2b;
+  color:#fff200;
+  transform:none;
+  outline:none;
+}
+html[data-theme="tongdaxin"]:root .settings-card {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:auto;
+  min-width:64px;
+  min-height:24px;
+  padding:2px 7px;
+  border:1px solid;
+  border-color:#555 #090909 #090909 #555;
+  background:#202020;
+  color:#fff200;
+  font-weight:700;
+}
+html[data-theme="tongdaxin"]:root :where(
+  .settings-card-icon,
+  .settings-card-summary,
+  .settings-card-meta,
+  .settings-card-arrow
+) { display:none; }
+html[data-theme="tongdaxin"]:root .settings-card-copy { display:block; }
+html[data-theme="tongdaxin"]:root .settings-card-title { overflow:visible; font-size:12px; color:inherit; text-overflow:clip; }
+html[data-theme="tongdaxin"]:root .settings-actions { border-color:var(--accent-border); background:#050505; box-shadow:none; backdrop-filter:none; }
+
+html[data-theme="tongdaxin"]:root :where(.notification-settings,.notification-block,.notification-channel-fields) {
+  gap:6px;
+  padding:7px;
+}
+html[data-theme="tongdaxin"]:root .notification-channel-card-head { padding:5px 7px; }
+html[data-theme="tongdaxin"]:root .notification-channel-actions { min-height:34px; padding:4px 7px; }
+html[data-theme="tongdaxin"]:root .appearance-settings-body { padding:7px; }
+html[data-theme="tongdaxin"]:root .appearance-mode-layout { gap:5px; }
+html[data-theme="tongdaxin"]:root .appearance-mode-section { gap:6px; padding:6px; }
+html[data-theme="tongdaxin"]:root .appearance-settings-grid { gap:5px; }
+html[data-theme="tongdaxin"]:root .appearance-option-group { gap:4px; }
+html[data-theme="tongdaxin"]:root .appearance-option-card { min-height:46px; gap:6px; padding:5px; }
+
+html[data-theme="tongdaxin"]:root .appearance-option-card {
+  border-color:var(--line);
+  background:var(--surface2);
+}
+html[data-theme="tongdaxin"]:root .appearance-option-card:hover { border-color:var(--accent-border); }
+html[data-theme="tongdaxin"]:root .appearance-option-card.selected { border-color:var(--accent); background:var(--accent-soft); }
+html[data-theme="tongdaxin"]:root .appearance-mode-section {
+  border-color:var(--line);
+  background:var(--surface);
+}
+html[data-theme="tongdaxin"]:root .appearance-mode-section.selected {
+  border-color:var(--accent-border);
+  background:#080000;
+}
+
+html[data-theme="tongdaxin"]:root :where(.theme-row,.backtest-month-diagnostic:nth-child(even)) {
+  background:var(--terminal-row-alt);
+}
+
+html[data-theme="tongdaxin"]:root :where(.primary-btn,.danger-btn,.save-btn) {
+  box-shadow:none;
+  text-transform:none;
+}
+
+@media(max-width:720px) {
+  html[data-theme="tongdaxin"]:root header { padding:8px 10px; }
+  html[data-theme="tongdaxin"]:root h1 { font-size:18px; }
+  html[data-theme="tongdaxin"]:root .dashboard-brand-logo { width:28px; height:28px; }
+  html[data-theme="tongdaxin"]:root .category-tabs { margin-top:6px; }
+  html[data-theme="tongdaxin"]:root .tab { min-height:28px; padding:5px 10px; }
+  html[data-theme="tongdaxin"]:root main { padding:8px 8px 22px; }
+  html[data-theme="tongdaxin"]:root .practice-chart-wrap { height:180px; }
+  html[data-theme="tongdaxin"]:root .position-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  html[data-theme="tongdaxin"]:root .position-metric { border-bottom:1px solid #3f0000; }
+  html[data-theme="tongdaxin"]:root .position-metric:nth-child(odd) { border-left:0; }
+  html[data-theme="tongdaxin"]:root :where(
+    .overview-command-head,
+    .practice-account-head,
+    .mainline-heading,
+    .indices-part-head,
+    .dragon-tiger-head,
+    .x-monitor-head,
+    .rating-table-title
+  ) {
+    flex:0 0 auto !important;
+    height:auto !important;
+    min-height:var(--terminal-page-title-height) !important;
+    overflow:visible;
+  }
+  html[data-theme="tongdaxin"]:root .theme-toggle:hover,
+  html[data-theme="tongdaxin"]:root .theme-toggle:active,
+  html[data-theme="tongdaxin"]:root .theme-toggle:focus,
+  html[data-theme="tongdaxin"]:root .theme-toggle:focus-visible {
+    border-color:#8e0000;
+    background:#050505;
+    color:#c4c4c4;
+    outline:none;
+    box-shadow:none;
+  }
+}

@@ -1083,6 +1083,10 @@ class DashboardAuthTests(unittest.TestCase):
             ROOT / 'web' / 'src' / 'components' / 'ComplianceDialog.vue'
         ).read_text(encoding='utf-8')
         self.assertIn("window.dispatchEvent(new CustomEvent('niuone:compliance-closed'))", compliance_source)
+        self.assertIn("const COMPLIANCE_ACKNOWLEDGED_KEY = 'niuone:compliance-acknowledged-v1'", compliance_source)
+        self.assertIn('window.sessionStorage.getItem(COMPLIANCE_ACKNOWLEDGED_KEY)', compliance_source)
+        self.assertIn("window.sessionStorage.setItem(COMPLIANCE_ACKNOWLEDGED_KEY, '1')", compliance_source)
+        self.assertIn('const visible = ref(!wasAcknowledged())', compliance_source)
         self.assertIn("window.addEventListener('niuone:compliance-closed'", source)
         self.assertIn("window.localStorage.setItem(IGNORED_UPDATE_STORAGE_KEY, version)", source)
         self.assertIn('此版本不再提醒', source)
@@ -4106,28 +4110,63 @@ console.log(JSON.stringify([
         index_html = (ROOT / 'web' / 'index.html').read_text(encoding='utf-8')
         dashboard_styles = (ROOT / 'frontend' / 'dashboard.css').read_text(encoding='utf-8')
         admin_styles = (ROOT / 'frontend' / 'admin.css').read_text(encoding='utf-8')
+        tongdaxin_styles = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+        dashboard_page = (
+            ROOT / 'web' / 'src' / 'components' / 'DashboardPage.vue'
+        ).read_text(encoding='utf-8')
+        backtest_page = (
+            ROOT / 'web' / 'src' / 'components' / 'AdminBacktestPage.vue'
+        ).read_text(encoding='utf-8')
 
         self.assertIn("const CORNER_STORAGE_KEY = 'niuone-dashboard-corners-v1'", theme_composable)
+        self.assertIn(
+            "const STANDARD_THEME_STORAGE_KEY = 'niuone-dashboard-standard-theme-v1'",
+            theme_composable,
+        )
         self.assertIn('document.documentElement.dataset.corners = normalized', theme_composable)
+        self.assertIn("new Set(['light', 'dark', 'tongdaxin'])", theme_composable)
+        self.assertIn("const STANDARD_THEMES = new Set(['light', 'dark'])", theme_composable)
+        self.assertIn('SUPPORTED_THEMES.has(event.newValue)', theme_composable)
         self.assertIn('setCornerStyle,', theme_composable)
+        self.assertIn('setStandardCornerStyle,', theme_composable)
+        self.assertIn('setStandardTheme,', theme_composable)
         self.assertIn('setTheme,', theme_composable)
+        self.assertIn('setTongdaxinTheme,', theme_composable)
+        self.assertIn("if (theme.value === 'tongdaxin')", theme_composable)
+        self.assertIn('applyTheme(standardTheme.value, true)', theme_composable)
         self.assertIn("corners = 'square'", index_html)
         self.assertIn('document.documentElement.dataset.corners = corners', index_html)
+        self.assertIn("theme !== 'tongdaxin'", index_html)
 
         self.assertIn('<h2 id="appearanceSettingsTitle">界面主题</h2>', appearance_component)
+        self.assertIn('<h3 id="standardAppearanceTitle">深浅色与边角样式</h3>', appearance_component)
+        self.assertIn('<h3 id="tongdaxinAppearanceTitle">通达信模式</h3>', appearance_component)
         self.assertIn('<legend>主题颜色</legend>', appearance_component)
         self.assertIn('<legend>边角样式</legend>', appearance_component)
         self.assertIn("{ value: 'light', label: '浅色'", appearance_component)
         self.assertIn("{ value: 'dark', label: '深色'", appearance_component)
+        self.assertIn("value: 'tongdaxin'", appearance_component)
         self.assertIn("{ value: 'rounded', label: '圆角'", appearance_component)
         self.assertIn("{ value: 'square', label: '直角'", appearance_component)
-        self.assertIn('@change="setTheme(option.value)"', appearance_component)
-        self.assertIn('@change="setCornerStyle(option.value)"', appearance_component)
+        self.assertIn(':class="{ selected: !isTongdaxin && theme === option.value }"', appearance_component)
+        self.assertIn(':checked="!isTongdaxin && theme === option.value"', appearance_component)
+        self.assertIn(':checked="!isTongdaxin && cornerStyle === option.value"', appearance_component)
+        self.assertIn('@change="setStandardTheme(option.value)"', appearance_component)
+        self.assertIn('@change="setStandardCornerStyle(option.value)"', appearance_component)
+        self.assertIn('@change="setTongdaxinTheme"', appearance_component)
+        self.assertIn("? '通达信'", appearance_component)
         self.assertIn("slug: 'appearance'", settings_index)
+        self.assertIn('在常规外观与互斥的通达信模式之间切换', settings_index)
+        self.assertIn('class="settings-card"', settings_index)
+        self.assertIn(':title="group.summary', settings_index)
+        self.assertIn('settings-card-summary', settings_index)
         self.assertIn("entries.findIndex(group => group.slug === 'about')", settings_index)
         self.assertNotIn('<AdminAppearanceSettings', settings_index)
         self.assertIn("groupSlug.value === 'appearance'", admin_page)
         self.assertIn('<AdminAppearanceSettings', admin_page)
+        self.assertNotIn('adminThemeToggle', admin_page)
         self.assertIn('v-else-if="state === \'ready\' && isAppearanceSettings && config"', admin_page)
         self.assertIn('<RouterLink class="settings-back-link" to="/admin">', appearance_component)
         self.assertIn('class="settings-group appearance-settings-panel"', appearance_component)
@@ -4136,6 +4175,176 @@ console.log(JSON.stringify([
         self.assertIn('html[data-corners="square"] :where(', admin_styles)
         self.assertIn('.appearance-settings-panel {', admin_styles)
         self.assertIn('.appearance-option-card.selected', admin_styles)
+        self.assertIn('.appearance-mode-layout {', admin_styles)
+        self.assertIn('.appearance-mode-section.selected', admin_styles)
+        self.assertIn('.appearance-color-sample.tongdaxin i:first-child', admin_styles)
+        self.assertIn(
+            '.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}',
+            admin_styles,
+        )
+        self.assertIn(
+            '.settings-card{position:relative;display:grid;grid-template-columns:56px minmax(0,1fr) auto;',
+            admin_styles,
+        )
+        self.assertIn(
+            '.settings-grid { display:flex; flex-wrap:wrap; align-items:flex-start; gap:2px; }',
+            tongdaxin_styles,
+        )
+        self.assertIn('border-color:#555 #090909 #090909 #555;', tongdaxin_styles)
+        self.assertIn('background:#202020;', tongdaxin_styles)
+        self.assertIn('color:#fff200;', tongdaxin_styles)
+        self.assertIn(
+            '.settings-card-summary,\n  .settings-card-meta,\n  .settings-card-arrow\n) { display:none; }',
+            tongdaxin_styles,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .appearance-mode-section.selected',
+            tongdaxin_styles,
+        )
+        self.assertNotIn('\n.appearance-settings-grid {', tongdaxin_styles)
+        self.assertIn('html[data-theme="tongdaxin"]:root {', tongdaxin_styles)
+        self.assertIn('scrollbar-gutter:stable;', tongdaxin_styles)
+        self.assertNotIn('html:not([data-theme="dark"])', dashboard_styles)
+        self.assertNotIn('html:not([data-theme="dark"])', admin_styles)
+        self.assertIn('html[data-theme="light"] .practice-chart-card', dashboard_styles)
+        self.assertIn('--bg:#000;', tongdaxin_styles)
+        self.assertIn('--line:#730000;', tongdaxin_styles)
+        self.assertIn('--red:#ff4141;', tongdaxin_styles)
+        self.assertIn('--green:#00dfe8;', tongdaxin_styles)
+        self.assertIn('--terminal-header:#292929;', tongdaxin_styles)
+        self.assertIn('--terminal-page-title-height:38px;', tongdaxin_styles)
+        self.assertIn('--terminal-header-row-height:30px;', tongdaxin_styles)
+        self.assertIn('--terminal-header-control-height:24px;', tongdaxin_styles)
+        self.assertIn('--terminal-header-control-padding:4px 7px;', tongdaxin_styles)
+        self.assertIn('--terminal-header-meta-font-size:10px;', tongdaxin_styles)
+        self.assertIn('box-shadow:none !important;', tongdaxin_styles)
+        self.assertIn(':where(.version-status,.theme-toggle) {', tongdaxin_styles)
+        self.assertIn('--terminal-row-alt:#0d0d0d;', tongdaxin_styles)
+        self.assertIn('--chart-grid:rgba(205,0,0,.68);', tongdaxin_styles)
+        self.assertIn('font-size:12px;', tongdaxin_styles)
+        self.assertIn('font-family:SimSun,"宋体","Songti SC",Tahoma,Arial,sans-serif;', tongdaxin_styles)
+        self.assertIn('border-radius:0 !important;', tongdaxin_styles)
+        self.assertIn('transition:none !important;', tongdaxin_styles)
+        self.assertIn('grid-template-columns:repeat(8,minmax(78px,1fr));', tongdaxin_styles)
+        self.assertIn('grid-template-columns:repeat(auto-fill,minmax(240px,1fr));', tongdaxin_styles)
+        self.assertIn('flex:0 0 var(--terminal-page-title-height) !important;', tongdaxin_styles)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .dragon-tiger-panel,\n'
+            'html[data-theme="tongdaxin"]:root .x-monitor-panel {\n'
+            '  padding:0;',
+            tongdaxin_styles,
+        )
+        self.assertIn('.practice-account-head,\n  .mainline-heading,\n  .indices-part-head,\n  .dragon-tiger-head,', tongdaxin_styles)
+        self.assertIn('.market-breadth-grid { stroke:var(--chart-grid); }', tongdaxin_styles)
+        self.assertIn('--market-breadth-limit-up:#ff3030;', tongdaxin_styles)
+        self.assertIn('background-image:none !important;', tongdaxin_styles)
+        self.assertNotIn('gradient', tongdaxin_styles)
+        self.assertNotIn('#123c69', tongdaxin_styles)
+        self.assertIn('.appearance-color-sample.tongdaxin', admin_styles)
+        self.assertIn(
+            '<style src="../../../frontend/tongdaxin-theme.css"></style>',
+            dashboard_page,
+        )
+        self.assertIn(
+            '<style src="../../../frontend/tongdaxin-theme.css"></style>',
+            admin_page,
+        )
+        self.assertIn(
+            '<style src="../../../frontend/tongdaxin-theme.css"></style>',
+            backtest_page,
+        )
+
+    def test_tongdaxin_admin_matches_dashboard_header_and_content_width(self):
+        stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+        admin_page = (
+            ROOT / 'web' / 'src' / 'components' / 'AdminPage.vue'
+        ).read_text(encoding='utf-8')
+        category_tabs = (
+            ROOT / 'web' / 'src' / 'components' / 'CategoryTabs.vue'
+        ).read_text(encoding='utf-8')
+        header_actions = (
+            ROOT / 'web' / 'src' / 'components' / 'DashboardHeaderActions.vue'
+        ).read_text(encoding='utf-8')
+        dashboard_header = (
+            ROOT / 'web' / 'src' / 'components' / 'DashboardHeader.vue'
+        ).read_text(encoding='utf-8')
+        dashboard_page = (
+            ROOT / 'web' / 'src' / 'components' / 'DashboardPage.vue'
+        ).read_text(encoding='utf-8')
+        app_component = (ROOT / 'web' / 'src' / 'App.vue').read_text(encoding='utf-8')
+        router_source = (ROOT / 'web' / 'src' / 'router.js').read_text(encoding='utf-8')
+        shared_header_styles = (
+            ROOT / 'frontend' / 'dashboard-header.css'
+        ).read_text(encoding='utf-8')
+
+        self.assertNotIn('<header', admin_page)
+        self.assertNotIn('<header', dashboard_page)
+        self.assertNotIn('AdminPageTitle', admin_page)
+        self.assertNotIn('AdminCategoryTabs', admin_page)
+        self.assertIn("import CategoryTabs from './CategoryTabs.vue'", dashboard_header)
+        self.assertIn("import DashboardHeaderActions from './DashboardHeaderActions.vue'", dashboard_header)
+        self.assertIn('class="dashboard-site-header"', dashboard_header)
+        self.assertIn('<h1 class="dashboard-brand">', dashboard_header)
+        self.assertIn('class="dashboard-brand-logo"', dashboard_header)
+        self.assertIn('<CategoryTabs />', dashboard_header)
+        self.assertIn('<DashboardHeaderActions />', dashboard_header)
+        self.assertIn("import DashboardHeader from './components/DashboardHeader.vue'", app_component)
+        self.assertIn('<DashboardHeader v-if="showDashboardHeader" />', app_component)
+        self.assertLess(app_component.index('<DashboardHeader'), app_component.index('<RouterView'))
+        self.assertGreaterEqual(router_source.count('meta: { dashboardHeader: true }'), 3)
+        self.assertIn("import VersionStatus from './VersionStatus.vue'", header_actions)
+        self.assertIn("import ThemeToggle from './ThemeToggle.vue'", header_actions)
+        self.assertIn("import LastUpdated from './LastUpdated.vue'", header_actions)
+        self.assertIn('class="header-link"', header_actions)
+        self.assertIn('<VersionStatus />', header_actions)
+        self.assertIn('button-class="theme-toggle"', header_actions)
+        self.assertIn('<RouterLink class="settings-link" to="/admin"', header_actions)
+        self.assertNotIn('<a class="settings-link" href="/admin"', header_actions)
+        self.assertIn('<LastUpdated />', header_actions)
+        self.assertIn("window.dispatchEvent(new CustomEvent('niuone:last-updated'", admin_page)
+        self.assertIn(':authenticate="authenticateAndRefresh"', admin_page)
+        self.assertIn(
+            '.dashboard-site-header :where(.settings-link,.header-link,.version-status,.refresh-pill)',
+            shared_header_styles,
+        )
+        self.assertIn('v-for="item in items"', category_tabs)
+        self.assertIn(':data-category="item.key"', category_tabs)
+        self.assertNotIn('data-category="settings"', category_tabs)
+        self.assertNotIn(
+            'html[data-theme="tongdaxin"]:root .admin-dashboard-header .header-row {',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root header {\n'
+            '  padding:3px max(clamp(6px,1vw,12px),calc((100vw - 1600px) / 2));',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .admin-main {\n'
+            '  width:100%;\n'
+            '  margin:0;\n'
+            '  padding:4px max(clamp(3px,.8vw,8px),calc((100vw - 1600px) / 2)) 10px;',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .settings-overview {\n  min-height:30px;',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .settings-stat {\n  display:flex;',
+            stylesheet,
+        )
+        self.assertIn(
+            'grid-template-columns:minmax(150px,.55fr) minmax(250px,1fr) minmax(220px,.65fr);',
+            stylesheet,
+        )
+        self.assertIn('min-height:24px;\n  padding:2px 7px;', stylesheet)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .appearance-settings-body { padding:7px; }',
+            stylesheet,
+        )
 
     def test_info_buttons_open_on_hover_for_pointer_devices(self):
         self.assertIn('@media (hover:hover) and (pointer:fine)', DASHBOARD_FRONTEND)
@@ -4171,11 +4380,11 @@ console.log(JSON.stringify([
         self.assertNotIn('style="color:#94a3b8"', PRACTICE_COMPONENTS)
         self.assertIn('class="position-value secondary"', PRACTICE_COMPONENTS)
         self.assertIn(
-            'html:not([data-theme="dark"]) .position-reason-text { color:#344054; }',
+            'html[data-theme="light"] .position-reason-text { color:#344054; }',
             stylesheet,
         )
         self.assertIn(
-            'html:not([data-theme="dark"]) .position-value-separator { color:#475467; }',
+            'html[data-theme="light"] .position-value-separator { color:#475467; }',
             stylesheet,
         )
 
@@ -4183,27 +4392,27 @@ console.log(JSON.stringify([
         stylesheet = (ROOT / 'frontend' / 'dashboard.css').read_text(encoding='utf-8')
 
         self.assertIn(
-            'html:not([data-theme="dark"]) .practice-trade-marker-line.buy '
+            'html[data-theme="light"] .practice-trade-marker-line.buy '
             '.practice-trade-marker-side {',
             stylesheet,
         )
         self.assertIn(
-            'html:not([data-theme="dark"]) .practice-trade-marker-line.sell '
+            'html[data-theme="light"] .practice-trade-marker-line.sell '
             '.practice-trade-marker-side {',
             stylesheet,
         )
         self.assertIn(
-            'html:not([data-theme="dark"]) .practice-trade-marker-fill '
+            'html[data-theme="light"] .practice-trade-marker-fill '
             '{ color:var(--accent-text); }',
             stylesheet,
         )
         self.assertIn(
-            'html:not([data-theme="dark"]) .practice-trade-marker-pnl.up '
+            'html[data-theme="light"] .practice-trade-marker-pnl.up '
             '{ color:var(--red-text); }',
             stylesheet,
         )
         self.assertIn(
-            'html:not([data-theme="dark"]) .practice-trade-marker-pnl.down '
+            'html[data-theme="light"] .practice-trade-marker-pnl.down '
             '{ color:var(--green-text); }',
             stylesheet,
         )
@@ -6049,32 +6258,32 @@ process.stdout.write(JSON.stringify({{
         self.assertIn("event.key === 'Escape'", component)
         self.assertNotIn('class="practice-market-summary-card"', component)
         self.assertIn(
-            'html:not([data-theme="dark"]) '
+            'html[data-theme="light"] '
             '.practice-market-evaluation-text { color:var(--text); }',
             DASHBOARD_FRONTEND,
         )
         self.assertRegex(
             DASHBOARD_FRONTEND,
-            r'html:not\(\[data-theme="dark"\]\) '
+            r'html\[data-theme="light"\] '
             r'\.practice-market-evaluation-tone \{'
             r'[^}]*border-color:var\(--accent-border\);'
             r'[^}]*background:var\(--accent-soft\);'
             r'[^}]*color:var\(--accent-text\);',
         )
         self.assertIn(
-            'html:not([data-theme="dark"]) .practice-market-summary-body '
+            'html[data-theme="light"] .practice-market-summary-body '
             '{ scrollbar-color:#aeb8c7 #f4f6f9; }',
             DASHBOARD_FRONTEND,
         )
         self.assertIn(
-            'html:not([data-theme="dark"]) '
+            'html[data-theme="light"] '
             '.practice-market-summary-body::-webkit-scrollbar-track '
             '{ background:#f4f6f9; }',
             DASHBOARD_FRONTEND,
         )
         self.assertRegex(
             DASHBOARD_FRONTEND,
-            r'html:not\(\[data-theme="dark"\]\) '
+            r'html\[data-theme="light"\] '
             r'\.practice-market-summary-body::\-webkit-scrollbar-thumb \{'
             r'[^}]*border-color:#f4f6f9;'
             r'[^}]*background:#aeb8c7;',

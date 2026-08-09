@@ -934,6 +934,7 @@ onBeforeUnmount(stopPolling)
 </template>
 
 <style src="../../../frontend/admin.css"></style>
+<style src="../../../frontend/tongdaxin-theme.css"></style>
 <style scoped>
 .backtest-page{gap:12px}.backtest-hero,.backtest-form,.backtest-progress-card,.backtest-job-summary,.backtest-result-card{border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:var(--page-shadow)}
 .backtest-hero{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:15px 18px}.backtest-hero-copy{display:flex;align-items:flex-start;gap:12px;min-width:0}.backtest-hero-copy h2,.backtest-form h2,.backtest-progress-card h2,.backtest-result-card h2{margin:0;color:var(--text);font-size:18px}.backtest-hero-copy p,.backtest-form-head p,.backtest-progress-card p,.backtest-result-head p{margin-top:5px;color:var(--muted);font-size:13px;line-height:1.5}.backtest-strategy-dot{width:12px;height:12px;margin-top:5px;border-radius:4px;background:var(--strategy-color);flex:0 0 auto}.backtest-tags{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:6px}.backtest-tags span{padding:5px 8px;border:1px solid var(--line);border-radius:999px;background:var(--surface2);color:var(--soft);font-size:11px;font-weight:800}
