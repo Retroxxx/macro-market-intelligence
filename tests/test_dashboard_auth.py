@@ -4341,6 +4341,11 @@ console.log(JSON.stringify([
         self.assertIn('.appearance-option-card.selected', admin_styles)
         self.assertIn('.appearance-mode-layout {', admin_styles)
         self.assertIn('.appearance-mode-section.selected', admin_styles)
+        self.assertIn('.appearance-tongdaxin-option { margin-top:20px; }', admin_styles)
+        self.assertIn(
+            '.appearance-tongdaxin-option { margin-top:18px; }',
+            tongdaxin_styles,
+        )
         self.assertIn('.appearance-color-sample.tongdaxin i:first-child', admin_styles)
         self.assertIn(
             '.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}',
@@ -4623,14 +4628,6 @@ console.log(JSON.stringify([
             stylesheet,
         )
         self.assertIn(
-            'html[data-theme="tongdaxin"]:root .settings-overview {\n  min-height:30px;',
-            stylesheet,
-        )
-        self.assertIn(
-            'html[data-theme="tongdaxin"]:root .settings-stat {\n  display:flex;',
-            stylesheet,
-        )
-        self.assertIn(
             'grid-template-columns:minmax(150px,.55fr) minmax(250px,1fr) minmax(220px,.65fr);',
             stylesheet,
         )
@@ -4638,6 +4635,82 @@ console.log(JSON.stringify([
         self.assertIn(
             'html[data-theme="tongdaxin"]:root .appearance-settings-body { padding:7px; }',
             stylesheet,
+        )
+
+    def test_standard_admin_content_aligns_with_dashboard_header(self):
+        admin_styles = (ROOT / 'frontend' / 'admin.css').read_text(encoding='utf-8')
+        header_styles = (
+            ROOT / 'frontend' / 'dashboard-header.css'
+        ).read_text(encoding='utf-8')
+        shared_gutter = 'max(clamp(10px,1.8vw,24px),calc((100vw - 1440px) / 2))'
+
+        self.assertIn(
+            'html:not([data-theme="tongdaxin"]) .admin-main{',
+            admin_styles,
+        )
+        self.assertIn(f'padding:12px {shared_gutter} 28px;', admin_styles)
+        self.assertIn(f'padding:7px {shared_gutter};', header_styles)
+
+    def test_standard_admin_uses_compact_financial_workstation_layout(self):
+        admin_styles = (ROOT / 'frontend' / 'admin.css').read_text(encoding='utf-8')
+        settings_index = (
+            ROOT / 'web' / 'src' / 'components' / 'AdminSettingsIndex.vue'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn(
+            'Standard themes use a compact institutional-workstation layout.',
+            admin_styles,
+        )
+        self.assertIn('--settings-panel-radius:8px;', admin_styles)
+        self.assertIn('--settings-control-radius:5px;', admin_styles)
+        self.assertIn('--settings-panel-radius:0px;', admin_styles)
+        self.assertIn('--settings-control-radius:0px;', admin_styles)
+        self.assertIn(
+            'html:not([data-theme="tongdaxin"]) .settings-card {',
+            admin_styles,
+        )
+        self.assertIn('grid-template-columns:minmax(0,1fr) 18px;', admin_styles)
+        self.assertNotIn('class="settings-card-icon"', settings_index)
+        self.assertNotIn('class="settings-overview"', settings_index)
+        self.assertNotIn('<h2>业务配置</h2>', settings_index)
+        self.assertNotIn('const itemCount', settings_index)
+        self.assertIn('border:1px solid var(--line);', admin_styles)
+        self.assertIn('background:var(--surface);', admin_styles)
+        self.assertNotIn(
+            '.settings-card:last-child:nth-child(odd) {\n    grid-column:1/-1;',
+            admin_styles,
+        )
+        self.assertIn('.settings-card:last-child { border-bottom:0; }', admin_styles)
+        self.assertIn(
+            '.settings-card:nth-child(odd) {\n    border-right:1px solid var(--line);',
+            admin_styles,
+        )
+        self.assertNotIn(
+            '.settings-card:nth-child(odd):not(:last-child)',
+            admin_styles,
+        )
+        self.assertIn('border-bottom:1px solid var(--line);', admin_styles)
+        self.assertIn('border-radius:var(--settings-panel-radius);', admin_styles)
+        self.assertIn(
+            'border-radius:var(--settings-panel-radius) var(--settings-panel-radius) 0 0;',
+            admin_styles,
+        )
+        self.assertIn('box-shadow:inset 3px 0 0 var(--accent);', admin_styles)
+        self.assertIn(
+            'html:not([data-theme="tongdaxin"]) .setting-row {',
+            admin_styles,
+        )
+        self.assertIn(
+            'grid-template-columns:minmax(140px,.55fr) minmax(250px,1fr) minmax(180px,.62fr);',
+            admin_styles,
+        )
+        self.assertIn(
+            'html:not([data-theme="tongdaxin"]) .appearance-option-card {',
+            admin_styles,
+        )
+        self.assertIn(
+            'html:not([data-theme="tongdaxin"]) .notification-channel-card-head {',
+            admin_styles,
         )
 
     def test_standard_dashboard_routes_share_overview_compact_density(self):

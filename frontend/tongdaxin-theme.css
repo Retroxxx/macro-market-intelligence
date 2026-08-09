@@ -2027,30 +2027,7 @@ html[data-theme="tongdaxin"]:root .admin-main {
 }
 html[data-theme="tongdaxin"]:root :where(.settings-index,.settings-detail,.settings-form) { gap:4px; }
 
-html[data-theme="tongdaxin"]:root .settings-overview {
-  min-height:30px;
-  align-items:center;
-  gap:8px;
-  padding:3px 5px;
-}
-html[data-theme="tongdaxin"]:root .settings-overview-copy { display:block; }
-html[data-theme="tongdaxin"]:root .settings-overview-copy h2 { color:#d8d8d8; font-size:13px; line-height:1.1; }
-html[data-theme="tongdaxin"]:root .settings-overview-stats { gap:0; flex-wrap:nowrap; }
-html[data-theme="tongdaxin"]:root .settings-stat {
-  display:flex;
-  min-width:0;
-  align-items:baseline;
-  gap:4px;
-  border:0;
-  border-left:1px solid var(--line);
-  padding:2px 7px;
-  background:transparent;
-}
-html[data-theme="tongdaxin"]:root .settings-stat-value { color:#fff200; font-size:12px; line-height:1; }
-html[data-theme="tongdaxin"]:root .settings-stat-label { color:#929292; font-size:10px; line-height:1; }
-
 html[data-theme="tongdaxin"]:root :where(
-  .settings-overview,
   .settings-card,
   .settings-sidebar,
   .settings-group,
@@ -2078,7 +2055,6 @@ html[data-theme="tongdaxin"]:root :where(
 }
 
 html[data-theme="tongdaxin"]:root :where(
-  .settings-stat,
   .setting-state-item,
   .strategy-option,
   .notification-block,
@@ -2209,6 +2185,9 @@ html[data-theme="tongdaxin"]:root .appearance-mode-section { gap:6px; padding:6p
 html[data-theme="tongdaxin"]:root .appearance-settings-grid { gap:5px; }
 html[data-theme="tongdaxin"]:root .appearance-option-group { gap:4px; }
 html[data-theme="tongdaxin"]:root .appearance-option-card { min-height:46px; gap:6px; padding:5px; }
+@media(min-width:941px) {
+  html[data-theme="tongdaxin"]:root .appearance-tongdaxin-option { margin-top:18px; }
+}
 
 html[data-theme="tongdaxin"]:root .appearance-option-card {
   border-color:var(--line);
