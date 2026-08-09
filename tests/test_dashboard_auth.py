@@ -4950,6 +4950,10 @@ console.log(JSON.stringify([
         self.assertNotIn('class="coverage-breakdown"', mainline_page)
         self.assertIn('class="theme-rankings"', mainline_page)
         self.assertIn('class="theme-ranking-panel"', mainline_page)
+        self.assertIn(
+            '.theme-ranking-head { position:static; top:auto; z-index:auto;',
+            mainline_page,
+        )
         self.assertIn('<ol v-else class="theme-ranking-list">', mainline_page)
         self.assertIn("ranking.key === 'today' ? '等效上涨' : '归因强股'", mainline_page)
         self.assertIn("ranking.key === 'today' ? '今日领涨股' : '结构代表股'", mainline_page)

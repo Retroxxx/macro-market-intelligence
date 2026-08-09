@@ -606,7 +606,8 @@ onBeforeUnmount(() => {
 .mainline-empty.compact { min-height:80px; }
 .theme-rankings { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:stretch; gap:12px; }
 .theme-ranking-panel { min-width:0; height:100%; overflow:visible; border:1px solid var(--mainline-line); border-radius:12px; background:var(--panel); background-clip:padding-box; box-shadow:0 1px 2px rgba(16,24,40,.04); container-type:inline-size; }
-.theme-ranking-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-bottom:1px solid var(--mainline-line); border-radius:11px 11px 0 0; }
+/* This nested header must not inherit the sticky site-header stacking layer. */
+.theme-ranking-head { position:static; top:auto; z-index:auto; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-bottom:1px solid var(--mainline-line); border-radius:11px 11px 0 0; }
 .theme-ranking-head h4 { margin:0; font-size:15px; line-height:1.2; }
 .theme-ranking-count { flex-shrink:0; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .theme-ranking-list { margin:0; padding:0; list-style:none; }
