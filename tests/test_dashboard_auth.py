@@ -3046,6 +3046,41 @@ console.log(JSON.stringify({
         self.assertTrue(result['mediaUrls'][0].endswith('.jpg:large'))
         self.assertTrue(result['revisionChanged'])
 
+    def test_tongdaxin_x_monitor_uses_compact_terminal_ledger(self):
+        tongdaxin_stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+        self.assertIn('class="x-monitor-table-head" aria-hidden="true"', X_MONITOR_COMPONENTS)
+        self.assertIn('<span>推文摘要</span>', X_MONITOR_COMPONENTS)
+        self.assertIn('<span>媒体</span>', X_MONITOR_COMPONENTS)
+        self.assertIn('class="x-media-count"', X_MONITOR_COMPONENTS)
+        self.assertIn('class="x-badges" aria-hidden="true"', X_MONITOR_COMPONENTS)
+        self.assertIn('.x-monitor-table-head, .x-media-count { display:none; }', DASHBOARD_FRONTEND)
+        self.assertIn(
+            'X monitor follows a dense terminal message ledger instead of a social feed.',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn(
+            'grid-template-columns:44px minmax(135px,.62fr) 54px 126px minmax(320px,2.38fr) 54px 20px;',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .x-row > .x-copy,\n'
+            'html[data-theme="tongdaxin"]:root .x-row .x-line { display:contents; }',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .x-row.open { border-color:transparent; background:var(--terminal-selection); }',
+            tongdaxin_stylesheet,
+        )
+        self.assertIn("html[data-theme=\"tongdaxin\"]:root .x-detail .thread-reply::before { content:'当前推文'; }", tongdaxin_stylesheet)
+        self.assertIn("html[data-theme=\"tongdaxin\"]:root .x-detail .thread-original::before { content:'关联原帖'; }", tongdaxin_stylesheet)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .x-monitor-table-head { display:none; }',
+            tongdaxin_stylesheet,
+        )
+        self.assertGreaterEqual(tongdaxin_stylesheet.count(':not(.x-row)'), 4)
+
     def test_practice_candidate_vue_display_preserves_strategy_tiers(self):
         scenario = r"""
 import {

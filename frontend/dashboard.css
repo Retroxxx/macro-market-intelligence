@@ -365,6 +365,7 @@
     .x-monitor-metrics { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
     .x-metric { border:1px solid rgba(148,163,184,.13); border-radius:999px; padding:5px 9px; color:#a7b3c5; font-size:12px; background:rgba(2,6,23,.32); font-variant-numeric:tabular-nums; }
     .x-list { display:grid; }
+    .x-monitor-table-head, .x-media-count { display:none; }
     .x-row { display:grid; grid-template-columns:42px minmax(0,1fr) auto; gap:11px; align-items:start; padding:13px 16px; border-bottom:1px solid rgba(148,163,184,.10); cursor:pointer; transition:background .14s ease, border-color .14s ease; }
     .x-row:last-child { border-bottom:0; }
     .x-row:hover { background:rgba(124,92,255,.08); }

@@ -104,6 +104,15 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="x-list">
+          <div class="x-monitor-table-head" aria-hidden="true">
+            <span>标识</span>
+            <span>账号</span>
+            <span>类型</span>
+            <span>时间</span>
+            <span>推文摘要</span>
+            <span>媒体</span>
+            <span></span>
+          </div>
           <XMonitorRow
             v-for="record in state.records"
             :key="xRecordKey(record)"

@@ -74,9 +74,10 @@ function openImage(url, label) {
           </span>
           <span v-if="previewMedia.length > 1" class="x-media-more">+{{ previewMedia.length - 1 }}</span>
         </div>
+        <span class="x-media-count">{{ previewMedia.length ? `${previewMedia.length} 项` : '—' }}</span>
       </template>
     </div>
-    <div class="x-badges"><span class="x-chevron">›</span></div>
+    <div class="x-badges" aria-hidden="true"><span class="x-chevron">›</span></div>
     <div v-if="expanded" class="x-detail" @click.stop @keydown.stop>
       <div v-if="thread.originalPost && thread.reply" class="thread-card">
         <div class="thread-reply">
