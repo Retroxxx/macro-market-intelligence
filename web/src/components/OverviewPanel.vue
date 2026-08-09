@@ -56,6 +56,7 @@ const overviewViewportHeight = ref(0)
 const overviewViewportWidth = ref(0)
 const mainlinePanelHeight = ref(0)
 const expandedThemeIndex = ref(-1)
+const expandedThemeRanking = ref('')
 const themeStockPopover = ref(null)
 const themeStockPopoverStyle = ref({})
 let headerResizeObserver = null
@@ -79,8 +80,21 @@ const candidates = computed(() => overviewCandidates(
   candidateState.items,
   candidateState.strategyMeta,
 ))
-const themes = computed(() => overviewThemes(mainlinePayload.value))
-const expandedTheme = computed(() => themes.value[expandedThemeIndex.value] || null)
+const themeRankings = computed(() => [
+  {
+    key: 'today',
+    title: '今日排名',
+    themes: overviewThemes(mainlinePayload.value, 5, 'today'),
+  },
+  {
+    key: 'structure',
+    title: '结构排名',
+    themes: overviewThemes(mainlinePayload.value, 5, 'structure'),
+  },
+])
+const expandedTheme = computed(() => themeRankings.value
+  .find(ranking => ranking.key === expandedThemeRanking.value)
+  ?.themes[expandedThemeIndex.value] || null)
 const flowRowLimit = computed(() => overviewFlowRowLimit(overviewViewportHeight.value))
 const sectorGains = computed(() => overviewSectorMoves(indicesState.sectors, 'gain', flowRowLimit.value))
 const sectorLosses = computed(() => overviewSectorMoves(indicesState.sectors, 'loss', flowRowLimit.value))
@@ -146,8 +160,9 @@ const mainlinePanelMode = computed(() => overviewMainlinePanelMode(mainlinePanel
 
 function themeLeader(theme) {
   const leader = theme?.leader
-  if (!leader || typeof leader !== 'object') return '龙头待确认'
-  return [leader.code, leader.name].filter(Boolean).join(' ') || '龙头待确认'
+  const fallback = `${theme?.leaderBadge || '龙头'}待确认`
+  if (!leader || typeof leader !== 'object') return fallback
+  return [leader.code, leader.name].filter(Boolean).join(' ') || fallback
 }
 
 function themeMetricPosition(value) {
@@ -186,16 +201,26 @@ function syncThemeStockPopover() {
 function closeThemeStocks(restoreFocus = false) {
   const anchor = themeStockAnchor
   expandedThemeIndex.value = -1
+  expandedThemeRanking.value = ''
   themeStockPopoverStyle.value = {}
   themeStockAnchor = null
   if (restoreFocus && anchor) nextTick(() => anchor.focus())
 }
 
-function toggleThemeStocks(index, event) {
-  if (expandedThemeIndex.value === index) {
+function isThemeExpanded(rankingKey, index) {
+  return expandedThemeRanking.value === rankingKey && expandedThemeIndex.value === index
+}
+
+function themeStockPanelId(rankingKey, index) {
+  return `overviewThemeStocks-${rankingKey}-${index}`
+}
+
+function toggleThemeStocks(rankingKey, index, event) {
+  if (isThemeExpanded(rankingKey, index)) {
     closeThemeStocks()
     return
   }
+  expandedThemeRanking.value = rankingKey
   expandedThemeIndex.value = index
   themeStockAnchor = event?.currentTarget || null
   nextTick(syncThemeStockPopover)
@@ -430,70 +455,87 @@ onBeforeUnmount(() => {
 
         <template v-if="mainlineAvailable">
           <div
-            v-if="themes.length"
-            class="overview-theme-list"
-            role="table"
-            aria-label="题材结构排名"
+            v-if="themeRankings.some(ranking => ranking.themes.length)"
+            class="overview-theme-rankings"
+            aria-label="主线题材排名"
           >
-            <div class="overview-theme-table-head" role="row">
-              <span role="columnheader">题材 / 周期</span>
-              <span role="columnheader">核心股 / 梯队</span>
-              <span role="columnheader">强度</span>
-              <span role="columnheader" class="overview-theme-breadth">广度</span>
-            </div>
-            <div v-for="(theme, index) in themes" :key="theme.displayName" class="overview-theme-row" role="row">
-              <div class="overview-theme-copy" role="cell">
-                <div class="overview-theme-title">
-                  <strong>{{ theme.displayName }}</strong>
-                  <small class="overview-theme-lifecycle">{{ theme.lifecycle }}</small>
+            <section
+              v-for="ranking in themeRankings"
+              :key="ranking.key"
+              class="overview-theme-ranking"
+              :aria-labelledby="`overview-${ranking.key}-ranking-title`"
+            >
+              <h4 :id="`overview-${ranking.key}-ranking-title`">{{ ranking.title }}</h4>
+              <div
+                v-if="ranking.themes.length"
+                class="overview-theme-list"
+                role="table"
+                :aria-label="ranking.title"
+              >
+                <div class="overview-theme-table-head" role="row">
+                  <span role="columnheader">题材 / 周期</span>
+                  <span role="columnheader">核心股 / 梯队</span>
+                  <span role="columnheader">强度</span>
+                  <span role="columnheader" class="overview-theme-breadth">广度</span>
                 </div>
-                <small class="overview-theme-meta">
-                  强股 {{ formatOverviewNumber(theme.strongStockCount, 0) }}只 · 确认 {{ formatOverviewNumber(theme.confirmationCount, 0) }}次
-                </small>
-                <button
-                  class="overview-theme-mobile-toggle"
-                  type="button"
-                  :aria-expanded="expandedThemeIndex === index"
-                  :aria-controls="`overviewThemeStocks${index}`"
-                  @click="toggleThemeStocks(index, $event)"
-                >
-                  <span>{{ themeLeader(theme) }}</span>
-                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
-                </button>
+                <div v-for="(theme, index) in ranking.themes" :key="`${ranking.key}-${theme.displayName}`" class="overview-theme-row" role="row">
+                  <div class="overview-theme-copy" role="cell">
+                    <div class="overview-theme-title">
+                      <strong>{{ theme.displayName }}</strong>
+                      <small class="overview-theme-lifecycle">{{ theme.lifecycle }}</small>
+                    </div>
+                    <small class="overview-theme-meta">
+                      <template v-if="ranking.key === 'today'">上涨 {{ formatOverviewNumber(theme.strongStockCount, 0) }}只 · 结构 {{ formatOverviewNumber(theme.comparisonScore, 1) }}</template>
+                      <template v-else>强股 {{ formatOverviewNumber(theme.strongStockCount, 0) }}只 · 确认 {{ formatOverviewNumber(theme.confirmationCount, 0) }}次</template>
+                    </small>
+                    <button
+                      class="overview-theme-mobile-toggle"
+                      type="button"
+                      :aria-expanded="isThemeExpanded(ranking.key, index)"
+                      :aria-controls="themeStockPanelId(ranking.key, index)"
+                      @click="toggleThemeStocks(ranking.key, index, $event)"
+                    >
+                      <span>{{ themeLeader(theme) }}</span>
+                      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
+                    </button>
+                  </div>
+                  <div class="overview-theme-leader" role="cell">
+                    <button
+                      class="overview-theme-leader-toggle"
+                      type="button"
+                      :aria-expanded="isThemeExpanded(ranking.key, index)"
+                      :aria-controls="themeStockPanelId(ranking.key, index)"
+                      :aria-label="`${isThemeExpanded(ranking.key, index) ? '收起' : '展开'}${theme.displayName}全部核心股`"
+                      @click="toggleThemeStocks(ranking.key, index, $event)"
+                    >
+                      <span>{{ themeLeader(theme) }}</span>
+                      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
+                    </button>
+                  </div>
+                  <div
+                    class="overview-theme-metric overview-theme-score"
+                    :style="{ '--theme-metric-position': themeMetricPosition(theme.displayScore) }"
+                    role="cell"
+                  >
+                    <b>{{ formatOverviewNumber(theme.displayScore, 1) }}</b>
+                    <span class="overview-theme-metric-track" aria-hidden="true"><i></i></span>
+                    <small>{{ theme.comparisonLabel }} {{ formatOverviewNumber(theme.comparisonScore, 1) }}</small>
+                  </div>
+                  <div
+                    class="overview-theme-metric overview-theme-breadth"
+                    :style="{ '--theme-metric-position': themeMetricPosition(theme.breadth) }"
+                    role="cell"
+                  >
+                    <b>{{ formatOverviewPercent(theme.breadth, 0) }}</b>
+                    <span class="overview-theme-metric-track" aria-hidden="true"><i></i></span>
+                    <small>中位 {{ formatOverviewPercent(theme.medianChangePct, 1, true) }}</small>
+                  </div>
+                </div>
               </div>
-              <div class="overview-theme-leader" role="cell">
-                <button
-                  class="overview-theme-leader-toggle"
-                  type="button"
-                  :aria-expanded="expandedThemeIndex === index"
-                  :aria-controls="`overviewThemeStocks${index}`"
-                  :aria-label="`${expandedThemeIndex === index ? '收起' : '展开'}${theme.displayName}全部核心股`"
-                  @click="toggleThemeStocks(index, $event)"
-                >
-                  <span>{{ themeLeader(theme) }}</span>
-                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
-                </button>
-              </div>
-              <div
-                class="overview-theme-metric overview-theme-score"
-                :style="{ '--theme-metric-position': themeMetricPosition(theme.displayScore) }"
-                role="cell"
-              >
-                <b>{{ formatOverviewNumber(theme.displayScore, 1) }}</b>
-                <span class="overview-theme-metric-track" aria-hidden="true"><i></i></span>
-                <small>今日 {{ formatOverviewNumber(theme.todayScore, 1) }}</small>
-              </div>
-              <div
-                class="overview-theme-metric overview-theme-breadth"
-                :style="{ '--theme-metric-position': themeMetricPosition(theme.breadth) }"
-                role="cell"
-              >
-                <b>{{ formatOverviewPercent(theme.breadth, 0) }}</b>
-                <span class="overview-theme-metric-track" aria-hidden="true"><i></i></span>
-                <small>中位 {{ formatOverviewPercent(theme.medianChangePct, 1, true) }}</small>
-              </div>
-            </div>
+              <div v-else class="overview-mini-empty">当前暂无{{ ranking.title }}数据</div>
+            </section>
           </div>
+          <div v-else class="overview-empty">尚无题材排名数据</div>
           <div
             class="overview-coverage"
             :style="{ '--theme-metric-position': themeMetricPosition(coverage == null ? null : coverage * 100) }"
@@ -511,7 +553,7 @@ onBeforeUnmount(() => {
       <Teleport to="body">
         <div
           v-if="expandedTheme"
-          :id="`overviewThemeStocks${expandedThemeIndex}`"
+          :id="themeStockPanelId(expandedThemeRanking, expandedThemeIndex)"
           ref="themeStockPopover"
           class="overview-theme-stock-popover"
           :style="themeStockPopoverStyle"
@@ -526,7 +568,7 @@ onBeforeUnmount(() => {
             <button type="button" @click="closeThemeStocks(true)">关闭</button>
           </div>
           <div class="overview-theme-stock-list-head" aria-hidden="true">
-            <span>结构代表股</span>
+            <span>{{ expandedTheme.stockListLabel }}</span>
             <span>代码</span>
             <span>涨跌幅</span>
           </div>
@@ -534,7 +576,7 @@ onBeforeUnmount(() => {
             <span v-for="(stock, stockIndex) in expandedTheme.coreStocks" :key="stock.code || stock.name" class="overview-theme-stock">
               <span class="overview-theme-stock-name">
                 <strong>{{ stock.name || '名称待补充' }}</strong>
-                <b v-if="stockIndex === 0">龙头</b>
+                <b v-if="stockIndex === 0">{{ expandedTheme.leaderBadge }}</b>
               </span>
               <small>{{ stock.code || '--' }}</small>
               <em :class="valueTone(stock.changePct)">{{ formatOverviewPercent(stock.changePct, 2, true) }}</em>
@@ -993,6 +1035,9 @@ onBeforeUnmount(() => {
 }
 .overview-empty.compact { min-height: 238px; }
 
+.overview-theme-rankings { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; }
+.overview-theme-ranking { border: 1px solid var(--overview-border); border-radius: 7px; min-width: 0; overflow: hidden; }
+.overview-theme-ranking > h4 { background: var(--overview-surface-raised); border-bottom: 1px solid var(--overview-border-strong); color: var(--overview-text); font-size: 11px; margin: 0; padding: 6px 8px; }
 .overview-theme-list { display: grid; }
 .overview-theme-table-head,
 .overview-theme-row { align-items: center; display: grid; gap: 14px; grid-template-columns: minmax(164px, 1fr) minmax(180px, 1.08fr) minmax(100px, .72fr) minmax(86px, .58fr); }
@@ -1227,6 +1272,7 @@ onBeforeUnmount(() => {
   .overview-panel-head { align-items: flex-start; }
   .overview-panel-actions { align-items: flex-end; display: grid; justify-items: end; }
   .overview-chart-wrap { min-height: 230px; padding: 6px; }
+  .overview-theme-rankings { grid-template-columns: 1fr; }
   .overview-theme-table-head { display: none; }
   .overview-theme-row { grid-template-columns: minmax(0, 1fr) 50px; }
   .overview-theme-leader,
@@ -1316,6 +1362,10 @@ onBeforeUnmount(() => {
     display: grid;
     flex: 1 1 auto;
     gap: 6px;
+    grid-template-areas:
+      "market flow"
+      "mainline candidate";
+    grid-template-columns: var(--overview-terminal-left) var(--overview-terminal-right);
     grid-template-rows: minmax(0, .9fr) minmax(0, 1.1fr);
     min-height: 0;
     overflow: hidden;
@@ -1323,12 +1373,13 @@ onBeforeUnmount(() => {
 
   .overview-primary-grid,
   .overview-secondary-grid {
-    gap: 6px;
-    grid-template-columns: var(--overview-terminal-left) var(--overview-terminal-right);
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
+    display: contents;
   }
+
+  .overview-market-panel { grid-area: market; }
+  .overview-flow-panel { grid-area: flow; }
+  .overview-mainline-panel { grid-area: mainline; }
+  .overview-candidate-panel { grid-area: candidate; }
 
   .overview-panel {
     border-radius: 7px;
@@ -1396,9 +1447,12 @@ onBeforeUnmount(() => {
   .overview-candidate-panel,
   .overview-flow-panel { display: flex; flex-direction: column; min-height: 0; }
 
+  .overview-theme-rankings { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .overview-theme-ranking { display: flex; flex-direction: column; min-height: 0; }
+  .overview-theme-ranking > h4 { flex: 0 0 auto; font-size: 10px; padding: 3px 6px; }
   .overview-theme-list { flex: 1 1 auto; min-height: 0; overflow: hidden; }
   .overview-theme-table-head,
-  .overview-theme-row { gap: 8px; grid-template-columns: minmax(112px, 1fr) minmax(104px, 1fr) minmax(68px, .68fr) minmax(58px, .55fr); }
+  .overview-theme-row { gap: 5px; grid-template-columns: minmax(88px, 1fr) minmax(82px, 1fr) minmax(48px, .62fr) minmax(44px, .52fr); }
   .overview-theme-table-head { font-size: 9px; padding: 0 1px 3px; }
   .overview-theme-row { min-height: 25px; padding: 3px 1px; }
   .overview-theme-row strong { font-size: 10px; }
@@ -1485,7 +1539,7 @@ onBeforeUnmount(() => {
   .overview-page[data-layout="compact"] .overview-index-tile time { display: none; }
   .overview-page[data-layout="compact"] .overview-theme-table-head,
   .overview-page[data-layout="compact"] .overview-theme-row {
-    grid-template-columns: minmax(108px, 1fr) minmax(96px, 1fr) minmax(56px, .62fr);
+    grid-template-columns: minmax(88px, 1fr) minmax(82px, 1fr) minmax(48px, .62fr);
   }
   .overview-page[data-layout="compact"] .overview-theme-breadth { display: none; }
   .overview-page[data-layout="compact"] .overview-candidate-table-head,
@@ -1567,6 +1621,7 @@ onBeforeUnmount(() => {
 :global(html[data-corners="square"]) .overview-index-tile,
 :global(html[data-corners="square"]) .overview-chart-wrap,
 :global(html[data-corners="square"]) .overview-breadth-unavailable-copy,
+:global(html[data-corners="square"]) .overview-theme-ranking,
 :global(html[data-corners="square"]) .overview-theme-leader-toggle,
 :global(html[data-corners="square"]) .overview-theme-mobile-toggle,
 :global(html[data-corners="square"]) .overview-theme-stock-popover,

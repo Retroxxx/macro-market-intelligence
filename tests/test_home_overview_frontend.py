@@ -126,21 +126,39 @@ const viewportModes = [
 ];
 const mainlinePanelModes = [260, 180, 117, 80].map(module.overviewMainlinePanelMode);
 const flowRowLimits = [1000, 800, 650, 500].map(module.overviewFlowRowLimit);
-const themes = module.overviewThemes({{themes: [{{
-  industry: 'CRO',
-  score: 83.8,
-  niuone_lifecycle_label: '主线高潮',
-  effective_breadth_pct: 55.3,
-  today_strength_score: 91.9,
-  today_median_change_pct: 12.2,
-  strong_stock_count: 21,
-  confirmation_count: 3,
-  strong_stocks: [
-    {{code: '301047', name: '义翘神州'}},
-    {{code: '600721', name: '百花医药'}},
-    {{code: '300725', name: '药石科技'}},
-  ],
-}}]}});
+const mainlinePayload = {{
+  themes: [{{
+    industry: 'CRO',
+    score: 83.8,
+    niuone_lifecycle_label: '主线高潮',
+    effective_breadth_pct: 55.3,
+    today_strength_score: 91.9,
+    today_median_change_pct: 12.2,
+    strong_stock_count: 21,
+    confirmation_count: 3,
+    strong_stocks: [
+      {{code: '301047', name: '义翘神州'}},
+      {{code: '600721', name: '百花医药'}},
+      {{code: '300725', name: '药石科技'}},
+    ],
+  }}],
+  today_themes: [{{
+    industry: '机器人',
+    score: 72.5,
+    niuone_lifecycle_label: '主线启动',
+    today_strength_score: 96.4,
+    today_adjusted_breadth_pct: 68.2,
+    today_median_change_pct: 5.6,
+    today_attributed_up_count: 18,
+    today_leader_stock: {{code: '300024', name: '机器人', change_pct: 12.4}},
+    today_leaders: [
+      {{code: '300024', name: '机器人', change_pct: 12.4}},
+      {{code: '002747', name: '埃斯顿', change_pct: 8.1}},
+    ],
+  }}],
+}};
+const themes = module.overviewThemes(mainlinePayload);
+const todayThemes = module.overviewThemes(mainlinePayload, 5, 'today');
 const practiceMarketSummaries = [
   module.overviewPracticeMarketSummary({{
     available: true,
@@ -173,6 +191,7 @@ console.log(JSON.stringify({{
   mainlinePanelModes,
   flowRowLimits,
   themes,
+  todayThemes,
   practiceMarketSummaries,
 }}));
 """
@@ -264,6 +283,14 @@ console.log(JSON.stringify({{
         self.assertEqual(payload["themes"][0]["followers"], ["百花医药", "药石科技"])
         self.assertEqual(len(payload["themes"][0]["coreStocks"]), 3)
         self.assertEqual(payload["themes"][0]["coreStocks"][0]["code"], "301047")
+        self.assertEqual(payload["todayThemes"][0]["rankingKey"], "today")
+        self.assertEqual(payload["todayThemes"][0]["displayName"], "机器人")
+        self.assertEqual(payload["todayThemes"][0]["displayScore"], 96.4)
+        self.assertEqual(payload["todayThemes"][0]["comparisonScore"], 72.5)
+        self.assertEqual(payload["todayThemes"][0]["breadth"], 68.2)
+        self.assertEqual(payload["todayThemes"][0]["strongStockCount"], 18)
+        self.assertEqual(payload["todayThemes"][0]["leaderBadge"], "领涨")
+        self.assertEqual(payload["todayThemes"][0]["coreStocks"][0]["code"], "300024")
         self.assertEqual(
             payload["practiceMarketSummaries"],
             [
@@ -342,6 +369,11 @@ console.log(JSON.stringify({{
         self.assertIn('[data-mainline-layout="compact"] .overview-theme-row:nth-child(n + 4)', component)
         self.assertIn('[data-mainline-layout="summary"] .overview-theme-row:nth-child(n + 3)', component)
         self.assertIn('[data-mainline-layout="full"] .overview-theme-list', component)
+        self.assertIn("title: '今日排名'", component)
+        self.assertIn("title: '结构排名'", component)
+        self.assertIn("overviewThemes(mainlinePayload.value, 5, 'today')", component)
+        self.assertIn("overviewThemes(mainlinePayload.value, 5, 'structure')", component)
+        self.assertIn('class="overview-theme-rankings"', component)
         self.assertIn("overview-theme-table-head", component)
         self.assertIn("题材 / 周期", component)
         self.assertNotIn('<span role="columnheader">序</span>', component)
@@ -352,15 +384,15 @@ console.log(JSON.stringify({{
         self.assertIn("核心股 / 梯队", component)
         self.assertNotIn("theme.followers.join(' · ')", component)
         self.assertNotIn("核心梯队待确认", component)
-        self.assertIn("toggleThemeStocks(index, $event)", component)
-        self.assertIn(":aria-expanded=\"expandedThemeIndex === index\"", component)
+        self.assertIn("toggleThemeStocks(ranking.key, index, $event)", component)
+        self.assertIn(":aria-expanded=\"isThemeExpanded(ranking.key, index)\"", component)
         self.assertIn('<Teleport to="body">', component)
         self.assertIn("overview-theme-stock-popover", component)
         self.assertIn("overview-theme-leader-toggle", component)
         self.assertIn(".overview-theme-leader-toggle { font-size: 10px; padding: 2px 6px; }", component)
         self.assertGreaterEqual(component.count("<span>{{ themeLeader(theme) }}</span>"), 2)
         self.assertNotIn("查看{{ theme.coreStocks.length }}只", component)
-        self.assertIn("结构代表股", component)
+        self.assertIn("{{ expandedTheme.stockListLabel }}", component)
         self.assertIn("grid-template-columns: minmax(0, 1fr) 42px 46px;", component)
         self.assertIn(".overview-theme-stock-list-head span:last-child { text-align: left; }", component)
         self.assertIn("Math.min(208, viewportWidth - 16)", component)
@@ -370,10 +402,10 @@ console.log(JSON.stringify({{
         self.assertNotIn("overview-theme-stock-expand", component)
         self.assertIn("v-for=\"(stock, stockIndex) in expandedTheme.coreStocks\"", component)
         stock_name_position = component.index("<strong>{{ stock.name || '名称待补充' }}</strong>")
-        leader_badge_position = component.index('<b v-if="stockIndex === 0">龙头</b>')
+        leader_badge_position = component.index('<b v-if="stockIndex === 0">{{ expandedTheme.leaderBadge }}</b>')
         self.assertLess(stock_name_position, leader_badge_position)
         self.assertNotIn("核心股 {{ theme.coreStocks.length }}只", component)
-        self.assertIn("今日 {{ formatOverviewNumber(theme.todayScore, 1) }}", component)
+        self.assertIn("{{ theme.comparisonLabel }} {{ formatOverviewNumber(theme.comparisonScore, 1) }}", component)
         self.assertIn("中位 {{ formatOverviewPercent(theme.medianChangePct, 1, true) }}", component)
         self.assertIn("overview-theme-metric-track", component)
         self.assertIn("themeMetricPosition(theme.displayScore)", component)
@@ -478,6 +510,17 @@ console.log(JSON.stringify({{
         self.assertIn("overview-candidate-wide-only", component)
         self.assertIn("overview-candidate-compact-only", component)
         self.assertIn("grid-auto-rows: minmax(0, 1fr)", component)
+        self.assertIn(
+            'grid-template-areas:\n      "market flow"\n      "mainline candidate";',
+            component,
+        )
+        for panel_area in (
+            ".overview-market-panel { grid-area: market; }",
+            ".overview-flow-panel { grid-area: flow; }",
+            ".overview-mainline-panel { grid-area: mainline; }",
+            ".overview-candidate-panel { grid-area: candidate; }",
+        ):
+            self.assertIn(panel_area, component)
         self.assertNotIn("candidateState.strategyMeta,\n  5,", component)
         self.assertIn(
             "grid-template-columns: repeat(6, minmax(0, 1fr))",

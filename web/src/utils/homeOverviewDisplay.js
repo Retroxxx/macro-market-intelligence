@@ -332,14 +332,21 @@ export function overviewCandidates(
     .map(({ _order, ...item }) => item)
 }
 
-export function overviewThemes(payload = {}, limit = 5) {
-  const themes = Array.isArray(payload?.themes) ? payload.themes : []
+export function overviewThemes(payload = {}, limit = 5, ranking = 'structure') {
+  const todayRanking = ranking === 'today'
+  const source = todayRanking ? payload?.today_themes : payload?.themes
+  const themes = Array.isArray(source) ? source : []
   return themes
     .map((theme, order) => {
       const strongStocks = Array.isArray(theme?.strong_stocks) ? theme.strong_stocks : []
-      const leader = theme?.leader_stock || strongStocks[0] || null
+      const todayLeaders = Array.isArray(theme?.today_leaders) ? theme.today_leaders : []
+      const structuralLeader = theme?.leader_stock || strongStocks[0] || null
+      const leader = todayRanking
+        ? theme?.today_leader_stock || todayLeaders[0] || structuralLeader
+        : structuralLeader
+      const rankedStocks = todayRanking && todayLeaders.length ? todayLeaders : strongStocks
       const seenStocks = new Set()
-      const coreStocks = [leader, ...strongStocks]
+      const coreStocks = [leader, ...rankedStocks]
         .filter(stock => stock && typeof stock === 'object')
         .map(stock => ({
           code: String(stock?.code || ''),
@@ -356,14 +363,24 @@ export function overviewThemes(payload = {}, limit = 5) {
       return {
         ...theme,
         _order: order,
+        rankingKey: todayRanking ? 'today' : 'structure',
         displayName: String(theme?.industry || theme?.name || ''),
-        displayScore: finiteNumber(theme?.score),
+        displayScore: finiteNumber(todayRanking ? theme?.today_strength_score : theme?.score),
+        comparisonScore: finiteNumber(todayRanking ? theme?.score : theme?.today_strength_score),
         lifecycle: String(theme?.niuone_lifecycle_label || theme?.state || '待确认'),
-        breadth: finiteNumber(theme?.effective_breadth_pct),
+        breadth: finiteNumber(todayRanking
+          ? theme?.today_adjusted_breadth_pct ?? theme?.today_breadth_pct
+          : theme?.effective_breadth_pct),
         todayScore: finiteNumber(theme?.today_strength_score),
         medianChangePct: finiteNumber(theme?.today_median_change_pct),
-        strongStockCount: finiteNumber(theme?.strong_stock_count),
+        strongStockCount: finiteNumber(todayRanking
+          ? theme?.today_attributed_up_count ?? theme?.today_up_count
+          : theme?.attributed_strong_stock_count ?? theme?.strong_stock_count),
         confirmationCount: finiteNumber(theme?.confirmation_count),
+        countLabel: todayRanking ? '上涨' : '强股',
+        comparisonLabel: todayRanking ? '结构' : '今日',
+        leaderBadge: todayRanking ? '领涨' : '龙头',
+        stockListLabel: todayRanking ? '今日领涨股' : '结构代表股',
         leader,
         coreStocks,
         followers: coreStocks.slice(1, 3)
@@ -373,6 +390,9 @@ export function overviewThemes(payload = {}, limit = 5) {
     })
     .filter(theme => theme.displayName)
     .sort((left, right) => (right.displayScore ?? -Infinity) - (left.displayScore ?? -Infinity)
+      || (todayRanking
+        ? (right.medianChangePct ?? -Infinity) - (left.medianChangePct ?? -Infinity)
+        : 0)
       || left._order - right._order)
     .slice(0, limit)
     .map(({ _order, ...theme }) => theme)
