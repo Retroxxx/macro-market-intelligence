@@ -4544,6 +4544,54 @@ console.log(JSON.stringify([
             'html[data-theme="tongdaxin"]:root :where(.theme-stock-details-head,.theme-stock-detail-row) > * + * {',
             stylesheet,
         )
+        self.assertIn('@media(max-width:560px) {', stylesheet)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .theme-stock-details {\n'
+            '    max-height:222px;',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .theme-stock-details-head {\n'
+            '    height:20px;\n'
+            '    min-height:20px;',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .theme-stock-detail-row {\n'
+            '    height:40px;\n'
+            '    min-height:40px;',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root :where(.theme-stock-details-head,.theme-stock-detail-row) {\n'
+            '    grid-template-columns:minmax(0,1fr) minmax(58px,30%);',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .theme-stock-detail-head-code,\n'
+            '  html[data-theme="tongdaxin"]:root .theme-stock-detail-head-attribution {\n'
+            '    display:none;',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root :where(.theme-stock-details-head,.theme-stock-detail-row) > * {\n'
+            '    min-width:0;\n'
+            '    min-height:0;\n'
+            '    padding:1px 4px;\n'
+            '    overflow:hidden;',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .theme-stock-detail-code {\n'
+            '    border-left:0;',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .theme-stock-detail-attribution {\n'
+            '    justify-self:stretch;\n'
+            '    justify-content:flex-end;',
+            stylesheet,
+        )
 
     def test_tongdaxin_mainline_mobile_title_stays_inside_viewport(self):
         stylesheet = (
@@ -5095,12 +5143,18 @@ console.log(JSON.stringify([
         self.assertIn("ranking.key === 'today' ? '等效上涨' : '归因强股'", mainline_page)
         self.assertIn("ranking.key === 'today' ? '今日领涨股' : '结构代表股'", mainline_page)
         self.assertIn(':aria-expanded="expandedTheme === expandedThemeKey(theme, ranking.key)"', mainline_page)
+        self.assertIn('const expandedThemeUpward = ref(false)', mainline_page)
+        self.assertIn('@click="toggleThemeStocks(theme, ranking.key, $event)"', mainline_page)
+        self.assertIn(':class="{ upward: expandedThemeUpward }"', mainline_page)
+        self.assertIn('const viewport = window.visualViewport', mainline_page)
+        self.assertIn('spaceBelow < panelHeight + 8 && spaceAbove > spaceBelow', mainline_page)
         self.assertIn("target.closest('.theme-stock-list')", mainline_page)
         self.assertIn("document.addEventListener('pointerdown', handleThemeStocksPointerDown)", mainline_page)
         self.assertIn("document.removeEventListener('pointerdown', handleThemeStocksPointerDown)", mainline_page)
         self.assertIn('.theme-rankings { display:grid; grid-template-columns:repeat(2,minmax(0,1fr));', mainline_page)
         self.assertIn('.theme-stock-list { position:relative; grid-area:stocks;', mainline_page)
         self.assertIn('.theme-stock-details { position:absolute;', mainline_page)
+        self.assertIn('.theme-stock-details.upward { top:auto; bottom:calc(100% + 3px); }', mainline_page)
         self.assertIn('.theme-stock-details { position:absolute; z-index:10; top:calc(100% + 3px); right:0; left:auto; width:min(520px,calc(100cqw - 24px));', mainline_page)
         self.assertIn('class="theme-stock-detail-head-code">代码</span>', mainline_page)
         self.assertIn('class="theme-stock-detail-head-attribution">归因</span>', mainline_page)
@@ -5127,6 +5181,10 @@ console.log(JSON.stringify([
         self.assertNotIn('@media (max-width:1000px) and (min-width:841px)', mainline_page)
         self.assertIn('@media (max-width:840px)', mainline_page)
         self.assertIn('@media (max-width:560px)', mainline_page)
+        self.assertIn('right:auto; left:0; width:100%; max-width:100%; max-height:290px; padding:6px;', mainline_page)
+        self.assertIn('height:24px; grid-template-areas:"name change";', mainline_page)
+        self.assertIn('height:48px; grid-template-areas:"name change" "code attribution";', mainline_page)
+        self.assertIn('text-overflow:ellipsis; white-space:nowrap; overflow-wrap:normal;', mainline_page)
         self.assertIn('.theme-rankings { grid-template-columns:minmax(0,1fr); gap:10px;', mainline_page)
         self.assertNotIn('theme-column-help', mainline_page)
         self.assertIn('numeric(theme.effective_breadth_pct)', mainline_page)

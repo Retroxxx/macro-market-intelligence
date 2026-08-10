@@ -2653,3 +2653,40 @@ html[data-theme="tongdaxin"]:root .backtest-empty { padding:12px; color:#777; fo
     box-shadow:inset 1px 1px 0 #383838,inset -1px -1px 0 #000 !important;
   }
 }
+
+@media(max-width:560px) {
+  /* The desktop terminal table exposes all four headers. The mobile component
+     reflows rows into two lines, so reset the inherited desktop cell geometry,
+     keep only the assigned headers, and show exactly five compact stock rows. */
+  html[data-theme="tongdaxin"]:root .theme-stock-details {
+    max-height:222px;
+  }
+  html[data-theme="tongdaxin"]:root .theme-stock-details-head {
+    height:20px;
+    min-height:20px;
+  }
+  html[data-theme="tongdaxin"]:root .theme-stock-detail-row {
+    height:40px;
+    min-height:40px;
+  }
+  html[data-theme="tongdaxin"]:root :where(.theme-stock-details-head,.theme-stock-detail-row) {
+    grid-template-columns:minmax(0,1fr) minmax(58px,30%);
+  }
+  html[data-theme="tongdaxin"]:root .theme-stock-detail-head-code,
+  html[data-theme="tongdaxin"]:root .theme-stock-detail-head-attribution {
+    display:none;
+  }
+  html[data-theme="tongdaxin"]:root :where(.theme-stock-details-head,.theme-stock-detail-row) > * {
+    min-width:0;
+    min-height:0;
+    padding:1px 4px;
+    overflow:hidden;
+  }
+  html[data-theme="tongdaxin"]:root .theme-stock-detail-code {
+    border-left:0;
+  }
+  html[data-theme="tongdaxin"]:root .theme-stock-detail-attribution {
+    justify-self:stretch;
+    justify-content:flex-end;
+  }
+}
