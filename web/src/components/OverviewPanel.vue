@@ -649,13 +649,6 @@ onBeforeUnmount(() => {
             <RouterLink to="/indices?panel=market">查看详情 <span aria-hidden="true">›</span></RouterLink>
           </div>
         </div>
-        <div
-          v-if="flowDataAvailable && !overviewPreviousTradingDayLabel && (indicesState.sectors?.error || indicesState.moneyFlow?.error || indicesState.marketFlow?.error)"
-          class="overview-inline-notice warning"
-          role="status"
-        >
-          部分资金数据更新失败，继续展示各模块最近一份有效结果。
-        </div>
         <template v-if="flowDataAvailable">
           <div class="overview-flow-columns">
             <div>

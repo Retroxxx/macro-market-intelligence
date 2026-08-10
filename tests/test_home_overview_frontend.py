@@ -529,6 +529,7 @@ console.log(JSON.stringify({{
         self.assertIn("overview-update-time", component)
         self.assertIn("overviewPreviousTradingDayLabel", component)
         self.assertIn("数据基准：上一交易日", component)
+        self.assertNotIn("部分资金数据更新失败", component)
         self.assertIn("overviewFlowRowLimit", component)
         self.assertIn("flowRowLimit.value", component)
         self.assertIn(".overview-flow-columns { flex: 1 1 0;", component)
