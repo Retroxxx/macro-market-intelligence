@@ -2,6 +2,7 @@
 import json
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -100,6 +101,45 @@ class FastApiDashboardTests(unittest.TestCase):
         asset = self.client.get("/assets/app.js")
         self.assertEqual(asset.status_code, 200)
         self.assertIn("immutable", asset.headers["Cache-Control"])
+
+    def test_lifespan_starts_market_breadth_auto_recovery(self):
+        startup_names = (
+            "ensure_stats_db",
+            "get_or_create_admin_token",
+            "restore_practice_manual_cycle_state",
+            "start_b1_scheduler",
+            "start_kline_prewarm_scheduler",
+            "start_pending_decision_executor",
+            "start_practice_equity_heartbeat",
+            "start_daily_market_history_reset",
+            "start_market_breadth_sampler",
+            "start_market_breadth_auto_recovery",
+            "start_industry_flow_sampler",
+        )
+        with ExitStack() as stack:
+            mocks = {
+                name: stack.enter_context(patch.object(self.legacy, name))
+                for name in startup_names
+            }
+            stack.enter_context(patch.object(
+                self.legacy.push_history,
+                "connect",
+                return_value=Mock(),
+            ))
+            stack.enter_context(patch.dict(
+                "os.environ",
+                {"DASHBOARD_PUBLIC_PROJECTION_ENABLED": "0"},
+            ))
+            app = create_app(
+                legacy_module=self.legacy,
+                web_dist_dir=self.dist,
+                enable_background_services=True,
+            )
+            with TestClient(app) as client:
+                self.assertEqual(client.get("/healthz").status_code, 200)
+
+        mocks["start_market_breadth_sampler"].assert_called_once_with()
+        mocks["start_market_breadth_auto_recovery"].assert_called_once_with()
 
     def test_native_snapshot_routes_support_etag_and_health_metadata(self):
         health = self.client.get("/healthz")

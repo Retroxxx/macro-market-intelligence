@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.dashboard.apis.market_breadth import (
     DEFAULT_HISTORY_LIMIT,
@@ -263,6 +263,150 @@ class TencentMarketBreadthTests(unittest.TestCase):
 
 
 class MarketBreadthHistoryTests(unittest.TestCase):
+    def test_startup_recovery_waits_for_validation_then_runs_once(self):
+        class StopEvent:
+            def __init__(self):
+                self.waits = []
+
+            def is_set(self):
+                return False
+
+            def wait(self, timeout):
+                self.waits.append(timeout)
+                return False
+
+        stop_event = StopEvent()
+        runner = Mock(return_value="succeeded")
+        with patch.object(
+            dashboard,
+            "market_breadth_auto_recovery_state",
+            side_effect=[
+                {"status": "waiting_validation"},
+                {"status": "ready"},
+            ],
+        ), patch.object(dashboard, "invalidate_api_cache") as invalidate:
+            dashboard.market_breadth_auto_recovery_loop(
+                stop_event=stop_event,
+                poll_seconds=0.25,
+                runner=runner,
+            )
+
+        self.assertEqual(stop_event.waits, [0.25])
+        runner.assert_called_once_with()
+        invalidate.assert_called_once_with("market_breadth")
+
+    def test_startup_recovery_state_requires_a_safe_same_day_boundary(self):
+        with patch.object(
+            dashboard,
+            "is_a_share_trading_day_for_dashboard",
+            return_value=True,
+        ), patch.object(
+            dashboard,
+            "load_market_breadth_samples",
+            return_value=[
+                sample("2026-08-10 10:43:07"),
+                sample("2026-08-10 10:44:07"),
+                sample("2026-08-10 10:45:07"),
+            ],
+        ):
+            ready = dashboard.market_breadth_auto_recovery_state(
+                datetime(2026, 8, 10, 10, 45, 30),
+            )
+
+        self.assertEqual(ready["status"], "ready")
+        self.assertEqual(len(ready["validation_targets"]), 3)
+
+    def test_startup_recovery_waits_for_a_post_start_sample_before_planning(self):
+        with patch.object(
+            dashboard,
+            "is_a_share_trading_day_for_dashboard",
+            return_value=True,
+        ), patch.object(
+            dashboard,
+            "load_market_breadth_samples",
+            return_value=[sample("2026-08-10 10:00:00")],
+        ):
+            state = dashboard.market_breadth_auto_recovery_state(
+                datetime(2026, 8, 10, 11, 0, 0),
+                started_at=datetime(2026, 8, 10, 10, 59, 59),
+            )
+
+        self.assertEqual(state["status"], "waiting_startup_sample")
+
+    def test_startup_recovery_after_close_detects_a_terminal_gap(self):
+        with patch.object(
+            dashboard,
+            "is_a_share_trading_day_for_dashboard",
+            return_value=True,
+        ), patch.object(
+            dashboard,
+            "load_market_breadth_samples",
+            return_value=[
+                sample("2026-08-10 09:31:00"),
+                sample("2026-08-10 09:32:00"),
+                sample("2026-08-10 09:33:00"),
+            ],
+        ):
+            state = dashboard.market_breadth_auto_recovery_state(
+                datetime(2026, 8, 10, 15, 30, 0),
+                started_at=datetime(2026, 8, 10, 15, 29, 0),
+            )
+
+        self.assertEqual(state["status"], "ready")
+        self.assertEqual(
+            state["backfill_targets"][-1],
+            datetime(2026, 8, 10, 15, 0),
+        )
+
+    def test_startup_recovery_stops_after_bounded_failures(self):
+        class StopEvent:
+            def is_set(self):
+                return False
+
+            def wait(self, _timeout):
+                return False
+
+        runner = Mock(return_value="failed")
+        with patch.object(
+            dashboard,
+            "market_breadth_auto_recovery_state",
+            return_value={"status": "ready"},
+        ):
+            dashboard.market_breadth_auto_recovery_loop(
+                stop_event=StopEvent(),
+                runner=runner,
+            )
+
+        self.assertEqual(
+            runner.call_count,
+            dashboard.MARKET_BREADTH_AUTO_RECOVERY_MAX_ATTEMPTS,
+        )
+
+    def test_startup_recovery_process_is_bounded_and_cross_process_leased(self):
+        with tempfile.TemporaryDirectory(prefix="niuone-breadth-auto-recovery-") as temp_dir:
+            completed = Mock(returncode=0)
+            with patch.object(
+                dashboard,
+                "CRON_STATE_DIR",
+                Path(temp_dir),
+            ), patch.object(
+                dashboard.subprocess,
+                "run",
+                return_value=completed,
+            ) as run:
+                outcome = dashboard.run_market_breadth_auto_recovery_process(
+                    deadline_seconds=45,
+                    process_timeout_seconds=75,
+                )
+
+        self.assertEqual(outcome, "succeeded")
+        command = run.call_args.args[0]
+        self.assertEqual(command[1].endswith("recover_market_breadth_history.py"), True)
+        self.assertIn("--write", command)
+        self.assertEqual(run.call_args.kwargs["timeout"], 75)
+        self.assertEqual(run.call_args.kwargs["stdout"], dashboard.subprocess.DEVNULL)
+        self.assertEqual(run.call_args.kwargs["stderr"], dashboard.subprocess.DEVNULL)
+
     def test_default_thirty_second_history_retains_a_complete_trading_day(self):
         morning = datetime(2026, 7, 22, 9, 30)
         afternoon = datetime(2026, 7, 22, 13, 0)

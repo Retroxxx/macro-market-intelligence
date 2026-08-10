@@ -19,7 +19,7 @@ from collections.abc import Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 import urllib.error
 import urllib.request
@@ -93,6 +93,7 @@ from dashboard.apis.market_retention import (
     market_retention_date_key,
     seconds_until_next_market_retention_rollover,
 )
+from app.dashboard.market_breadth_recovery import plan_market_breadth_recovery
 from market_data.iwencai_client import (
     DEFAULT_BASE_URL as IWENCAI_DEFAULT_BASE_URL,
     normalize_base_url as normalize_iwencai_base_url,
@@ -388,7 +389,12 @@ INDUSTRY_FLOW_SAMPLER_THREAD: threading.Thread | None = None
 MARKET_BREADTH_HISTORY_LOCK = threading.RLock()
 MARKET_BREADTH_REFRESH_LOCK = threading.Lock()
 MARKET_BREADTH_SAMPLER_THREAD: threading.Thread | None = None
+MARKET_BREADTH_AUTO_RECOVERY_THREAD: threading.Thread | None = None
 DAILY_MARKET_HISTORY_RESET_THREAD: threading.Thread | None = None
+MARKET_BREADTH_AUTO_RECOVERY_DEADLINE_SECONDS = 900
+MARKET_BREADTH_AUTO_RECOVERY_PROCESS_TIMEOUT_SECONDS = 960
+MARKET_BREADTH_AUTO_RECOVERY_RETRY_SECONDS = 60.0
+MARKET_BREADTH_AUTO_RECOVERY_MAX_ATTEMPTS = 3
 MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS = _bounded_int_value(
     os.environ.get(
         "DASHBOARD_MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS",
@@ -4583,6 +4589,145 @@ def start_market_breadth_sampler() -> None:
         f"Market breadth sampler enabled: {MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS}s",
         flush=True,
     )
+
+
+def market_breadth_auto_recovery_state(
+    now: datetime | None = None,
+    *,
+    started_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Return whether startup recovery can run without weakening validation."""
+
+    current = now or current_cn_datetime()
+    if not is_a_share_trading_day_for_dashboard(current):
+        return {"status": "not_trading_day"}
+    if current.hour < 9:
+        return {"status": "waiting_open"}
+    samples = load_market_breadth_samples(now=current)
+    close_boundary = current.replace(hour=15, minute=1, second=0, microsecond=0)
+    if started_at is not None and current < close_boundary:
+        latest_time = max(
+            (
+                datetime.strptime(sample["generated_at"], "%Y-%m-%d %H:%M:%S")
+                for sample in samples
+                if str(sample.get("generated_at") or "")[:10]
+                == current_cn_date_key(current)
+            ),
+            default=None,
+        )
+        if latest_time is None or latest_time < started_at:
+            return {"status": "waiting_startup_sample"}
+    after_close = current >= close_boundary
+    plan = plan_market_breadth_recovery(
+        current_cn_date_key(current),
+        samples,
+        expected_through=(
+            current.replace(hour=15, minute=0, second=0, microsecond=0)
+            if after_close
+            else None
+        ),
+        allow_pre_gap_validation=after_close,
+    )
+    if (
+        plan["status"] in {"waiting_boundary", "waiting_validation"}
+        and after_close
+    ):
+        return {**plan, "status": "insufficient_validation"}
+    return plan
+
+
+def run_market_breadth_auto_recovery_process(
+    *,
+    deadline_seconds: int = MARKET_BREADTH_AUTO_RECOVERY_DEADLINE_SECONDS,
+    process_timeout_seconds: int = (
+        MARKET_BREADTH_AUTO_RECOVERY_PROCESS_TIMEOUT_SECONDS
+    ),
+) -> str:
+    """Run the validated writer in one bounded, cross-process leased child."""
+
+    lease = FileLease(
+        CRON_STATE_DIR / "market_breadth_auto_recovery.lock",
+        stale_after_seconds=process_timeout_seconds + 120,
+    )
+    if not lease.acquire():
+        return "busy"
+    try:
+        try:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ENTRYPOINT_DIR / "recover_market_breadth_history.py"),
+                    "--write",
+                    "--deadline-seconds",
+                    str(max(30, int(deadline_seconds))),
+                ],
+                cwd=str(PROJECT_ROOT),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=max(60, int(process_timeout_seconds)),
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return "failed"
+        return "succeeded" if completed.returncode == 0 else "failed"
+    finally:
+        lease.release()
+
+
+def market_breadth_auto_recovery_loop(
+    *,
+    stop_event: threading.Event | None = None,
+    poll_seconds: float = 30.0,
+    runner: Callable[[], str] | None = None,
+) -> None:
+    """Wait for real cross-check points, then backfill today's startup gap."""
+
+    stop_event = stop_event or threading.Event()
+    run_recovery = runner or run_market_breadth_auto_recovery_process
+    started_at = current_cn_datetime()
+    attempts = 0
+    while not stop_event.is_set():
+        state = market_breadth_auto_recovery_state(started_at=started_at)
+        status = str(state.get("status") or "")
+        if status in {"complete", "not_trading_day", "insufficient_validation"}:
+            return
+        if status == "ready":
+            outcome = str(run_recovery() or "failed")
+            if outcome == "succeeded":
+                invalidate_api_cache("market_breadth")
+                print("Market breadth startup recovery completed", flush=True)
+                return
+            if outcome == "failed":
+                attempts += 1
+                if attempts >= MARKET_BREADTH_AUTO_RECOVERY_MAX_ATTEMPTS:
+                    print(
+                        "[WARN] 市场宽度启动补齐失败: bounded retries exhausted",
+                        flush=True,
+                    )
+                    return
+                wait_seconds = MARKET_BREADTH_AUTO_RECOVERY_RETRY_SECONDS
+            else:
+                wait_seconds = poll_seconds
+        else:
+            wait_seconds = poll_seconds
+        if stop_event.wait(max(0.1, float(wait_seconds))):
+            return
+
+
+def start_market_breadth_auto_recovery() -> None:
+    global MARKET_BREADTH_AUTO_RECOVERY_THREAD
+    if (
+        MARKET_BREADTH_AUTO_RECOVERY_THREAD
+        and MARKET_BREADTH_AUTO_RECOVERY_THREAD.is_alive()
+    ):
+        return
+    MARKET_BREADTH_AUTO_RECOVERY_THREAD = threading.Thread(
+        target=market_breadth_auto_recovery_loop,
+        name="market-breadth-auto-recovery",
+        daemon=True,
+    )
+    MARKET_BREADTH_AUTO_RECOVERY_THREAD.start()
+    print("Market breadth startup recovery enabled", flush=True)
 
 
 def is_industry_flow_sampling_window(now: datetime | None = None) -> bool:

@@ -14,6 +14,7 @@ from app.dashboard.market_breadth_recovery import (
     merge_recovered_history,
     parse_stock_minute_bars,
     persist_recovered_history,
+    plan_market_breadth_recovery,
     save_recovery_checkpoint,
     validation_is_safe,
     validation_summary,
@@ -46,6 +47,83 @@ def sample(time_text, *, red=2, green=1, flat=1, broken=0, actual=100):
 
 
 class MarketBreadthRecoveryTests(unittest.TestCase):
+    def test_recovery_plan_waits_for_three_real_minutes_then_becomes_ready(self):
+        waiting = plan_market_breadth_recovery(
+            "2026-08-10",
+            [
+                sample("2026-08-10 10:43:07"),
+                sample("2026-08-10 10:43:37"),
+                sample("2026-08-10 10:44:07"),
+            ],
+        )
+        self.assertEqual(waiting["status"], "waiting_validation")
+
+        ready = plan_market_breadth_recovery(
+            "2026-08-10",
+            [
+                sample("2026-08-10 10:43:07"),
+                sample("2026-08-10 10:44:07"),
+                sample("2026-08-10 10:45:07"),
+            ],
+        )
+        self.assertEqual(ready["status"], "ready")
+        self.assertEqual(
+            ready["backfill_targets"][0],
+            datetime(2026, 8, 10, 9, 31),
+        )
+        self.assertEqual(
+            ready["backfill_targets"][-1],
+            datetime(2026, 8, 10, 10, 42),
+        )
+        self.assertEqual(len(ready["validation_targets"]), 3)
+
+    def test_recovery_plan_fills_internal_downtime_gap(self):
+        plan = plan_market_breadth_recovery(
+            "2026-08-10",
+            [
+                sample("2026-08-10 09:31:00"),
+                sample("2026-08-10 09:32:00"),
+                sample("2026-08-10 10:00:00"),
+                sample("2026-08-10 10:01:00"),
+                sample("2026-08-10 10:02:00"),
+            ],
+        )
+
+        self.assertEqual(plan["status"], "ready")
+        self.assertEqual(plan["backfill_targets"][0], datetime(2026, 8, 10, 9, 33))
+        self.assertEqual(plan["backfill_targets"][-1], datetime(2026, 8, 10, 9, 59))
+        self.assertEqual(len(plan["validation_targets"]), 3)
+
+    def test_recovery_plan_is_idempotently_complete_without_minute_gaps(self):
+        plan = plan_market_breadth_recovery(
+            "2026-08-10",
+            [
+                sample("2026-08-10 09:31:00"),
+                sample("2026-08-10 09:32:00"),
+                sample("2026-08-10 09:33:00"),
+            ],
+        )
+
+        self.assertEqual(plan["status"], "complete")
+        self.assertEqual(plan["backfill_targets"], [])
+
+    def test_recovery_plan_can_fill_a_terminal_gap_after_close(self):
+        plan = plan_market_breadth_recovery(
+            "2026-08-10",
+            [
+                sample("2026-08-10 09:31:00"),
+                sample("2026-08-10 09:32:00"),
+                sample("2026-08-10 09:33:00"),
+            ],
+            expected_through=datetime(2026, 8, 10, 15, 0),
+            allow_pre_gap_validation=True,
+        )
+
+        self.assertEqual(plan["status"], "ready")
+        self.assertEqual(plan["backfill_targets"][0], datetime(2026, 8, 10, 9, 34))
+        self.assertEqual(plan["backfill_targets"][-1], datetime(2026, 8, 10, 15, 0))
+        self.assertEqual(len(plan["validation_targets"]), 3)
+
     def test_parse_and_aggregate_reconstructs_broken_limit(self):
         body = json.dumps({
             "data": {

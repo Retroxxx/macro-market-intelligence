@@ -62,6 +62,7 @@ DEFAULT_DEADLINE_SECONDS = 900.0
 DEFAULT_ATTEMPTS = 3
 PROGRESS_EVERY = 250
 MAX_CONSECUTIVE_FAILURES = 20
+MIN_VALIDATION_POINTS = 3
 _PERSIST_LOCK = threading.Lock()
 _REQUEST_RATE_LOCK = threading.Lock()
 _NEXT_REQUEST_AT = 0.0
@@ -200,6 +201,93 @@ def _session_minutes(
             result.append(current)
         current += dt.timedelta(minutes=1)
     return result
+
+
+def plan_market_breadth_recovery(
+    day: str,
+    existing: Iterable[dict[str, Any]],
+    *,
+    expected_through: dt.datetime | None = None,
+    allow_pre_gap_validation: bool = False,
+) -> dict[str, Any]:
+    """Describe the safe current-day recovery window without fetching data."""
+
+    current_day: list[dict[str, Any]] = []
+    for raw in existing:
+        sample = compact_market_breadth_sample(
+            raw if isinstance(raw, dict) else None
+        )
+        if (
+            sample is not None
+            and sample["generated_at"][:10] == day
+            and is_market_breadth_session_timestamp(sample["generated_at"])
+        ):
+            current_day.append(sample)
+    current_day.sort(key=lambda item: item["generated_at"])
+    if not current_day:
+        return {
+            "status": "waiting_boundary",
+            "current_samples": [],
+            "backfill_targets": [],
+            "validation_targets": [],
+        }
+
+    existing_minutes = {
+        dt.datetime.strptime(
+            sample["generated_at"],
+            "%Y-%m-%d %H:%M:%S",
+        ).replace(second=0, microsecond=0)
+        for sample in current_day
+    }
+    latest_existing = max(existing_minutes)
+    recovery_end = (
+        expected_through.replace(second=0, microsecond=0)
+        if expected_through is not None
+        else latest_existing
+    )
+    start = dt.datetime.combine(latest_existing.date(), dt.time(9, 31))
+    expected_minutes = _session_minutes(day, start, recovery_end)
+    backfill_targets = [
+        moment for moment in expected_minutes
+        if moment not in existing_minutes
+    ]
+    if not backfill_targets:
+        return {
+            "status": "complete",
+            "current_samples": current_day,
+            "backfill_targets": [],
+            "validation_targets": [],
+        }
+
+    latest_missing = max(backfill_targets)
+    available_validation_minutes = sorted(
+        moment for moment in existing_minutes
+        if moment > latest_missing
+    )
+    validation_targets = available_validation_minutes[:5]
+    if allow_pre_gap_validation and len(validation_targets) < MIN_VALIDATION_POINTS:
+        selected = set(validation_targets)
+        earlier_candidates = sorted(
+            (
+                moment for moment in existing_minutes
+                if moment < latest_missing and moment not in selected
+            ),
+            reverse=True,
+        )
+        validation_targets.extend(
+            earlier_candidates[: 5 - len(validation_targets)]
+        )
+        validation_targets.sort()
+    return {
+        "status": (
+            "ready"
+            if len(validation_targets) >= MIN_VALIDATION_POINTS
+            else "waiting_validation"
+        ),
+        "current_samples": current_day,
+        "backfill_targets": backfill_targets,
+        "validation_targets": validation_targets,
+    }
 
 
 def _empty_aggregate(moment: dt.datetime) -> dict[str, Any]:
@@ -563,7 +651,7 @@ def validation_summary(
 
 
 def validation_is_safe(summary: Mapping[str, Any], quote_count: int) -> bool:
-    if int(summary.get("comparison_points") or 0) < 3:
+    if int(summary.get("comparison_points") or 0) < MIN_VALIDATION_POINTS:
         return False
     limits = {
         "max_quote_count_difference": 0,
@@ -747,36 +835,38 @@ def main(argv: list[str] | None = None) -> int:
     output_dir = dashboard_home / "cron" / "output"
     history_file = output_dir / "market_breadth_history.json"
     recovery_file = output_dir / "market_breadth_history.recovery.json"
-    day = dt.datetime.now(CN_TZ).date().isoformat()
+    current = dt.datetime.now(CN_TZ).replace(tzinfo=None)
+    day = current.date().isoformat()
     existing = _load_existing_samples(history_file, recovery_file)
-    current_day = [sample for sample in existing if sample["generated_at"][:10] == day]
-    if not current_day:
+    after_close = current.time() >= dt.time(15, 1)
+    plan = plan_market_breadth_recovery(
+        day,
+        existing,
+        expected_through=(
+            dt.datetime.combine(current.date(), dt.time(15, 0))
+            if after_close
+            else None
+        ),
+        allow_pre_gap_validation=after_close,
+    )
+    current_day = plan["current_samples"]
+    if plan["status"] == "waiting_boundary":
         print("Recovery stopped: no verified current-day boundary point exists.", file=sys.stderr)
         return 2
-    first_existing = min(
-        dt.datetime.strptime(sample["generated_at"], "%Y-%m-%d %H:%M:%S")
-        for sample in current_day
-    )
-    backfill_end = first_existing.replace(second=0, microsecond=0) - dt.timedelta(minutes=1)
-    start = dt.datetime.combine(first_existing.date(), dt.time(9, 31))
-    backfill_targets = _session_minutes(day, start, backfill_end)
-    if not backfill_targets:
-        print("No missing minute range precedes the first durable point.")
+    if plan["status"] == "complete":
+        print("No missing current-day market-breadth minutes were found.")
         return 0
-    available_validation_minutes = sorted({
-        dt.datetime.strptime(sample["generated_at"], "%Y-%m-%d %H:%M:%S").replace(
-            second=0,
-            microsecond=0,
+    if plan["status"] == "waiting_validation":
+        print(
+            "Recovery stopped: fewer than three verified validation minutes exist.",
+            file=sys.stderr,
         )
-        for sample in current_day
-        if dt.datetime.strptime(
-            sample["generated_at"], "%Y-%m-%d %H:%M:%S"
-        ).replace(second=0, microsecond=0) > backfill_end
-    })
-    validation_targets = available_validation_minutes[:5]
+        return 2
+    backfill_targets = plan["backfill_targets"]
+    validation_targets = plan["validation_targets"]
     all_targets = backfill_targets + validation_targets
     print(
-        f"Recovery range: {backfill_targets[0]:%H:%M}-{backfill_targets[-1]:%H:%M}; "
+        f"Recovery targets: {backfill_targets[0]:%H:%M}-{backfill_targets[-1]:%H:%M}; "
         f"minutes={len(backfill_targets)}",
         flush=True,
     )
