@@ -4545,6 +4545,46 @@ console.log(JSON.stringify([
             stylesheet,
         )
 
+    def test_tongdaxin_mainline_mobile_title_stays_inside_viewport(self):
+        stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn(
+            '@media(max-width:720px) {\n'
+            '  html[data-theme="tongdaxin"]:root { scrollbar-gutter:auto; }',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .category-tabs {\n'
+            '    width:calc(100% + 18px);\n'
+            '    max-width:none;\n'
+            '    margin-top:6px;',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .mainline-heading > div:first-child {\n'
+            '    box-sizing:border-box;\n'
+            '    width:100%;\n'
+            '    display:grid;\n'
+            '    grid-template-columns:max-content minmax(0,1fr);',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .mainline-actions {\n'
+            '    width:100%;\n'
+            '    min-width:0;\n'
+            '    justify-content:space-between;',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .mainline-time {\n'
+            '    min-width:0;\n'
+            '    overflow:hidden;\n'
+            '    text-overflow:ellipsis;',
+            stylesheet,
+        )
+
     def test_tongdaxin_admin_matches_dashboard_header_and_content_width(self):
         stylesheet = (
             ROOT / 'frontend' / 'tongdaxin-theme.css'
