@@ -1632,6 +1632,7 @@ onBeforeUnmount(() => {
 :global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-notice),
 :global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-controls),
 :global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-toggle),
+:global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-desktop-tooltip),
 :global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-compact-tooltip) {
   border-radius: 0 !important;
 }

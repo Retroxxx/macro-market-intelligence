@@ -32,7 +32,11 @@ const marketInfoRoot = ref(null)
 const marketInfoTrigger = ref(null)
 const chartWidth = ref(720)
 const chartAvailableHeight = ref(330)
+const supportsHover = ref(false)
 let chartResizeObserver = null
+let finePointerMediaQuery = null
+
+const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
 
 function nullableNumeric(value, allowNegative = false) {
   const parsed = Number(value)
@@ -124,19 +128,19 @@ const axisHint = computed(() => {
 const chart = computed(() => {
   if (!timeline.value.length || !hasSelection.value) return null
   const width = chartWidth.value
-  const compact = props.terminal || width < 560
+  const compact = width < 560 || (props.terminal && !supportsHover.value)
   const showSentiment = showBreadth.value || showLimitState.value
   const baseHeight = showSentiment && showVolume.value ? (compact ? 280 : 330) : (compact ? 218 : 236)
   const compactMinHeight = showSentiment && showVolume.value ? 220 : 180
-  const height = props.terminal
+  const height = props.terminal && !compact
     ? 168
     : compact
       ? Math.max(compactMinHeight, Math.min(baseHeight, chartAvailableHeight.value))
       : Math.max(baseHeight, chartAvailableHeight.value)
-  const margin = props.terminal
-    ? { top: 36, right: 34, bottom: 24, left: 38 }
-    : compact
+  const margin = compact
     ? { top: showVolume.value ? 74 : 42, right: 38, bottom: 30, left: 42 }
+    : props.terminal
+      ? { top: 16, right: 34, bottom: 24, left: 38 }
     : { top: 16, right: 42, bottom: 34, left: 50 }
   const plotWidth = width - margin.left - margin.right
   const sectionGap = showSentiment && showVolume.value ? (compact ? 20 : 24) : 0
@@ -310,6 +314,23 @@ const activeSample = computed(() => {
   }
 })
 
+const desktopTooltipStyle = computed(() => {
+  const current = chart.value
+  const sample = activeSample.value
+  if (!props.terminal || current?.compact || !hoveredAt.value || !sample) return {}
+  const tooltipWidth = Math.min(288, current.width - 16)
+  const preferredLeft = sample.x + 12
+  const fallbackLeft = sample.x - tooltipWidth - 12
+  const left = preferredLeft + tooltipWidth <= current.width - 8
+    ? preferredLeft
+    : fallbackLeft
+  return {
+    left: `${Math.max(8, Math.min(current.width - tooltipWidth - 8, left))}px`,
+    top: '8px',
+    width: `${tooltipWidth}px`,
+  }
+})
+
 function updateHover(event) {
   const current = chart.value
   const svg = event.currentTarget.ownerSVGElement
@@ -388,6 +409,11 @@ function handleMarketInfoKeydown(event) {
   closeMarketInfo({ restoreFocus: true })
 }
 
+function syncHoverCapability(event) {
+  supportsHover.value = Boolean(event.matches)
+  clearHover()
+}
+
 watch(chartWrapElement, element => {
   chartResizeObserver?.disconnect()
   chartResizeObserver = null
@@ -400,6 +426,9 @@ watch(chartWrapElement, element => {
 }, { flush: 'post' })
 
 onMounted(() => {
+  finePointerMediaQuery = window.matchMedia(FINE_POINTER_QUERY)
+  supportsHover.value = finePointerMediaQuery.matches
+  finePointerMediaQuery.addEventListener('change', syncHoverCapability)
   window.addEventListener('pointermove', clearHoverOutside, { passive: true })
   window.addEventListener('resize', syncChartSize, { passive: true })
   window.visualViewport?.addEventListener('resize', syncChartSize, { passive: true })
@@ -407,6 +436,7 @@ onMounted(() => {
   document.addEventListener('keydown', handleMarketInfoKeydown)
 })
 onBeforeUnmount(() => {
+  finePointerMediaQuery?.removeEventListener('change', syncHoverCapability)
   window.removeEventListener('pointermove', clearHoverOutside)
   window.removeEventListener('resize', syncChartSize)
   window.visualViewport?.removeEventListener('resize', syncChartSize)
@@ -671,7 +701,7 @@ const turnoverEstimateText = computed(() => {
           @pointerdown="updateHover"
           @pointerleave="clearHover"
         />
-        <g v-if="activeSample" class="market-breadth-hover" aria-hidden="true">
+        <g v-if="activeSample && (!terminal || chart.compact || hoveredAt)" class="market-breadth-hover" aria-hidden="true">
           <line
             class="market-breadth-crosshair"
             :x1="activeSample.x"
@@ -689,7 +719,7 @@ const turnoverEstimateText = computed(() => {
             :fill="marker.color"
           />
           <g
-            v-if="!chart.compact"
+            v-if="!chart.compact && !terminal"
             :transform="`translate(${activeSample.tooltipX} ${activeSample.tooltipY})`"
           >
             <rect
@@ -713,12 +743,29 @@ const turnoverEstimateText = computed(() => {
         </g>
       </svg>
       <div
+        v-if="terminal && !chart.compact && hoveredAt && activeSample"
+        class="market-breadth-desktop-tooltip"
+        :style="desktopTooltipStyle"
+        role="tooltip"
+      >
+        <time>{{ activeSample.time }}</time>
+        <span
+          v-for="row in activeSample.rows"
+          :key="row.key"
+          class="market-breadth-desktop-tooltip-item"
+        >
+          <i :style="{ backgroundColor: row.color }"></i>
+          <b>{{ row.label }}</b>
+          <strong>{{ row.displayValue }}</strong>
+        </span>
+      </div>
+      <div
         v-if="chart.compact && activeSample"
         class="market-breadth-compact-tooltip"
         :style="{
-          left: `${chart.margin.left}px`,
+          left: `${chart.margin.left / chart.width * 100}%`,
+          right: `${chart.margin.right / chart.width * 100}%`,
           top: '4px',
-          width: `${chart.plotWidth}px`,
         }"
         aria-label="当前时刻市场情绪数据"
       >

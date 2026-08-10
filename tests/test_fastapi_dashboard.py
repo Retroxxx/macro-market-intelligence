@@ -1129,7 +1129,13 @@ class FastApiDashboardTests(unittest.TestCase):
             "const width = chartWidth.value",
             component,
         )
-        self.assertIn("const compact = props.terminal || width < 560", component)
+        self.assertIn(
+            "const compact = width < 560 || (props.terminal && !supportsHover.value)",
+            component,
+        )
+        self.assertIn("const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'", component)
+        self.assertIn("finePointerMediaQuery.addEventListener('change', syncHoverCapability)", component)
+        self.assertIn("finePointerMediaQuery?.removeEventListener('change', syncHoverCapability)", component)
         self.assertIn(
             "const baseHeight = showSentiment && showVolume.value ? (compact ? 280 : 330)",
             component,
@@ -1162,7 +1168,10 @@ class FastApiDashboardTests(unittest.TestCase):
         self.assertIn("chartWidth.value = Math.max(300, availableWidth)", component)
         self.assertIn("const activeSample = computed(() =>", component)
         self.assertIn("|| current.samples.at(-1)", component)
-        self.assertIn('v-if="activeSample"', component)
+        self.assertIn(
+            'v-if="activeSample && (!terminal || chart.compact || hoveredAt)"',
+            component,
+        )
         self.assertIn("label: '较昨日同期差', compactLabel: '同期差'", component)
         self.assertNotIn("同时点量能差", component)
         self.assertIn("group: 'volume', emphasized: true", component)
@@ -1171,17 +1180,23 @@ class FastApiDashboardTests(unittest.TestCase):
         self.assertIn("--market-breadth-same-time-delta:#f472b6;", stylesheet)
         self.assertIn("--market-breadth-same-time-delta:#be185d;", stylesheet)
         self.assertIn("--market-breadth-previous-turnover:#64748b;", stylesheet)
+        self.assertIn("const margin = compact", component)
         self.assertIn("? { top: showVolume.value ? 74 : 42, right: 38", component)
         self.assertIn("compactDisplayValue: formatCompactSeriesValue", component)
         self.assertIn("...rows.filter(row => row.group === 'breadth')", component)
         self.assertIn("compactVolumeRows: rows.filter(row => row.group === 'volume')", component)
-        self.assertIn('v-if="!chart.compact"', component)
+        self.assertIn('v-if="!chart.compact && !terminal"', component)
         self.assertIn('v-if="chart.compact && activeSample"', component)
+        self.assertIn('v-if="terminal && !chart.compact && hoveredAt && activeSample"', component)
+        self.assertIn("class=\"market-breadth-desktop-tooltip\"", component)
+        self.assertIn("left: `${chart.margin.left / chart.width * 100}%`", component)
+        self.assertIn("right: `${chart.margin.right / chart.width * 100}%`", component)
         self.assertIn('v-for="row in activeSample.compactVolumeRows"', component)
         self.assertIn("market-breadth-compact-tooltip-count-item", component)
         self.assertIn("market-breadth-compact-tooltip-volume-item", component)
         self.assertIn(".market-breadth-compact-tooltip { position:absolute;", stylesheet)
-        self.assertIn("grid-template-columns:44px repeat(5,minmax(0,1fr));", stylesheet)
+        self.assertIn(".market-breadth-desktop-tooltip { position:absolute;", stylesheet)
+        self.assertIn("grid-template-columns:minmax(38px,.85fr) repeat(5,minmax(0,1fr));", stylesheet)
         self.assertNotIn("market-breadth-compact-tooltip-row", component + stylesheet)
         self.assertNotIn("spreadEndLabels", component)
         self.assertNotIn("chart.endLabels", component)
