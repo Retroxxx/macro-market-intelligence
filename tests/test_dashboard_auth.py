@@ -4593,6 +4593,29 @@ console.log(JSON.stringify([
             stylesheet,
         )
 
+    def test_tongdaxin_mainline_mobile_summary_cards_are_compact(self):
+        stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('@media(max-width:560px) {', stylesheet)
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .mainline-summary-card {\n'
+            '    min-height:72px;\n'
+            '    padding:5px 6px;',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .mainline-summary-card.empty {\n'
+            '    padding:5px 6px !important;',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .mainline-summary-card strong {\n'
+            '    margin:4px 0 2px;',
+            stylesheet,
+        )
+
     def test_tongdaxin_mainline_mobile_title_stays_inside_viewport(self):
         stylesheet = (
             ROOT / 'frontend' / 'tongdaxin-theme.css'

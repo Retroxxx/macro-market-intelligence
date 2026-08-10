@@ -2655,6 +2655,17 @@ html[data-theme="tongdaxin"]:root .backtest-empty { padding:12px; color:#777; fo
 }
 
 @media(max-width:560px) {
+  html[data-theme="tongdaxin"]:root .mainline-summary-card {
+    min-height:72px;
+    padding:5px 6px;
+  }
+  html[data-theme="tongdaxin"]:root .mainline-summary-card.empty {
+    padding:5px 6px !important;
+  }
+  html[data-theme="tongdaxin"]:root .mainline-summary-card strong {
+    margin:4px 0 2px;
+  }
+
   /* The desktop terminal table exposes all four headers. The mobile component
      reflows rows into two lines, so reset the inherited desktop cell geometry,
      keep only the assigned headers, and show exactly five compact stock rows. */
