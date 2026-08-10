@@ -149,6 +149,52 @@ class StrategyBacktestFrontendTests(unittest.TestCase):
         self.assertNotIn("{{ signal.symbol }}", source)
         self.assertNotIn("{{ item.symbol }}", source)
 
+    def test_backtest_page_uses_financial_workstation_and_tongdaxin_styles(self):
+        source = (
+            ROOT / "web" / "src" / "components" / "AdminBacktestPage.vue"
+        ).read_text(encoding="utf-8")
+        tongdaxin_styles = (
+            ROOT / "frontend" / "tongdaxin-theme.css"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "Financial-workstation presentation: dense, restrained and data-first.",
+            source,
+        )
+        self.assertIn("font-variant-numeric:tabular-nums;", source)
+        self.assertIn(".backtest-progress-track span{\n  border-radius:0;\n  background:var(--primary);", source)
+        self.assertIn(".backtest-table-wrap .is-positive{color:var(--red-text);", source)
+        self.assertIn(".backtest-table-wrap .is-negative{color:var(--green-text);", source)
+        self.assertIn("Strategy backtest: TongdaXin terminal presentation.", tongdaxin_styles)
+        self.assertIn(".backtest-progress-track span {\n  border-radius:0;\n  background:#d40000;", tongdaxin_styles)
+        self.assertIn(".backtest-table-wrap .is-positive { color:#ff4141; }", tongdaxin_styles)
+        self.assertIn(".backtest-table-wrap .is-negative { color:#00d8b4; }", tongdaxin_styles)
+        self.assertNotIn('class="backtest-strategy-dot"', source)
+        self.assertNotIn(".backtest-strategy-dot{", source)
+        self.assertNotIn("border-left:3px solid var(--strategy-color);", source)
+        self.assertNotIn("border-left:3px solid var(--red);", tongdaxin_styles)
+        self.assertNotIn("border-left:2px solid var(--accent-border)", source)
+        self.assertNotIn(
+            ":where(.rating-table tbody tr:hover,.backtest-table-wrap tbody tr:hover)",
+            tongdaxin_styles,
+        )
+        self.assertIn("background:#181000;\n  box-shadow:none;", tongdaxin_styles)
+
+    def test_trade_result_sections_follow_risk_and_capital_efficiency(self):
+        source = (
+            ROOT / "web" / "src" / "components" / "AdminBacktestPage.vue"
+        ).read_text(encoding="utf-8")
+        ordered_headings = (
+            "<h2>风险与资金效率</h2>",
+            "<h2>买卖收益</h2>",
+            "<h2>{{ isTradeLifecycle ? '子策略交易' : '子策略信号' }}</h2>",
+            "<h2>交易明细</h2>",
+            "<h2>买入未成交归因</h2>",
+        )
+
+        positions = [source.index(heading) for heading in ordered_headings]
+        self.assertEqual(positions, sorted(positions))
+
     def test_backtest_diagnostics_localize_warnings_and_reason_codes(self):
         source = (
             ROOT / "web" / "src" / "components" / "AdminBacktestPage.vue"

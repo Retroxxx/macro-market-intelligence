@@ -1427,7 +1427,7 @@ html[data-theme="tongdaxin"]:root :where(.rating-table tbody tr,.backtest-table-
 html[data-theme="tongdaxin"]:root :where(.rating-table tbody tr:nth-child(even),.backtest-table-wrap tbody tr:nth-child(even)) {
   background:var(--terminal-row-alt);
 }
-html[data-theme="tongdaxin"]:root :where(.rating-table tbody tr:hover,.backtest-table-wrap tbody tr:hover) {
+html[data-theme="tongdaxin"]:root .rating-table tbody tr:hover {
   background:#252000;
   box-shadow:inset 2px 0 0 var(--terminal-orange);
 }
@@ -2341,6 +2341,236 @@ html[data-theme="tongdaxin"]:root body .theme-leader-button {
   min-height:24px;
   padding:3px 6px;
 }
+
+/* Strategy backtest: TongdaXin terminal presentation. */
+html[data-theme="tongdaxin"]:root .backtest-page {
+  gap:3px;
+  padding-top:4px;
+  color:#d0d0d0;
+  font-family:Tahoma,"Microsoft YaHei",Arial,sans-serif;
+}
+html[data-theme="tongdaxin"]:root :where(
+  .backtest-hero,
+  .backtest-form,
+  .backtest-progress-card,
+  .backtest-job-summary,
+  .backtest-result-card,
+  .backtest-quality,
+  .backtest-overview,
+  .backtest-month-diagnostic,
+  .backtest-month-diagnostic-body>.backtest-table-wrap
+) {
+  border-color:var(--line);
+  border-radius:0;
+  background:#000;
+  box-shadow:none;
+}
+html[data-theme="tongdaxin"]:root .backtest-hero {
+  min-height:44px;
+  padding:5px 7px;
+}
+html[data-theme="tongdaxin"]:root :where(
+  .backtest-hero-copy h2,
+  .backtest-form h2,
+  .backtest-progress-card h2,
+  .backtest-result-card h2
+) {
+  color:#e5e5e5;
+  font-size:12px;
+  font-weight:700;
+}
+html[data-theme="tongdaxin"]:root :where(
+  .backtest-hero-copy p,
+  .backtest-form-head p,
+  .backtest-progress-card p,
+  .backtest-result-head p
+) {
+  margin-top:2px;
+  color:#8e8e8e;
+  font-size:10px;
+  line-height:1.35;
+}
+html[data-theme="tongdaxin"]:root .backtest-tags { gap:2px; }
+html[data-theme="tongdaxin"]:root .backtest-tags span {
+  padding:2px 6px;
+  border-color:#555 #090909 #090909 #555;
+  border-radius:0;
+  background:#202020;
+  color:#fff200;
+  font-size:10px;
+  box-shadow:inset 1px 1px 0 #303030,inset -1px -1px 0 #000;
+}
+html[data-theme="tongdaxin"]:root .backtest-notice {
+  padding:5px 7px;
+  border-color:var(--line);
+  border-radius:0;
+  background:#080808;
+  color:#c7c7c7;
+  font-size:10px;
+}
+html[data-theme="tongdaxin"]:root .backtest-notice.is-warning {
+  border-color:#665d00;
+  background:#0b0a00;
+  color:#fff200;
+}
+html[data-theme="tongdaxin"]:root .backtest-quality { color:#fff200; }
+html[data-theme="tongdaxin"]:root .backtest-quality summary { padding:5px 7px; }
+html[data-theme="tongdaxin"]:root .backtest-quality-icon,
+html[data-theme="tongdaxin"]:root .backtest-quality-count {
+  border-color:#665d00;
+  border-radius:0;
+  background:#111000;
+  color:#fff200;
+}
+html[data-theme="tongdaxin"]:root .backtest-quality-details {
+  border-color:#665d00;
+  background:#000;
+}
+html[data-theme="tongdaxin"]:root .backtest-quality-details>div {
+  padding:5px 7px;
+  border-color:#3f3900;
+}
+html[data-theme="tongdaxin"]:root .backtest-quality-details span { color:#aaa; }
+html[data-theme="tongdaxin"]:root :where(
+  .backtest-form-head,
+  .backtest-result-head,
+  .backtest-progress-head,
+  .backtest-actions
+) {
+  padding:5px 7px;
+  border-color:var(--line);
+  background:var(--terminal-header);
+}
+html[data-theme="tongdaxin"]:root .backtest-fields {
+  gap:4px;
+  padding:6px 7px;
+}
+html[data-theme="tongdaxin"]:root .backtest-fields label {
+  gap:3px;
+  color:#aaa;
+  font-size:10px;
+}
+html[data-theme="tongdaxin"]:root .backtest-fields label>small { color:#707070; }
+html[data-theme="tongdaxin"]:root .backtest-fields :where(input,select) {
+  min-height:24px;
+  padding:2px 5px;
+  border-color:#555 #090909 #090909 #555;
+  border-radius:0;
+  background:#0b0b0b;
+  color:#e5e5e5;
+  font-family:Tahoma,"Microsoft YaHei",Arial,sans-serif;
+  font-size:11px;
+  box-shadow:inset 1px 1px 0 #050505;
+}
+html[data-theme="tongdaxin"]:root .backtest-actions { gap:4px; }
+html[data-theme="tongdaxin"]:root body :where(.backtest-start,.backtest-cancel) {
+  min-width:88px;
+  min-height:24px;
+  padding:2px 8px;
+  border-color:#555 #090909 #090909 #555 !important;
+  border-radius:0;
+  background:#202020 !important;
+  box-shadow:inset 1px 1px 0 #383838,inset -1px -1px 0 #000 !important;
+  font-size:11px;
+}
+html[data-theme="tongdaxin"]:root body .backtest-start:not(:disabled) { color:#fff200 !important; }
+html[data-theme="tongdaxin"]:root body .backtest-cancel:not(:disabled) { color:#ff4141 !important; }
+html[data-theme="tongdaxin"]:root .backtest-progress-head strong {
+  color:#fff200;
+  font-size:18px;
+}
+html[data-theme="tongdaxin"]:root .backtest-status {
+  margin-bottom:3px;
+  padding:1px 5px;
+  border-color:#555 #090909 #090909 #555;
+  border-radius:0;
+  background:#202020;
+  color:#fff200;
+  font-size:9px;
+}
+html[data-theme="tongdaxin"]:root .backtest-status.is-succeeded { color:#00d8b4; }
+html[data-theme="tongdaxin"]:root :where(.backtest-status.is-failed,.backtest-status.is-cancelled) { color:#ff4141; }
+html[data-theme="tongdaxin"]:root .backtest-progress-track {
+  height:4px;
+  margin:6px 7px 0;
+  border-color:#500000;
+  border-radius:0;
+  background:#140000;
+}
+html[data-theme="tongdaxin"]:root .backtest-progress-track span {
+  border-radius:0;
+  background:#d40000;
+}
+html[data-theme="tongdaxin"]:root .backtest-timestamps {
+  gap:4px 12px;
+  margin-top:5px;
+  padding:4px 7px 6px;
+  border-color:var(--line);
+  color:#777;
+  font-size:9px;
+}
+html[data-theme="tongdaxin"]:root .backtest-job-summary { padding:4px 6px; }
+html[data-theme="tongdaxin"]:root .backtest-overview { border-color:var(--line); }
+html[data-theme="tongdaxin"]:root .backtest-overview>div {
+  min-height:48px;
+  padding:5px 7px;
+  border-color:var(--line);
+  background:#000;
+}
+html[data-theme="tongdaxin"]:root .backtest-overview span { color:#888; font-size:9px; }
+html[data-theme="tongdaxin"]:root .backtest-overview strong { color:#fff200; font-size:16px; }
+html[data-theme="tongdaxin"]:root .backtest-scope-summary strong { color:#e5e5e5; font-size:11px; }
+html[data-theme="tongdaxin"]:root .backtest-scope-summary small { color:#777; }
+html[data-theme="tongdaxin"]:root .backtest-result-head { min-height:34px; }
+html[data-theme="tongdaxin"]:root .backtest-table-wrap table {
+  border-color:var(--line);
+  background:#000;
+  color:#cfcfcf;
+  font-size:10px;
+}
+html[data-theme="tongdaxin"]:root .backtest-table-wrap :where(th,td) {
+  height:24px;
+  padding:3px 6px;
+  border-color:var(--line);
+}
+html[data-theme="tongdaxin"]:root .backtest-table-wrap th {
+  background:var(--terminal-header);
+  color:#aaa;
+  font-size:9px;
+  font-weight:400;
+}
+html[data-theme="tongdaxin"]:root .backtest-table-wrap tbody tr:nth-child(odd) { background:#000; }
+html[data-theme="tongdaxin"]:root .backtest-table-wrap tbody tr:nth-child(even) { background:#080808; }
+html[data-theme="tongdaxin"]:root .backtest-table-wrap tbody tr:hover {
+  background:#181000;
+  box-shadow:none;
+}
+html[data-theme="tongdaxin"]:root .backtest-table-wrap td { color:#bcbcbc; }
+html[data-theme="tongdaxin"]:root .backtest-table-wrap .is-positive { color:#ff4141; }
+html[data-theme="tongdaxin"]:root .backtest-table-wrap .is-negative { color:#00d8b4; }
+html[data-theme="tongdaxin"]:root .backtest-diagnostic-groups {
+  border-color:var(--line);
+  background:#000;
+}
+html[data-theme="tongdaxin"]:root .backtest-diagnostic-groups article {
+  padding:6px;
+  border-color:var(--line);
+  background:#000;
+}
+html[data-theme="tongdaxin"]:root .backtest-diagnostic-groups h3 { color:#fff200; font-size:10px; }
+html[data-theme="tongdaxin"]:root .backtest-blockers li {
+  border:1px solid #2f0000;
+  border-radius:0;
+  background:#080808;
+}
+html[data-theme="tongdaxin"]:root .backtest-blockers b { color:#fff200; }
+html[data-theme="tongdaxin"]:root .backtest-monthly-diagnostics { gap:3px; padding:4px; }
+html[data-theme="tongdaxin"]:root .backtest-month-diagnostic>summary { padding:4px 6px; }
+html[data-theme="tongdaxin"]:root .backtest-month-diagnostic>summary strong { color:#e5e5e5; font-size:10px; }
+html[data-theme="tongdaxin"]:root .backtest-month-diagnostic>summary span { color:#888; font-size:9px; }
+html[data-theme="tongdaxin"]:root .backtest-month-diagnostic-body { gap:4px; padding:0 4px 4px; }
+html[data-theme="tongdaxin"]:root .backtest-month-diagnostic-body>.backtest-table-wrap { margin-top:4px; }
+html[data-theme="tongdaxin"]:root .backtest-empty { padding:12px; color:#777; font-size:10px; }
 
 @media(max-width:720px) {
   html[data-theme="tongdaxin"]:root header { padding:8px 10px; }
