@@ -112,6 +112,8 @@ class TencentMarketBreadthTests(unittest.TestCase):
         )
         self.assertEqual(quote_snapshot["market_snapshot"]["up"], 2)
         self.assertEqual(quote_snapshot["market_snapshot"]["down"], 1)
+        self.assertEqual(quote_snapshot["quotes"]["sh600001"]["upper_limit"], 11)
+        self.assertEqual(quote_snapshot["quotes"]["sh600001"]["lower_limit"], 9)
 
     def test_previous_market_turnover_uses_latest_common_prior_trading_day(self):
         bodies = {
