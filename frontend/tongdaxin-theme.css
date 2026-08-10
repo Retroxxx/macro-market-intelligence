@@ -2636,6 +2636,12 @@ html[data-theme="tongdaxin"]:root .backtest-empty { padding:12px; color:#777; fo
     text-overflow:ellipsis;
     white-space:nowrap;
   }
+  /* Mobile mainline rows reflow into multiple grid lines. Let longer theme
+     names and metrics grow the row instead of clipping into the next item. */
+  html[data-theme="tongdaxin"]:root .theme-row {
+    height:auto;
+    min-height:80px;
+  }
   html[data-theme="tongdaxin"]:root .theme-toggle:hover,
   html[data-theme="tongdaxin"]:root .theme-toggle:active,
   html[data-theme="tongdaxin"]:root .theme-toggle:focus,

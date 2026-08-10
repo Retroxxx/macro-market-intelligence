@@ -4585,6 +4585,20 @@ console.log(JSON.stringify([
             stylesheet,
         )
 
+    def test_tongdaxin_mainline_mobile_rows_expand_with_reflowed_content(self):
+        stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+
+        mobile_styles = stylesheet.split('@media(max-width:720px) {', 1)[1]
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .theme-row {\n'
+            '    height:auto;\n'
+            '    min-height:80px;\n'
+            '  }',
+            mobile_styles,
+        )
+
     def test_tongdaxin_admin_matches_dashboard_header_and_content_width(self):
         stylesheet = (
             ROOT / 'frontend' / 'tongdaxin-theme.css'
