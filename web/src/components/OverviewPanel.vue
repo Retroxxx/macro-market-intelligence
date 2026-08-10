@@ -1255,6 +1255,13 @@ onBeforeUnmount(() => {
 
 @media (max-width: 720px) {
   .overview-page { gap: 10px; }
+  .overview-terminal-grid,
+  .overview-primary-grid,
+  .overview-secondary-grid { display: contents; }
+  .overview-market-panel { order: 1; }
+  .overview-flow-panel { order: 2; }
+  .overview-mainline-panel { order: 3; }
+  .overview-candidate-panel { order: 4; }
   .overview-command-head { align-items: flex-start; display: grid; padding: 14px; }
   .overview-command-meta { justify-self: start; }
   .overview-banner { align-items: start; grid-template-columns: 1fr; }

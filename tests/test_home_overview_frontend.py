@@ -569,6 +569,19 @@ console.log(JSON.stringify({{
         self.assertIn("props.moneyFlow.displaying_previous_trading_day", market_overview)
         self.assertIn("上一交易日资金", market_overview)
         self.assertIn("@media (max-width: 720px)", component)
+        self.assertIn(
+            ".overview-terminal-grid,\n"
+            "  .overview-primary-grid,\n"
+            "  .overview-secondary-grid { display: contents; }",
+            component,
+        )
+        for mobile_panel_order in (
+            ".overview-market-panel { order: 1; }",
+            ".overview-flow-panel { order: 2; }",
+            ".overview-mainline-panel { order: 3; }",
+            ".overview-candidate-panel { order: 4; }",
+        ):
+            self.assertIn(mobile_panel_order, component)
         self.assertIn("@media (prefers-reduced-motion: reduce)", component)
         for square_overview_surface in (
             ':global(html[data-corners="square"]) .overview-command-head,',
