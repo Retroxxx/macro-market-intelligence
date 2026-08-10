@@ -518,6 +518,119 @@ class MarketBreadthHistoryTests(unittest.TestCase):
             dashboard.MONEY_FLOW_SNAPSHOT_FILE = original_money_file
             dashboard.is_a_share_trading_day_for_dashboard = original_calendar
 
+    def test_daily_reset_restores_current_breadth_from_unusable_primary(self):
+        original_breadth_file = dashboard.MARKET_BREADTH_HISTORY_FILE
+        original_flow_file = dashboard.INDUSTRY_FLOW_HISTORY_FILE
+        original_money_file = dashboard.MONEY_FLOW_SNAPSHOT_FILE
+        try:
+            for failure_mode in ("missing", "corrupt", "empty"):
+                with self.subTest(failure_mode=failure_mode), tempfile.TemporaryDirectory(
+                    prefix="niuone-market-breadth-recover-"
+                ) as temp_dir:
+                    root = Path(temp_dir)
+                    dashboard.MARKET_BREADTH_HISTORY_FILE = root / "market_breadth.json"
+                    dashboard.INDUSTRY_FLOW_HISTORY_FILE = root / "industry_flow.json"
+                    dashboard.MONEY_FLOW_SNAPSHOT_FILE = root / "money_flow.json"
+                    dashboard.record_market_breadth_sample(
+                        sample("2026-07-23 10:00:00"),
+                        now=datetime(2026, 7, 23, 10, 0),
+                    )
+                    dashboard.record_market_breadth_sample(
+                        sample("2026-07-23 10:01:00", red=3100, green=1900),
+                        now=datetime(2026, 7, 23, 10, 1),
+                    )
+                    recovery_file = dashboard._market_breadth_history_recovery_file()
+                    mirrored = json.loads(recovery_file.read_text(encoding="utf-8"))
+
+                    if failure_mode == "missing":
+                        dashboard.MARKET_BREADTH_HISTORY_FILE.unlink()
+                    elif failure_mode == "corrupt":
+                        dashboard.MARKET_BREADTH_HISTORY_FILE.write_text(
+                            "{not-json", encoding="utf-8"
+                        )
+                    else:
+                        dashboard.MARKET_BREADTH_HISTORY_FILE.write_text(
+                            json.dumps(
+                                dashboard._empty_market_breadth_history("2026-07-23")
+                            ),
+                            encoding="utf-8",
+                        )
+
+                    changed = dashboard.reset_daily_market_histories(
+                        datetime(2026, 7, 23, 11, 0)
+                    )
+                    restored = json.loads(
+                        dashboard.MARKET_BREADTH_HISTORY_FILE.read_text(encoding="utf-8")
+                    )
+                    repeated = dashboard.reset_daily_market_histories(
+                        datetime(2026, 7, 23, 11, 1)
+                    )
+
+                    self.assertEqual(len(mirrored["samples"]), 2)
+                    self.assertTrue(changed)
+                    self.assertFalse(repeated)
+                    self.assertEqual(restored, mirrored)
+        finally:
+            dashboard.MARKET_BREADTH_HISTORY_FILE = original_breadth_file
+            dashboard.INDUSTRY_FLOW_HISTORY_FILE = original_flow_file
+            dashboard.MONEY_FLOW_SNAPSHOT_FILE = original_money_file
+
+    def test_next_breadth_sample_merges_richer_recovery_before_persisting(self):
+        original_breadth_file = dashboard.MARKET_BREADTH_HISTORY_FILE
+        original_flow_file = dashboard.INDUSTRY_FLOW_HISTORY_FILE
+        original_money_file = dashboard.MONEY_FLOW_SNAPSHOT_FILE
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="niuone-market-breadth-append-recover-"
+            ) as temp_dir:
+                root = Path(temp_dir)
+                dashboard.MARKET_BREADTH_HISTORY_FILE = root / "market_breadth.json"
+                dashboard.INDUSTRY_FLOW_HISTORY_FILE = root / "industry_flow.json"
+                dashboard.MONEY_FLOW_SNAPSHOT_FILE = root / "money_flow.json"
+                dashboard.record_market_breadth_sample(
+                    sample("2026-07-23 10:00:00"),
+                    now=datetime(2026, 7, 23, 10, 0),
+                )
+                dashboard.record_market_breadth_sample(
+                    sample("2026-07-23 10:01:00", red=3100, green=1900),
+                    now=datetime(2026, 7, 23, 10, 1),
+                )
+                dashboard.MARKET_BREADTH_HISTORY_FILE.write_text(
+                    json.dumps(dashboard._empty_market_breadth_history("2026-07-23")),
+                    encoding="utf-8",
+                )
+
+                recorded = dashboard.record_market_breadth_sample(
+                    sample("2026-07-23 10:02:00", red=3200, green=1800),
+                    now=datetime(2026, 7, 23, 10, 2),
+                )
+                stored = json.loads(
+                    dashboard.MARKET_BREADTH_HISTORY_FILE.read_text(encoding="utf-8")
+                )
+                recovery = json.loads(
+                    dashboard._market_breadth_history_recovery_file().read_text(
+                        encoding="utf-8"
+                    )
+                )
+
+                expected_times = [
+                    "2026-07-23 10:00:00",
+                    "2026-07-23 10:01:00",
+                    "2026-07-23 10:02:00",
+                ]
+                self.assertEqual(
+                    [item["generated_at"] for item in recorded], expected_times
+                )
+                self.assertEqual(
+                    [item["generated_at"] for item in stored["samples"]],
+                    expected_times,
+                )
+                self.assertEqual(recovery, stored)
+        finally:
+            dashboard.MARKET_BREADTH_HISTORY_FILE = original_breadth_file
+            dashboard.INDUSTRY_FLOW_HISTORY_FILE = original_flow_file
+            dashboard.MONEY_FLOW_SNAPSHOT_FILE = original_money_file
+
     def test_market_breadth_keeps_previous_curve_after_nine(self):
         original_breadth_file = dashboard.MARKET_BREADTH_HISTORY_FILE
         original_flow_file = dashboard.INDUSTRY_FLOW_HISTORY_FILE

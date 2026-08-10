@@ -4025,26 +4025,67 @@ def _market_breadth_history_recovery_file() -> Path:
     )
 
 
-def _back_up_market_breadth_history(history: dict[str, Any] | None) -> bool:
-    """Mirror the newest real breadth curve before the active file rolls."""
+def _market_breadth_history_day(history: dict[str, Any] | None) -> str:
+    """Resolve the newest real sample day before trusting file metadata."""
 
-    if not isinstance(history, dict) or not history.get("samples"):
-        return False
-    recovery_file = _market_breadth_history_recovery_file()
-    recovery = read_json_cache(recovery_file, None)
-    if history == recovery:
-        return False
-    write_json_cache(recovery_file, history)
-    return True
+    source = history if isinstance(history, dict) else {}
+    sample_days = sorted({
+        compact["generated_at"][:10]
+        for raw in source.get("samples") or []
+        if (
+            compact := compact_market_breadth_sample(
+                raw if isinstance(raw, dict) else None
+            )
+        ) is not None
+    })
+    if sample_days:
+        return sample_days[-1]
+    day = str(source.get("date") or "")[:10]
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        return ""
+    return day
+
+
+def _market_breadth_history_for_day(
+    day: str,
+    *histories: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Merge durable samples without letting a shorter file erase real points."""
+
+    samples: list[Any] = []
+    for history in histories:
+        if not isinstance(history, dict):
+            continue
+        samples.extend(history.get("samples") or [])
+        for archive_key in ("previous_day", "previous_turnover"):
+            archive = history.get(archive_key)
+            if isinstance(archive, dict):
+                samples.extend(archive.get("samples") or [])
+    return roll_market_breadth_history(
+        {"samples": samples},
+        day,
+        interval_seconds=MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS,
+    )
 
 
 def _persist_market_breadth_history(history: dict[str, Any]) -> bool:
     """Atomically preserve a non-empty curve before updating the active file."""
 
-    changed = _back_up_market_breadth_history(history)
+    day = _market_breadth_history_day(history)
+    if not day:
+        return False
+    recovery_file = _market_breadth_history_recovery_file()
+    recovery = read_json_cache(recovery_file, None)
     current = read_json_cache(MARKET_BREADTH_HISTORY_FILE, None)
-    if history != current:
-        write_json_cache(MARKET_BREADTH_HISTORY_FILE, history)
+    merged = _market_breadth_history_for_day(day, recovery, current, history)
+    changed = False
+    if merged.get("samples") and merged != recovery:
+        write_json_cache(recovery_file, merged)
+        changed = True
+    if merged != current:
+        write_json_cache(MARKET_BREADTH_HISTORY_FILE, merged)
         changed = True
     return changed
 
@@ -4155,15 +4196,14 @@ def reset_daily_market_histories(now: datetime | None = None) -> bool:
     changed = False
     with MARKET_BREADTH_HISTORY_LOCK:
         history = read_json_cache(MARKET_BREADTH_HISTORY_FILE, None)
-        rolled = roll_market_breadth_history(
-            history,
+        recovery = read_json_cache(_market_breadth_history_recovery_file(), None)
+        rolled = _market_breadth_history_for_day(
             day,
-            interval_seconds=MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS,
+            recovery,
+            history,
         )
-        if history is not None and rolled != history:
-            _back_up_market_breadth_history(history)
-            write_json_cache(MARKET_BREADTH_HISTORY_FILE, rolled)
-            changed = True
+        if (history is not None or recovery is not None) and rolled != history:
+            changed = _persist_market_breadth_history(rolled) or changed
     with INDUSTRY_FLOW_HISTORY_LOCK:
         history = read_json_cache(INDUSTRY_FLOW_HISTORY_FILE, None)
         recovery = read_json_cache(_industry_flow_history_recovery_file(), None)
@@ -4317,7 +4357,13 @@ def record_market_breadth_sample(
     ):
         return load_market_breadth_samples(now=resolved_now)
     with MARKET_BREADTH_HISTORY_LOCK:
-        history = read_json_cache(MARKET_BREADTH_HISTORY_FILE, None) or {}
+        history = read_json_cache(MARKET_BREADTH_HISTORY_FILE, None)
+        recovery = read_json_cache(_market_breadth_history_recovery_file(), None)
+        history = _market_breadth_history_for_day(
+            market_retention_date_key(resolved_now),
+            recovery,
+            history,
+        )
         updated = append_market_breadth_sample(
             history,
             snapshot,
