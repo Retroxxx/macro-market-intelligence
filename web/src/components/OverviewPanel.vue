@@ -1310,6 +1310,7 @@ onBeforeUnmount(() => {
     flex-direction: column;
     gap: 6px;
     height: var(--overview-viewport-height, calc(100dvh - 148px));
+    max-height: 900px;
     min-height: 0;
     overflow: hidden;
   }

@@ -361,6 +361,7 @@ console.log(JSON.stringify({{
         self.assertIn("document.body.classList.add('overview-terminal-open')", component)
         self.assertIn("document.body.classList.remove('overview-terminal-open')", component)
         self.assertIn("--overview-viewport-height", component)
+        self.assertIn("max-height: 900px", component)
         self.assertIn(':data-layout="viewportMode.layout"', component)
         self.assertIn(':data-density="viewportMode.density"', component)
         self.assertIn(':data-mainline-layout="mainlinePanelMode"', component)
