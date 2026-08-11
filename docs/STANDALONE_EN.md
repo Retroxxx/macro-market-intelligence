@@ -113,6 +113,8 @@ Recommended configuration:
 | Trading decisions after stock selection | DeepSeek recommended; other compatible models may be used | `DASHBOARD_DECISION_BASE_URL`, `DASHBOARD_DECISION_API_KEY`, `DASHBOARD_DECISION_MODEL` |
 | Trading-decision intelligence bundle | Aggregated locally; no additional model required | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`, `DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`, `DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 
+**Realtime News** requires no model, API key, or service-URL configuration. Compose starts, stops, and restores the official NewsNow container together with NiuOne, while the Dashboard reads it over the private container network; users manage no separate port or process. NewsNow persists its state in the separate `newsnow-data` volume. The admin page provides search and multi-select access to the 12 current sources in the finance and business category, with CLS Telegraph, Jin10, and WallstreetCN Quick enabled by default. Native `run.sh` / `run.bat` deployments also require no configuration and automatically use the public-service fallback when no container sidecar is running. The browser receives only the normalized same-origin `/api/realtime-news` response. On upstream failure, the Dashboard retains the latest valid source data in `.local-data/runtime/news/realtime_news_latest.json` and marks it as cached.
+
 After startup, click the settings button on the page to manage models, task schedules, and monitored X/Twitter authors. Every section that requires a model and API key includes **Test Model Connection**; it tests the current form values without saving them and reuses the saved secret when the API key input is empty. Enter X/Twitter handles without `@`.
 Tweet monitoring and U.S. ratings settings are controlled by the “Enable NiuNiu U.S. Stocks” master switch. When disabled, those settings are collapsed and hidden, and the background X monitoring and U.S. ratings scheduled tasks are skipped. Disabling only **Enable X Watchlist Monitoring** makes both the daemon and direct entry point skip X queries while the U.S. ratings report continues on schedule.
 `DASHBOARD_GROK_API_MODE` defaults to `auto`: Grok 4.5 uses the Responses API with search tools, while other models use Chat Completions; set `responses` or `chat` to force a mode. `X_WATCHLIST_REQUEST_TIMEOUT_SECONDS` defaults to `45` seconds.
@@ -154,6 +156,8 @@ By default, runtime data is stored in:
 | `DASHBOARD_HOME` | `.local-data/runtime` | Root directory for runtime data |
 | `DASHBOARD_HOST` | `127.0.0.1` | Listening address |
 | `DASHBOARD_PORT` | `8787` | Listening port |
+| `NEWSNOW_SOURCES` | `cls-telegraph,jin10,wallstreetcn-quick` | Realtime-news sources, separated by commas |
+| `NEWSNOW_REFRESH_SECONDS` | `60` | NiuOne local refresh interval, from 15 through 1800 seconds; hot-applied |
 | `DASHBOARD_ADMIN_PASSWORD` | Empty | Administrator password for the settings page; when empty, the bootstrap administrator key in `$DASHBOARD_HOME/dashboard_admin_token.txt` is used |
 | `PYTHON_BIN` | `.local-data/.venv/bin/python` or the Windows venv Python | Python executable |
 | `DASHBOARD_CONFIG` | `$DASHBOARD_HOME/config.yaml` | YAML configuration for model providers and models |
@@ -274,7 +278,7 @@ git pull --ff-only
 ./run.sh --no-browser
 ```
 
-The launcher installs Python dependencies when it creates the virtual environment or when the `requirements.txt` hash changes, and rebuilds Vue when frontend source, styles, or lock files change. `--skip-install` skips only the Python dependency installation check; it does not skip a missing or stale frontend build. For a container upgrade, pin a new `NIUONE_IMAGE` version tag before running `docker compose pull` and `docker compose up -d --no-build`. See the [Deployment, Validation, and Rollback Manual](OPERATIONS_EN.md) for the full backup, validation, and rollback procedure.
+The launcher installs Python dependencies when it creates the virtual environment or when the `requirements.txt` hash changes, and rebuilds Vue when frontend source, styles, or lock files change. `--skip-install` skips only the Python dependency installation check; it does not skip a missing or stale frontend build. For a container upgrade, pin a new `NIUONE_IMAGE` version tag and optionally set `NEWSNOW_IMAGE` to pin NewsNow before running `docker compose pull` and `docker compose up -d --no-build`; both persistent volumes are retained. See the [Deployment, Validation, and Rollback Manual](OPERATIONS_EN.md) for the full backup, validation, and rollback procedure.
 
 ### Status, Restart, and Uninstallation
 

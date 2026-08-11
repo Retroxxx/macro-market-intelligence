@@ -69,6 +69,7 @@ console.log(JSON.stringify({{fetchCalls, initialMarketCount, counts}}));
                     "niuone_mainline": "",
                     "indices": "",
                     "market_monitor": " · 6",
+                    "realtime_news": "",
                     "dragon_tiger": "",
                     "x_monitor": " · 108",
                     "us_ratings": " · 4",

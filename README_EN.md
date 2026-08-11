@@ -111,7 +111,7 @@ Click an animation to open the corresponding live page.
 
 - **Market dashboard**: View theme strength, indices, sectors, market breadth, industry capital flows, Dragon-Tiger data, and historical news in one place.
 - **Theme and strategy research**: Compare today's theme strength with cross-session structural rankings, using full-market quotes, theme attribution, and Eastmoney rankings as context. NiuOne includes Base, Z-ge, Li Daxiao, Sector Tide, and NiuOne strategies, and also accepts natural-language rules for candidates, entries, exits, position sizing, and timing.
-- **Information and model-assisted analysis**: Collect A-share auction, midday, and close reports alongside overnight U.S. markets, institutional ratings, Twitter/X watchlists, and iWencai Dragon-Tiger data. Compatible model services can support retrieval, summarization, and structured analysis.
+- **Information and model-assisted analysis**: Aggregate live CLS and Jin10 flashes through NewsNow, alongside A-share auction, midday, and close reports, overnight U.S. markets, institutional ratings, Twitter/X watchlists, and iWencai Dragon-Tiger data. Compatible model services can support retrieval, summarization, and structured analysis.
 - **Simulated trading**: Track candidates, decisions, positions, P&L, equity curves, and trade logs without connecting to a brokerage or using real funds.
 - **Automation and notifications**: Schedule data collection, report generation, database ingestion, and monitoring. Simulated execution alerts can be sent to Feishu, DingTalk, WeCom, and Telegram.
 - **Local data management**: Configuration, databases, logs, and task output stay in a separate runtime directory. The settings page supports connection tests and update checks, but never installs updates automatically.
@@ -125,6 +125,7 @@ Primary pages and dependencies:
 | `/indices`, `/industry-flow` | Indices, sectors, active stocks, industry main-fund flow, market sentiment, and turnover | No key; market sources must be reachable |
 | `/dragon-tiger` | Dated Dragon-Tiger seats, limit-up/consecutive-list signals, and news prechecks | Enable and configure iWencai; news-precheck model is optional |
 | `/market-monitor` | A-share auction/midday/close and overnight U.S. summaries | Keep the scheduler running; model enhancement is optional |
+| `/realtime-news` | NewsNow aggregation for selectable financial-news sources | No API key; Compose bundles NewsNow and the admin page exposes finance and business sources as searchable multi-select options |
 | `/x-monitor`, `/us-ratings` | Twitter/X watchlists and U.S. institutional ratings | Enable “NiuNiu U.S. Stocks” and configure the relevant model |
 | `/admin` | Configuration, connection tests, version, and runtime status | Administrator authentication is always required |
 
@@ -217,7 +218,7 @@ NIUONE_LOCAL_DATA_DIR=/path/to/private-data ./run.sh
 
 ## Container Deployment
 
-The project provides a single image and a Compose setup. Compose starts the dashboard, scheduled-task runner, and X followed-source daemon, and persists configuration, databases, logs, and task output in the shared `niuone-data` volume.
+The project provides one NiuOne image and a Compose setup. Compose starts the dashboard, scheduled-task runner, X followed-source daemon, and an official NewsNow instance. NiuOne configuration, databases, logs, and task output use the `niuone-data` volume, while NewsNow keeps its own data in `newsnow-data`.
 
 Build and start from source:
 
@@ -226,12 +227,14 @@ docker compose up -d --build
 docker compose ps
 ```
 
-By default, the service is available at `127.0.0.1:8787`; the public page and password-protected `/admin` page share that port. To view logs or stop the service:
+By default, the service is available at `127.0.0.1:8787`; the public page and password-protected `/admin` page share that port. NewsNow listens only at `newsnow:4444` on the Compose network and publishes no additional host port; the Dashboard selects it automatically. To view logs or stop the service:
 
 ```bash
 docker compose logs -f
 docker compose down
 ```
+
+`docker compose down` stops NewsNow together with NiuOne and preserves both volumes. Users do not start NewsNow, enter a service URL, or maintain extra configuration; the next NiuOne startup restores it automatically. Operators may optionally set `NEWSNOW_IMAGE` to pin the upstream version.
 
 Deploy a specific version from Docker Hub:
 

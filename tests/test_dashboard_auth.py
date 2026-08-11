@@ -324,6 +324,8 @@ class DashboardAuthTests(unittest.TestCase):
                 'IWENCAI_MAX_CONCURRENCY',
                 'IWENCAI_CACHE_TTL_SECONDS',
                 'IWENCAI_DRAGON_TIGER_CRON',
+                *dashboard.NEWSNOW_CONFIG_NAMES,
+                'NIUONE_BUNDLED_NEWSNOW_URL',
             )
         }
         for name in self.saved_env:
@@ -923,6 +925,7 @@ class DashboardAuthTests(unittest.TestCase):
             '/industry-flow',
             '/dragon-tiger',
             '/market-monitor',
+            '/realtime-news',
             '/x-monitor',
             '/us-ratings',
         }
@@ -5101,9 +5104,9 @@ console.log(JSON.stringify([
             ROOT / 'web' / 'src' / 'components' / 'NiuOneMainlinePanel.vue'
         ).read_text(encoding='utf-8')
 
-        for route in ('/practice', '/niuone-mainline', '/indices', '/industry-flow', '/dragon-tiger', '/market-monitor', '/x-monitor', '/us-ratings'):
+        for route in ('/practice', '/niuone-mainline', '/indices', '/industry-flow', '/dragon-tiger', '/market-monitor', '/realtime-news', '/x-monitor', '/us-ratings'):
             self.assertIn(f"'{route}'", router_source)
-        self.assertIn("const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'dragon_tiger', 'x_monitor', 'us_ratings']", tabs_source)
+        self.assertIn("const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger', 'x_monitor', 'us_ratings']", tabs_source)
         self.assertIn("overview: '总览'", tabs_source)
         self.assertIn("niuone_mainline: '题材强度'", tabs_source)
         self.assertIn("industry_flow: '/industry-flow'", tabs_source)
@@ -7162,7 +7165,7 @@ process.stdout.write(JSON.stringify({{
         item_names = {item['name'] for item in payload['items']}
 
         self.assertEqual(handler.status, 200)
-        self.assertEqual(len(payload['groups']), 14)
+        self.assertEqual(len(payload['groups']), 15)
         self.assertEqual(item_names, set(dashboard.ADMIN_VISIBLE_ENV_NAMES))
         for name in (
             'US_RATING_MODEL',
@@ -7223,7 +7226,7 @@ process.stdout.write(JSON.stringify({{
             self.assertEqual(route.status, 200)
             self.assertIn('<div id="app">', route.wfile.getvalue().decode('utf-8'))
 
-        self.assertEqual(len(groups), 14)
+        self.assertEqual(len(groups), 15)
         self.assertEqual(len(slugs), len(set(slugs)))
         self.assertEqual(slugs[:2], ['access-control', 'notifications'])
         self.assertEqual(slugs[-1], 'about')
@@ -7232,6 +7235,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('保存本组设置', ADMIN_FRONTEND)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 20)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('iwencai')), 8)
+        self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 6)
         self.assertEqual(
             dashboard.admin_setting_group_env_names('about'),
             {'DASHBOARD_AUTO_VERSION_CHECK_ENABLED'},
@@ -7730,6 +7734,104 @@ process.stdout.write(JSON.stringify({{
         for invalid in ('29', '601'):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 dashboard.validate_business_updates({item['name']: invalid})
+
+    def test_realtime_news_settings_are_normalized_and_bounded(self):
+        normalized = dashboard.normalize_business_updates({
+            'NEWSNOW_BASE_URL': 'http://newsnow:4444/',
+            'NEWSNOW_SOURCES': 'jin10，wallstreetcn-quick,xueqiu-hotstock,jin10',
+        })
+        self.assertEqual(normalized['NEWSNOW_BASE_URL'], 'http://newsnow:4444/api/s')
+        self.assertEqual(
+            normalized['NEWSNOW_SOURCES'],
+            'jin10,wallstreetcn-quick,xueqiu-hotstock',
+        )
+        self.assertEqual(
+            dashboard.normalize_business_updates({'NEWSNOW_BASE_URL': ''}),
+            {'NEWSNOW_BASE_URL': ''},
+        )
+        dashboard.validate_business_updates({'NEWSNOW_BASE_URL': ''})
+        dashboard.validate_business_updates({
+            'NEWSNOW_REFRESH_SECONDS': '15',
+            'NEWSNOW_TIMEOUT_SECONDS': '30',
+            'NEWSNOW_MAX_RETRIES': '2',
+            'NEWSNOW_MAX_CONCURRENCY': '3',
+        })
+        for name, value in (
+            ('NEWSNOW_REFRESH_SECONDS', '14'),
+            ('NEWSNOW_TIMEOUT_SECONDS', '31'),
+            ('NEWSNOW_MAX_RETRIES', '3'),
+            ('NEWSNOW_MAX_CONCURRENCY', '4'),
+        ):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                dashboard.validate_business_updates({name: value})
+        with self.assertRaises(ValueError):
+            dashboard.validate_business_updates({'NEWSNOW_SOURCES': 'jin10,unknown'})
+
+        payload = dashboard.build_admin_config_payload()
+        item = next(item for item in payload['items'] if item['name'] == 'NEWSNOW_SOURCES')
+        self.assertEqual(item['kind'], 'news_sources')
+        self.assertEqual(
+            item['news_source_values'],
+            ['cls-telegraph', 'jin10', 'wallstreetcn-quick'],
+        )
+        self.assertEqual(
+            item['news_source_default_values'],
+            ['cls-telegraph', 'jin10', 'wallstreetcn-quick'],
+        )
+        self.assertEqual(len(item['news_source_options']), 12)
+        self.assertEqual(
+            {option['category_label'] for option in item['news_source_options']},
+            {'财经商业'},
+        )
+        enabled_item = next(item for item in payload['items'] if item['name'] == 'NEWSNOW_ENABLED')
+        self.assertEqual(enabled_item['kind'], 'bool')
+        self.assertEqual(enabled_item['default'], '1')
+        self.assertEqual(enabled_item['bool_no_default'], '1')
+        concurrency_item = next(
+            item for item in payload['items'] if item['name'] == 'NEWSNOW_MAX_CONCURRENCY'
+        )
+        self.assertEqual(concurrency_item['default'], '3')
+
+    def test_bundled_newsnow_ignores_saved_endpoint_but_process_override_wins(self):
+        dashboard.os.environ['NIUONE_BUNDLED_NEWSNOW_URL'] = 'http://newsnow:4444/'
+
+        bundled = dashboard.newsnow_config({})
+        bundled_with_legacy_file = dashboard.newsnow_config({
+            'NEWSNOW_BASE_URL': 'https://saved-news.example',
+        })
+        dashboard.os.environ['NEWSNOW_BASE_URL'] = 'https://process-news.example/api/s'
+        process = dashboard.newsnow_config({
+            'NEWSNOW_BASE_URL': 'https://saved-news.example',
+        })
+        dashboard.os.environ['NEWSNOW_BASE_URL'] = ''
+        restored = dashboard.newsnow_config({'NEWSNOW_BASE_URL': ''})
+        dashboard.os.environ.pop('NIUONE_BUNDLED_NEWSNOW_URL')
+        dashboard.os.environ.pop('NEWSNOW_BASE_URL')
+        native_saved = dashboard.newsnow_config({
+            'NEWSNOW_BASE_URL': 'https://saved-news.example',
+        })
+
+        self.assertEqual(bundled.endpoint, 'http://newsnow:4444/api/s')
+        self.assertEqual(bundled_with_legacy_file.endpoint, 'http://newsnow:4444/api/s')
+        self.assertEqual(process.endpoint, 'https://process-news.example/api/s')
+        self.assertEqual(restored.endpoint, 'http://newsnow:4444/api/s')
+        self.assertEqual(native_saved.endpoint, 'https://saved-news.example/api/s')
+
+    def test_admin_settings_hide_newsnow_endpoint_and_legacy_file_cannot_override_bundle(self):
+        dashboard.os.environ['NIUONE_BUNDLED_NEWSNOW_URL'] = 'http://newsnow:4444/api/s'
+        dashboard.DASHBOARD_ENV_FILE.write_text(
+            'NEWSNOW_BASE_URL=https://saved-news.example/api/s\n',
+            encoding='utf-8',
+        )
+
+        payload = dashboard.build_admin_config_payload()
+        names = {item['name'] for item in payload['items']}
+
+        self.assertNotIn('NEWSNOW_BASE_URL', names)
+        self.assertEqual(
+            dashboard.newsnow_config().endpoint,
+            'http://newsnow:4444/api/s',
+        )
 
     def test_business_settings_are_local_to_dashboard_env(self):
         original_env_file = dashboard.DASHBOARD_ENV_FILE

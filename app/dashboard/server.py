@@ -114,6 +114,16 @@ from market_data.tencent_kline_cache import (
     mark_prewarm_run_failed,
     prewarm_completed_for_date,
 )
+from app.monitoring.news import (
+    DEFAULT_SOURCE_IDS as DEFAULT_NEWSNOW_SOURCE_IDS,
+    NewsNowConfig,
+    NewsNowConfigurationError,
+    NewsNowService,
+    SUPPORTED_SOURCES as NEWSNOW_SUPPORTED_SOURCES,
+    normalize_endpoint as normalize_newsnow_endpoint,
+    parse_source_ids as parse_newsnow_source_ids,
+    source_options as newsnow_source_options,
+)
 from niuone_paths import apply_container_runtime_overrides, get_dashboard_env_file, get_dashboard_home, get_local_data_dir
 import push_history
 from screening.candidate_cache import (
@@ -211,6 +221,7 @@ CONFIG_PATH = Path(os.environ.get("DASHBOARD_CONFIG") or str(DASHBOARD_HOME / "c
 DASHBOARD_ENV_FILE = get_dashboard_env_file(PROJECT_ROOT)
 CRON_OUTPUT_DIR = DASHBOARD_HOME / "cron" / "output"
 CRON_STATE_DIR = DASHBOARD_HOME / "cron" / "state"
+NEWSNOW_CACHE_FILE = DASHBOARD_HOME / "news" / "realtime_news_latest.json"
 INDICES_SNAPSHOT_FILE = CRON_OUTPUT_DIR / "indices_dashboard_cache.json"
 IWENCAI_DRAGON_TIGER_SNAPSHOT_FILE = Path(
     os.environ.get("IWENCAI_DRAGON_TIGER_SNAPSHOT_FILE")
@@ -545,6 +556,17 @@ ADMIN_TOKEN_LOCK = threading.Lock()
 VISIT_STATS_LOCK = threading.RLock()
 VISIT_STATS_INIT_SIGNATURE: tuple[Any, ...] | None = None
 ENV_FILE_WRITE_LOCK = threading.RLock()
+NEWSNOW_SERVICE_LOCK = threading.Lock()
+NEWSNOW_SERVICE: NewsNowService | None = None
+NEWSNOW_CONFIG_NAMES = (
+    "NEWSNOW_ENABLED",
+    "NEWSNOW_BASE_URL",
+    "NEWSNOW_SOURCES",
+    "NEWSNOW_REFRESH_SECONDS",
+    "NEWSNOW_TIMEOUT_SECONDS",
+    "NEWSNOW_MAX_RETRIES",
+    "NEWSNOW_MAX_CONCURRENCY",
+)
 PRACTICE_CANDIDATES_CACHE_KEY = "practice_candidates"
 NIUONE_MAINLINE_CACHE_KEY = "niuone_mainline"
 PRACTICE_CANDIDATES_API_PATHS = frozenset({"/api/practice_candidates", "/api/b1_screen"})
@@ -554,6 +576,7 @@ PRACTICE_MARKET_SUMMARY_API_PATH = "/api/niuniu_practice/market-summary"
 PRACTICE_MARKET_SUMMARY_FILE = CRON_OUTPUT_DIR / "practice_market_summary_latest.json"
 API_TTLS = {
     "messages": 10,
+    "realtime_news": 15,
     "practice_candidates": int(
         os.environ.get("DASHBOARD_PRACTICE_CANDIDATES_TTL_SECONDS")
         or os.environ.get("DASHBOARD_B1_SCREEN_TTL_SECONDS")
@@ -649,6 +672,31 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
         ],
         "help_footer": "仅在 A 股交易日 09:30–11:30、13:00–15:00 生效；允许 30–600 秒，保存后需重启 Dashboard。",
     },
+
+    {
+        "name": "NEWSNOW_ENABLED",
+        "label": "启用实时新闻",
+        "group": "实时新闻",
+        "kind": "bool",
+        "default": "1",
+        "effect": "runtime",
+        "bool_no_default": "1",
+    },
+    {
+        "name": "NEWSNOW_SOURCES",
+        "label": "新闻数据源",
+        "group": "实时新闻",
+        "kind": "news_sources",
+        "default": ",".join(DEFAULT_NEWSNOW_SOURCE_IDS),
+        "effect": "runtime",
+        "help_title": "NewsNow 数据源",
+        "help_summary": "可搜索并多选 NewsNow 当前财经商业来源；至少选择一项。",
+        "help_footer": "兼容跳转别名不会重复显示。来源越多，首次刷新耗时和上游请求量越大，建议按需选择。",
+    },
+    {"name": "NEWSNOW_REFRESH_SECONDS", "label": "本地刷新间隔（秒）", "group": "实时新闻", "kind": "int", "default": "60", "effect": "runtime", "min": "15", "max": "1800"},
+    {"name": "NEWSNOW_TIMEOUT_SECONDS", "label": "单次请求超时（秒）", "group": "实时新闻", "kind": "int", "default": "10", "effect": "runtime", "min": "2", "max": "30"},
+    {"name": "NEWSNOW_MAX_RETRIES", "label": "失败重试次数", "group": "实时新闻", "kind": "int", "default": "1", "effect": "runtime", "min": "0", "max": "2"},
+    {"name": "NEWSNOW_MAX_CONCURRENCY", "label": "最大并发来源数", "group": "实时新闻", "kind": "int", "default": "3", "effect": "runtime", "min": "1", "max": "3"},
 
     {"name": "DASHBOARD_B1_SCHEDULE_ENABLED", "label": "启用实战定时运行", "group": "任务调度", "kind": "bool", "default": "1", "effect": "restart"},
     {"name": PRACTICE_SCHEDULE_TIMES_ENV, "label": "实战盘面总结、选股及交易时间点", "group": "选股与买卖设置", "kind": "time_list", "default": DEFAULT_PRACTICE_SCHEDULE_TIMES, "effect": "runtime"},
@@ -819,6 +867,12 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "DASHBOARD_MANUAL_DATA_INITIALIZATION_TIMEOUT_SECONDS",
     "DASHBOARD_NIUONE_MAINLINE_MINUTE_REFRESH_ENABLED",
     "DASHBOARD_MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS",
+    "NEWSNOW_ENABLED",
+    "NEWSNOW_SOURCES",
+    "NEWSNOW_REFRESH_SECONDS",
+    "NEWSNOW_TIMEOUT_SECONDS",
+    "NEWSNOW_MAX_RETRIES",
+    "NEWSNOW_MAX_CONCURRENCY",
     "DASHBOARD_US_FEATURES_ENABLED",
     "US_RATING_MODEL",
     "US_RATING_BASE_URL",
@@ -961,6 +1015,7 @@ TRADER_RUNTIME_ENV_NAMES = {
     PRESET_STRATEGY_TEXT_ENV,
 }
 ENV_GROUP_ORDER = [
+    "实时新闻",
     "牛牛美股",
     "消息面预检模型",
     "买卖决策模型",
@@ -5768,6 +5823,61 @@ def auto_version_check_enabled(env_values: dict[str, str] | None = None) -> bool
     return str(raw).strip().lower() in TRUTHY_VALUES
 
 
+def newsnow_config(env_values: dict[str, str] | None = None) -> NewsNowConfig:
+    """Resolve the deployment-managed endpoint before explicit process overrides."""
+
+    values = dict(env_values if env_values is not None else parse_env_file())
+    bundled_endpoint = str(os.environ.get("NIUONE_BUNDLED_NEWSNOW_URL") or "").strip()
+    if bundled_endpoint:
+        values["NEWSNOW_BASE_URL"] = bundled_endpoint
+    for name in NEWSNOW_CONFIG_NAMES:
+        if name in os.environ:
+            if name == "NEWSNOW_BASE_URL" and bundled_endpoint and not str(os.environ[name]).strip():
+                continue
+            values[name] = os.environ[name]
+    return NewsNowConfig.from_env(values)
+
+
+def realtime_news_service() -> NewsNowService:
+    """Return the process-local service guarding the persistent news cache."""
+
+    global NEWSNOW_SERVICE
+    if NEWSNOW_SERVICE is not None:
+        return NEWSNOW_SERVICE
+    with NEWSNOW_SERVICE_LOCK:
+        if NEWSNOW_SERVICE is None:
+            NEWSNOW_SERVICE = NewsNowService(NEWSNOW_CACHE_FILE)
+        return NEWSNOW_SERVICE
+
+
+def produce_realtime_news_data() -> dict[str, Any]:
+    """Build the public realtime-news read model without exposing its endpoint."""
+
+    try:
+        config = newsnow_config()
+    except NewsNowConfigurationError as exc:
+        now = datetime.now(CN_TZ)
+        return {
+            "schema_version": 1,
+            "enabled": True,
+            "available": False,
+            "status": "invalid_configuration",
+            "stale": False,
+            "source": "NewsNow",
+            "generated_at": now.isoformat(timespec="seconds"),
+            "attempted_at_ms": int(now.timestamp() * 1000),
+            "successful_source_count": 0,
+            "source_ids": [],
+            "sources": [],
+            "items": [],
+            "error": exc.code,
+        }
+    payload = realtime_news_service().get_news(config)
+    public_payload = dict(payload)
+    public_payload.pop("config_fingerprint", None)
+    return public_payload
+
+
 def admin_visible_env_names(env_values: dict[str, str] | None = None) -> list[str]:
     return list(ADMIN_VISIBLE_ENV_NAMES)
 
@@ -5836,6 +5946,8 @@ def normalize_env_update(name: str, value: str, kind: str) -> str:
         return normalize_time_list_update(value)
     if kind == "handle_list":
         return normalize_handle_list_update(value)
+    if kind == "news_sources":
+        return ",".join(parse_newsnow_source_ids(value))
     if kind == "stock_universe":
         return normalize_stock_universe(value)
     if kind in {"strategy_multi", "strategy_single"}:
@@ -5888,7 +6000,13 @@ def _write_env_file_values_unlocked(
         kind = "secret" if schema.get("kind") == "secret" or is_secret_config_key(name) else schema.get("kind", "text")
         if kind == "secret" and not str(value or "").strip():
             continue
-        if value == "" and name not in existing and kind not in {"time_list", "stock_universe", "strategy_multi", "strategy_single"}:
+        if value == "" and name not in existing and kind not in {
+            "time_list",
+            "news_sources",
+            "stock_universe",
+            "strategy_multi",
+            "strategy_single",
+        }:
             continue
         next_value = normalize_env_update(name, value, kind)
         if existing.get(name) != next_value:
@@ -6060,6 +6178,7 @@ CRON_TIME_CONFIGS = {
     "DASHBOARD_US_RATING_CRON": {"day_label": "每天"},
 }
 ADMIN_GROUP_NOTES = {
+    "实时新闻": "通过 NewsNow 聚合财联社电报、金十数据和华尔街见闻快讯。无需 API Key 或服务地址配置；Compose 部署会随牛牛1号自动启动内置实例，来源抓取失败时继续展示最近一次成功缓存并标记陈旧。",
     "牛牛美股": "集中管理 X/推文监控、美股买入评级和隔夜美股盘面总结使用的 Grok 配置。长度默认：上下文 128000 tokens，最大输出 4096 tokens；关闭时隐藏 X/评级相关设置，隔夜美股总结仍会读取已配置的 Grok 参数。",
     "消息面预检模型": "用于 A 股候选股及龙虎榜连板/连榜股票最近 3 天消息面预检，并把雪球/X公开内容单列为市场舆情；auto 会为 Grok 4.5 和 GPT-5 系列搜索模型选择 Responses API，Grok Responses 还会使用 x_search。也可显式选择 responses 或 chat。长度默认：上下文 128000 tokens，最大输出 4096 tokens。模型和密钥留空则跳过。",
     "买卖决策模型": "推荐使用 deepseek-v4-pro；也可填写其他兼容 /chat/completions 的模型服务。长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
@@ -6084,6 +6203,12 @@ ADMIN_SETTING_GROUPS: tuple[dict[str, str], ...] = (
         "name": "交易通知",
         "summary": "管理成交通知总开关，以及飞书、钉钉等推送渠道。",
         "icon": "通知",
+    },
+    {
+        "slug": "realtime-news",
+        "name": "实时新闻",
+        "summary": "配置财联社/金十来源、超时、重试与刷新频率；新闻服务自动管理。",
+        "icon": "新闻",
     },
     {
         "slug": "news-precheck",
@@ -6322,6 +6447,17 @@ def friendly_handle_list_text(value: str) -> str:
     return "、".join(split_handle_values(value))
 
 
+def friendly_newsnow_sources_text(value: str) -> str:
+    try:
+        source_ids = parse_newsnow_source_ids(value)
+    except ValueError:
+        return str(value or "")
+    return "、".join(
+        str(NEWSNOW_SUPPORTED_SOURCES[source_id]["label"])
+        for source_id in source_ids
+    )
+
+
 def split_strategy_values(value: str) -> list[str]:
     normalized = normalize_strategy_list_update(value)
     return [item for item in normalized.split(",") if item]
@@ -6417,6 +6553,11 @@ def normalize_business_updates(updates: dict[str, str]) -> dict[str, str]:
     for name in list(normalized):
         if name in CRON_CONFIG_NAMES:
             normalized[name] = normalize_cron_update(name, normalized[name])
+        elif name == "NEWSNOW_BASE_URL":
+            value = str(normalized[name] or "").strip()
+            normalized[name] = normalize_newsnow_endpoint(value) if value else ""
+        elif name == "NEWSNOW_SOURCES":
+            normalized[name] = ",".join(parse_newsnow_source_ids(normalized[name]))
         elif name == "IWENCAI_BASE_URL":
             normalized[name] = normalize_iwencai_base_url(normalized[name])
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "time_list":
@@ -6470,6 +6611,26 @@ def validate_business_updates(updates: dict[str, str]) -> None:
     for name, value in updates.items():
         if name in CRON_CONFIG_NAMES:
             validate_cron_expr(normalize_cron_update(name, value))
+        elif name == "NEWSNOW_BASE_URL":
+            if str(value or "").strip():
+                normalize_newsnow_endpoint(value)
+        elif name == "NEWSNOW_SOURCES":
+            parse_newsnow_source_ids(value)
+        elif name in {
+            "NEWSNOW_REFRESH_SECONDS",
+            "NEWSNOW_TIMEOUT_SECONDS",
+            "NEWSNOW_MAX_RETRIES",
+            "NEWSNOW_MAX_CONCURRENCY",
+        } and str(value or "").strip():
+            number = int(value)
+            minimum, maximum = {
+                "NEWSNOW_REFRESH_SECONDS": (15, 1800),
+                "NEWSNOW_TIMEOUT_SECONDS": (2, 30),
+                "NEWSNOW_MAX_RETRIES": (0, 2),
+                "NEWSNOW_MAX_CONCURRENCY": (1, 3),
+            }[name]
+            if number < minimum or number > maximum:
+                raise ValueError(f"{name} 必须在 {minimum} 到 {maximum} 之间")
         elif name == "IWENCAI_BASE_URL":
             normalize_iwencai_base_url(value)
         elif name in {
@@ -6688,6 +6849,19 @@ def sync_business_runtime_settings(
         INDUSTRY_FLOW_SAMPLING_WINDOWS = _industry_flow_sampling_windows_value(env_values)
         invalidate_api_cache("industry_flow")
         applied.append("industry_flow")
+
+    newsnow_names = {
+        "NEWSNOW_ENABLED",
+        "NEWSNOW_BASE_URL",
+        "NEWSNOW_SOURCES",
+        "NEWSNOW_REFRESH_SECONDS",
+        "NEWSNOW_TIMEOUT_SECONDS",
+        "NEWSNOW_MAX_RETRIES",
+        "NEWSNOW_MAX_CONCURRENCY",
+    }
+    if changed_names & newsnow_names:
+        invalidate_api_cache("realtime_news:v1")
+        applied.append("realtime_news")
 
     iwencai_names = {
         "IWENCAI_ENABLED",
@@ -7513,6 +7687,19 @@ def build_admin_config_payload() -> dict[str, Any]:
                 "file_state": friendly_handle_list_text(state_value),
                 "default": friendly_handle_list_text(default_value),
                 "handle_values": split_handle_values(edit_value),
+            })
+        if schema.get("kind") == "news_sources" and not secret:
+            edit_source = str(file_value or default_value)
+            edit_value = ",".join(parse_newsnow_source_ids(edit_source))
+            state_value = env_values.get(name) if name in env_values else (fallback_value or default_value)
+            item.update({
+                "effective": friendly_newsnow_sources_text(str(effective)),
+                "file_value": edit_value,
+                "file_state": friendly_newsnow_sources_text(str(state_value)),
+                "default": friendly_newsnow_sources_text(default_value),
+                "news_source_values": list(parse_newsnow_source_ids(edit_value)),
+                "news_source_default_values": list(DEFAULT_NEWSNOW_SOURCE_IDS),
+                "news_source_options": newsnow_source_options(),
             })
         if schema.get("kind") == "stock_universe" and not secret:
             edit_source = env_values.get(name) if name in env_values else (fallback_value or default_value)

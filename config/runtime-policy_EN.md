@@ -33,6 +33,7 @@ Private runtime directory:
 | `.local-data/runtime/dashboard_admin_token.txt` | Bootstrap administrator key used when `DASHBOARD_ADMIN_PASSWORD` is not configured |
 | `.local-data/runtime/dashboard_users.db` | Local users and authentication data |
 | `.local-data/runtime/push_history.db` | Message history |
+| `.local-data/runtime/news/realtime_news_latest.json` | Latest valid NewsNow items and non-sensitive source status used only for stale fallback; it never replaces real trading records |
 | `.local-data/runtime/niuniu.db` | Practice trades, account data, complete observed opportunity sets, five-stage holding paths/exit stages, and durable decision evidence |
 | `.local-data/runtime/cron/output/niuone_forward_evaluation.json` | NiuOne strict-forward aggregates, five-stage opportunity/sizing funnel, holding paths/stage transitions/exit stages, rejection categories, trade-level and entry-date-by-industry cluster-robust win-rate intervals, daily portfolio return/drawdown, performance gate, coverage diagnostics, and shadow groups |
 | `.local-data/runtime/cron/state/niuone_forward_protocol.json` | Frozen code/non-secret runtime-configuration fingerprint and code-free starting-account boundary for the NiuOne strict-forward cohort |
@@ -47,6 +48,8 @@ Private runtime directory:
 | `.local-data/runtime/cron/output/b1_history/` | Retired duplicate B1 archive; the next successful scan removes only old JSON files with the standard date/timestamp layout and preserves unknown files |
 | `.local-data/runtime/logs/` | Service and task logs |
 | `.local-data/backups/` | Deployment backups, which may contain older configuration |
+
+The bundled Compose NewsNow database and cache live in the separate `newsnow-data` Docker volume, not in the repository or `niuone-data`. Treat it as private runtime data: back it up separately for container deployments and never upload its contents. `docker compose down` preserves it, while `docker compose down -v` removes it together with NiuOne's main data volume and therefore requires a confirmed backup first.
 
 The Dashboard incremental API may return only content inside `.local-data/runtime/public-data/` that was generated through the field allow-lists in `public_projection.py`. Never configure its parent directory, databases, or `cron/output/` as a static-site root. CDN synchronisation must be limited precisely to `objects/`, `manifests/`, and `latest.json`, and sanitisation tests must be reviewed after every schema change.
 

@@ -42,15 +42,36 @@ class ContainerDeploymentTests(unittest.TestCase):
         self.assertIn("python3 -m pip install", dockerfile)
         self.assertIn('CMD ["python3", "-c"', dockerfile)
 
-    def test_compose_runs_all_long_lived_processes_with_shared_storage(self):
+    def test_compose_runs_niuone_processes_with_bundled_newsnow(self):
         config = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
         services = config["services"]
-        self.assertEqual(set(services), {"dashboard", "scheduler", "x-watchlist"})
+        self.assertEqual(set(services), {"dashboard", "scheduler", "x-watchlist", "newsnow"})
         self.assertEqual(services["dashboard"]["command"], ["dashboard"])
         self.assertEqual(services["scheduler"]["command"], ["scheduler"])
         self.assertEqual(services["x-watchlist"]["command"], ["x-watchlist"])
-        for service in services.values():
-            self.assertIn("niuone-data:/data", service["volumes"])
+        for name in ("dashboard", "scheduler", "x-watchlist"):
+            self.assertIn("niuone-data:/data", services[name]["volumes"])
+
+        newsnow = services["newsnow"]
+        self.assertEqual(
+            newsnow["image"],
+            "${NEWSNOW_IMAGE:-ghcr.io/ourongxing/newsnow:latest}",
+        )
+        self.assertNotIn("ports", newsnow)
+        self.assertEqual(newsnow["volumes"], ["newsnow-data:/usr/app/.data"])
+        self.assertEqual(newsnow["environment"]["HOST"], "0.0.0.0")
+        self.assertEqual(newsnow["environment"]["PORT"], "4444")
+        self.assertEqual(newsnow["environment"]["INIT_TABLE"], "true")
+        self.assertEqual(newsnow["environment"]["ENABLE_CACHE"], "true")
+        self.assertEqual(
+            services["dashboard"]["environment"]["NIUONE_BUNDLED_NEWSNOW_URL"],
+            "http://newsnow:4444/api/s",
+        )
+        self.assertEqual(
+            services["dashboard"]["depends_on"],
+            {"newsnow": {"condition": "service_started"}},
+        )
+        self.assertEqual(set(config["volumes"]), {"niuone-data", "newsnow-data"})
 
     def test_entrypoint_keeps_container_paths_and_listener_invariants(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -67,6 +88,7 @@ class ContainerDeploymentTests(unittest.TestCase):
                         "DASHBOARD_CONFIG=/host/config.yaml",
                         "DASHBOARD_NIUNIU_DB=/host/niuniu.db",
                         "X_WATCHLIST_ENABLED=1",
+                        "NEWSNOW_BASE_URL=https://legacy-public.example/api/s",
                         "CUSTOM_FROM_ENV=loaded",
                     )
                 )
@@ -74,12 +96,14 @@ class ContainerDeploymentTests(unittest.TestCase):
                 encoding="utf-8",
             )
             env = os.environ.copy()
+            env.pop("NEWSNOW_BASE_URL", None)
             env.update(
                 {
                     "DASHBOARD_ENV_FILE": str(source_env),
                     "NIUONE_CONTAINER_DATA_DIR": str(data_dir),
                     "NIUONE_CONTAINER_HOST": "0.0.0.0",
                     "NIUONE_CONTAINER_PORT": "8787",
+                    "NIUONE_BUNDLED_NEWSNOW_URL": "http://newsnow:4444/api/s",
                     "PYTHON_BIN": sys.executable,
                     "X_WATCHLIST_ENABLED": "0",
                 }
@@ -103,6 +127,9 @@ result = {
     'watchlist': {key: x_watchlist_daemon.parse_env_file().get(key) for key in keys},
     'x_watchlist_process_enabled': os.environ.get('X_WATCHLIST_ENABLED'),
     'x_watchlist_runtime_enabled': x_watchlist_daemon.runtime_env().get('X_WATCHLIST_ENABLED'),
+    'newsnow_process_base_url': os.environ.get('NEWSNOW_BASE_URL'),
+    'bundled_newsnow_url': os.environ.get('NIUONE_BUNDLED_NEWSNOW_URL'),
+    'newsnow_endpoint': niuone_dashboard.newsnow_config().endpoint,
 }
 niuone_dashboard.write_env_file_values({'DASHBOARD_RATE_LIMIT_ANON': '241'})
 result['persisted'] = Path(os.environ['DASHBOARD_ENV_FILE']).read_text()
@@ -136,6 +163,9 @@ print(json.dumps(result))
                 self.assertEqual(runtime_values["CUSTOM_FROM_ENV"], "loaded")
             self.assertEqual(values["x_watchlist_process_enabled"], "0")
             self.assertEqual(values["x_watchlist_runtime_enabled"], "0")
+            self.assertIsNone(values["newsnow_process_base_url"])
+            self.assertEqual(values["bundled_newsnow_url"], "http://newsnow:4444/api/s")
+            self.assertEqual(values["newsnow_endpoint"], "http://newsnow:4444/api/s")
             self.assertIn("DASHBOARD_RATE_LIMIT_ANON=241", values["persisted"])
             self.assertNotIn("NIUONE_ROOT=", values["persisted"])
             self.assertNotIn("DASHBOARD_LOG_DIR=", values["persisted"])

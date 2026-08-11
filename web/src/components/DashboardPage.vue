@@ -10,6 +10,7 @@ const MarketMonitorPanel = defineAsyncComponent(() => import('./MarketMonitorPan
 const NiuOneMainlinePanel = defineAsyncComponent(() => import('./NiuOneMainlinePanel.vue'))
 const OverviewPanel = defineAsyncComponent(() => import('./OverviewPanel.vue'))
 const PracticePanel = defineAsyncComponent(() => import('./PracticePanel.vue'))
+const RealtimeNewsPanel = defineAsyncComponent(() => import('./RealtimeNewsPanel.vue'))
 const UsRatingsPanel = defineAsyncComponent(() => import('./UsRatingsPanel.vue'))
 const XMonitorPanel = defineAsyncComponent(() => import('./XMonitorPanel.vue'))
 
@@ -35,6 +36,9 @@ const { activeCategory } = useDashboardTabs()
     <section v-else-if="activeCategory === 'market_monitor'" class="feed">
       <MarketMonitorPanel />
     </section>
+    <section v-else-if="activeCategory === 'realtime_news'" class="feed">
+      <RealtimeNewsPanel />
+    </section>
     <section v-else-if="activeCategory === 'us_ratings'" class="feed">
       <UsRatingsPanel />
     </section>
@@ -47,7 +51,7 @@ const { activeCategory } = useDashboardTabs()
     <section v-else-if="activeCategory === 'niuone_mainline'" class="feed">
       <NiuOneMainlinePanel />
     </section>
-    <section v-show="!['overview', 'dragon_tiger', 'indices', 'industry_flow', 'market_monitor', 'us_ratings', 'x_monitor', 'practice', 'niuone_mainline'].includes(activeCategory)" class="feed">
+    <section v-show="!['overview', 'dragon_tiger', 'indices', 'industry_flow', 'market_monitor', 'realtime_news', 'us_ratings', 'x_monitor', 'practice', 'niuone_mainline'].includes(activeCategory)" class="feed">
       <div class="loading">加载中…</div>
     </section>
   </main>

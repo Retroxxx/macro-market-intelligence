@@ -310,6 +310,7 @@ class FastApiDashboardTests(unittest.TestCase):
                     "/api/messages/revision?category=x_monitor&limit=10&offset=20",
                     "messages-revision:v2:x_monitor:10:20",
                 ),
+                ("/api/realtime-news", "realtime_news:v1"),
                 (
                     "/api/iwencai/dragon-tiger?date=2026-07-16&page=2&limit=10",
                     "iwencai_dragon_tiger:2026-07-16:2:10:0:0:0",
@@ -363,6 +364,7 @@ class FastApiDashboardTests(unittest.TestCase):
             "messages:v4:x_monitor:25:50",
             "messages-revision:v1:market_monitor",
             "messages-revision:v2:x_monitor:10:20",
+            "realtime_news:v1",
             "iwencai_dragon_tiger:2026-07-16:2:10:0:0:0",
             "practice_candidates",
             "practice_candidates",
@@ -837,7 +839,7 @@ class FastApiDashboardTests(unittest.TestCase):
             patch.object(
                 self.legacy,
                 "admin_visible_env_names",
-                return_value=["DASHBOARD_PRACTICE_SCHEDULE_TIMES"],
+                return_value=["DASHBOARD_PRACTICE_SCHEDULE_TIMES", "NEWSNOW_SOURCES"],
             ),
             patch.object(
                 self.legacy,
@@ -866,6 +868,8 @@ class FastApiDashboardTests(unittest.TestCase):
                 content=(
                     "env__DASHBOARD_PRACTICE_SCHEDULE_TIMES=09%3A30&"
                     "env__DASHBOARD_PRACTICE_SCHEDULE_TIMES=10%3A00&"
+                    "env__NEWSNOW_SOURCES=cls-telegraph&"
+                    "env__NEWSNOW_SOURCES=wallstreetcn-quick&"
                     "env__NOT_ALLOWED=ignored&notification_remove__telegram=1"
                 ),
                 headers={
@@ -883,7 +887,10 @@ class FastApiDashboardTests(unittest.TestCase):
         self.assertTrue(response.json()["ok"])
         self.assertEqual(response.json()["restart"]["skipped"], "hot_applied")
         self.assertEqual(response.json()["config"], {"items": []})
-        expected_updates = {"DASHBOARD_PRACTICE_SCHEDULE_TIMES": "09:30,10:00"}
+        expected_updates = {
+            "DASHBOARD_PRACTICE_SCHEDULE_TIMES": "09:30,10:00",
+            "NEWSNOW_SOURCES": "cls-telegraph,wallstreetcn-quick",
+        }
         normalize.assert_called_once_with(expected_updates)
         validate.assert_called_once_with(expected_updates)
         removed.assert_called_once_with({"telegram"})
@@ -1589,7 +1596,7 @@ class FastApiDashboardTests(unittest.TestCase):
         router_dir = ROOT / "app" / "dashboard" / "routers"
         router_sources = {
             name: (router_dir / f"{name}.py").read_text(encoding="utf-8")
-            for name in ("system", "messages", "market", "practice", "admin")
+            for name in ("system", "messages", "realtime_news", "market", "practice", "admin")
         }
 
         self.assertNotIn('@app.api_route("/api/', composition)
@@ -1612,6 +1619,7 @@ class FastApiDashboardTests(unittest.TestCase):
         for name, route in (
             ("system", "/api/v2/public/latest"),
             ("messages", "/api/messages/revision"),
+            ("realtime_news", "/api/realtime-news"),
             ("market", "/api/industry-flow"),
             ("practice", "/api/niuniu_practice"),
             ("admin", "/api/admin/config"),

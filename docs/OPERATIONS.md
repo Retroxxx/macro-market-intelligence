@@ -114,7 +114,22 @@ NiuOne 需要大模型驱动完整工作流。X 关注列表监控使用具备 `
 
 实战页面的规范地址为 `/practice`，候选查询与刷新接口分别为 `/api/practice_candidates` 和 `/api/practice_candidates/refresh`。基于 `?category=practice` 或 `?category=b1_screen` 的旧链接及 `/api/b1_screen` 接口仅作为兼容入口保留。
 
-### 3.1 行情与资金流设置
+### 3.1 实时新闻
+
+`/realtime-news` 由 Dashboard 服务端调用 NewsNow，不需要 API Key。Compose 默认启动 `ghcr.io/ourongxing/newsnow:latest` 并通过内网 `http://newsnow:4444/api/s` 使用；该容器不映射宿主机端口，即使只启动 Dashboard 也会被自动带起。Dashboard 只等待 NewsNow 容器进入 started 状态，不等待其健康检查，因此后续抓取异常不会拖垮主服务。默认来源为财联社电报 `cls-telegraph`、金十数据 `jin10` 和华尔街见闻快讯 `wallstreetcn-quick`；管理设置的“实时新闻”页面仅提供财经商业分类下 12 个实际来源的搜索与多选。浏览器每 30 秒检查同源 API；服务端按 `NEWSNOW_REFRESH_SECONDS` 合并重复请求，并继续遵守各来源在 NewsNow 注册表中的上游更新间隔。
+
+| 配置 | 默认值 | 可选范围 | 生效方式 |
+|---|---:|---:|---|
+| `NEWSNOW_ENABLED` | `1` | `0` 或 `1` | 运行时热应用 |
+| `NEWSNOW_SOURCES` | `cls-telegraph,jin10,wallstreetcn-quick` | 管理页列出的 NewsNow 实际来源；至少一项 | 运行时热应用 |
+| `NEWSNOW_REFRESH_SECONDS` | `60` | `15`～`1800` 秒 | 运行时热应用 |
+| `NEWSNOW_TIMEOUT_SECONDS` | `10` | `2`～`30` 秒 | 运行时热应用 |
+| `NEWSNOW_MAX_RETRIES` | `1` | `0`～`2` | 运行时热应用 |
+| `NEWSNOW_MAX_CONCURRENCY` | `3` | `1`～`3` | 运行时热应用 |
+
+各来源在有界并发和超时内独立获取。成功结果原子保存到 `.local-data/runtime/news/realtime_news_latest.json`；单个来源失败时只回退该来源最近一次有效数据并标记 `stale/cache`，全部失败也不会用空结果覆盖缓存。内置 NewsNow 的状态保存在 `newsnow-data` volume，并跟随 `docker compose up/down` 自动启动和停止；用户不需要配置服务地址。来源越多，首次聚合耗时和上游请求量越大，应按需选择。运维排障可使用 `docker compose ps newsnow` 和 `docker compose logs newsnow`，如需固定上游版本可选设置 `NEWSNOW_IMAGE`。服务必须能出站访问所选来源，并按各内容来源的服务条款处理展示、存储和转载。
+
+### 3.2 行情与资金流设置
 
 设置页的“行情与资金流设置”集中维护指数行情与行业资金流参数：
 
@@ -143,7 +158,7 @@ Dashboard 在 A 股交易日启动后会自动检查当日市场情绪曲线；�
 
 行业资金流快照、资金流采样和市场情绪曲线以北京时间 09:00 作为展示日切点：前一自然日的收盘数据在零点后继续展示至次日 08:59:59，09:00 起清空当日展示并等待新的有效采样。市场情绪历史在展示日完整采样之外，额外保留最近一个交易日的精简实际量能曲线。Dashboard 启动时会校验文件日期，常驻后台任务在每日北京时间 09:00 原子清空 `industry_main_money_flow_cache.json`，并按样本时间滚动 `industry_main_flow_history.json`：只移除非当前展示日的样本，顶层日期过期或文件中混有跨日样本都不会删除有效的当日记录。每次行业资金成功采样时还会先原子更新 `industry_main_flow_history.recovery.json` 恢复副本；重启时主文件缺失、损坏或意外变空，会从副本合并恢复当日真实样本。市场宽度历史同样原子维护 `market_breadth_history.recovery.json`；启动、日切和追加新采样前都会按样本时间合并主文件与恢复副本，较短的同日曲线不能覆盖已保存的较完整真实曲线。日切后的 `market_breadth_history.json` 会移除上一展示日红绿盘、涨跌停等情绪字段，仅归档其实际累计量能。相关 API 内存缓存会同步失效。09:00 后若上游仍返回前一日时间戳，服务端会拒绝重新展示或写入该快照，页面保持空状态直到取得当日首个有效采样。
 
-### 3.2 实战策略调度与进程归属
+### 3.3 实战策略调度与进程归属
 
 严格前向 v18 把牛牛新仓容量与组合回测对齐：每个北京时间交易日跨 Practice 决策轮次累计最多首次建仓 2 只。执行层从持久化成交状态重建当天已开仓代码并按代码幂等去重；加仓和其他策略的新仓不占牛牛额度，达到上限后的新标的以 `position_capacity` 拒绝。该数值和计数规则随协议一并冻结。
 

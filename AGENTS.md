@@ -79,6 +79,13 @@ Dashboard、定时任务、消息通知与策略研究。修改时优先保证�
 
 ## 测试与验证
 
+- 本地集成测试、冒烟测试和部署验证统一使用 Docker Compose；不通过 `run.sh`、`run.bat`
+  或直接启动 Python 服务来运行待测程序。单元测试仍按下述命令直接执行。
+- Docker 测试使用独立的 Compose project name 隔离数据卷，例如
+  `docker compose -p niuone-smoke up -d --build`。NewsNow 必须作为 Compose sidecar 随
+  Dashboard 自动启动，不单独配置或启动。
+- 启动前确认 Compose 配置的宿主机端口可用。默认端口被占用时立即报告冲突并停止测试；
+  不得自动改用其他端口，也不得擅自停止或替换占用端口的现有服务。
 - 测试使用现有 `unittest` 风格，文件命名为 `tests/test_*.py`。
 - 每个行为修复至少增加一个能在修复前失败的回归测试。涉及并发、恢复或缓存时，同时覆盖
   重复执行、边界时间、已有真实数据和失败降级。
@@ -105,10 +112,16 @@ Dashboard、定时任务、消息通知与策略研究。修改时优先保证�
 
 - `.local-data/`、数据库、日志、备份、状态文件和本机配置均为私有运行数据，不提交、不复制
   到文档，也不在工具输出中展示。
-- 不要直接用真实运行目录做实验。临时启动示例：
+- 不要直接用真实运行目录或正式 Compose project 做实验。Docker 冒烟测试使用独立 project：
 
   ```bash
-  DASHBOARD_HOME=/tmp/niuone-smoke DASHBOARD_PORT=8877 ./scripts/run_standalone.sh
+  docker compose -p niuone-smoke up -d --build
+  ```
+
+  测试结束后只清理这个明确命名的临时 project：
+
+  ```bash
+  docker compose -p niuone-smoke down -v
   ```
 
 - 提交前检查：

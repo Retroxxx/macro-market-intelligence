@@ -29,6 +29,7 @@ from app.dashboard.routers import (
     create_market_router,
     create_messages_router,
     create_practice_router,
+    create_realtime_news_router,
     create_system_router,
 )
 
@@ -44,6 +45,7 @@ SPA_DASHBOARD_PATHS = (
     "/industry-flow",
     "/dragon-tiger",
     "/market-monitor",
+    "/realtime-news",
     "/x-monitor",
     "/us-ratings",
 )
@@ -365,6 +367,12 @@ def create_app(
     )
     app.include_router(
         create_messages_router(
+            services=legacy,
+            cached_response=cached_native_api_response,
+        )
+    )
+    app.include_router(
+        create_realtime_news_router(
             services=legacy,
             cached_response=cached_native_api_response,
         )

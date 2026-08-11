@@ -113,7 +113,22 @@ The trading-decision intelligence bundle is enabled by default. Each model decis
 
 The canonical URL for the Practice page is `/practice`. The candidate query and refresh endpoints are `/api/practice_candidates` and `/api/practice_candidates/refresh`, respectively. Legacy links based on `?category=practice` or `?category=b1_screen`, plus the `/api/b1_screen` endpoint, are retained only as compatibility entry points.
 
-### 3.1 Market Data and Fund-Flow Settings
+### 3.1 Realtime News
+
+`/realtime-news` is fetched server-side through NewsNow and requires no API key. Compose starts `ghcr.io/ourongxing/newsnow:latest` by default and uses the private `http://newsnow:4444/api/s` endpoint. The container publishes no host port and is brought up automatically even when only the Dashboard service is requested. Dashboard waits only for the NewsNow container to enter the started state, not for its health check, so later upstream failures do not take down the main service. The defaults are CLS Telegraph (`cls-telegraph`), Jin10 (`jin10`), and WallstreetCN Quick (`wallstreetcn-quick`). The Realtime News admin page provides search and multi-select for the 12 current sources in NewsNow's finance and business category. The browser checks the same-origin API every 30 seconds, while the server coalesces requests according to `NEWSNOW_REFRESH_SECONDS` and NewsNow continues to enforce each source's registered upstream interval.
+
+| Setting | Default | Allowed range | Application |
+|---|---:|---:|---|
+| `NEWSNOW_ENABLED` | `1` | `0` or `1` | Hot-applied |
+| `NEWSNOW_SOURCES` | `cls-telegraph,jin10,wallstreetcn-quick` | Any canonical source listed by the admin page; at least one | Hot-applied |
+| `NEWSNOW_REFRESH_SECONDS` | `60` | `15`–`1800` seconds | Hot-applied |
+| `NEWSNOW_TIMEOUT_SECONDS` | `10` | `2`–`30` seconds | Hot-applied |
+| `NEWSNOW_MAX_RETRIES` | `1` | `0`–`2` | Hot-applied |
+| `NEWSNOW_MAX_CONCURRENCY` | `3` | `1`–`3` | Hot-applied |
+
+Sources are fetched independently under bounded concurrency and timeouts. Valid results are atomically stored in `.local-data/runtime/news/realtime_news_latest.json`. A failed source reuses only that source's latest valid data and is marked `stale/cache`; a full failure never overwrites the cache with an empty result. Bundled NewsNow state lives in the `newsnow-data` volume and follows `docker compose up/down` automatically; users configure no service URL. Selecting more sources increases first-refresh latency and upstream request volume, so deployments should enable only what they need. Operators can use `docker compose ps newsnow` and `docker compose logs newsnow` for diagnostics, and may optionally set `NEWSNOW_IMAGE` to pin the upstream version. The service needs outbound access to every selected provider, and deployments must follow each content provider's terms for display, storage, and redistribution.
+
+### 3.2 Market Data and Fund-Flow Settings
 
 The **Market Data and Fund-Flow Settings** page groups index refresh and industry fund-flow controls:
 
@@ -144,7 +159,7 @@ After the Dashboard starts on an A-share trading day, it automatically checks to
 
 Industry fund-flow snapshots, samples, and the market-sentiment curve use 09:00 Asia/Shanghai as the display rollover. The prior calendar day's closing data remains visible after midnight through 08:59:59; at 09:00 the current display is cleared and waits for the new day's first valid sample. Market-sentiment history also retains one compact actual-turnover curve from the latest prior trading day. The Dashboard validates file dates at startup, and a resident background task atomically clears `industry_main_money_flow_cache.json` every day at 09:00 Asia/Shanghai while rolling `industry_main_flow_history.json` by each sample timestamp. Only samples outside the current display day are removed, so stale top-level metadata or mixed-day content cannot discard valid current-day observations. Every successful industry-flow sample first updates the atomic `industry_main_flow_history.recovery.json` mirror; startup merges current-day real samples from that mirror when the primary file is missing, damaged, or unexpectedly empty. Market breadth likewise maintains an atomic `market_breadth_history.recovery.json` mirror. Before startup rollover, daily rollover, or a new append, the service merges the primary and recovery files by sample timestamp, so a shorter same-day curve cannot replace a more complete retained real curve. After rollover, `market_breadth_history.json` discards the prior display day's breadth and limit-state fields and archives only its actual cumulative turnover. Related in-memory API caches are invalidated at the same time. If an upstream source still reports the previous day's timestamp after 09:00, the server rejects that snapshot instead of displaying or persisting it; the page remains empty until the first valid current-day sample arrives.
 
-### 3.2 Practice-Strategy Scheduling and Process Ownership
+### 3.3 Practice-Strategy Scheduling and Process Ownership
 
 Strict-forward v18 aligns NiuOne opening capacity with the portfolio backtest: at most two first openings are permitted per Beijing trading date across Practice decision cycles. The execution layer reconstructs today's opened codes from persistent fill state and de-duplicates them by code; adds and other strategy suites do not consume the NiuOne allowance, while a further symbol is rejected as `position_capacity`. Both the value and counting rule are protocol-frozen.
 

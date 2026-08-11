@@ -5,6 +5,7 @@ from .backtesting import create_backtesting_router
 from .market import create_market_router
 from .messages import create_messages_router
 from .practice import create_practice_router
+from .realtime_news import create_realtime_news_router
 from .system import create_system_router
 
 __all__ = [
@@ -14,5 +15,6 @@ __all__ = [
     "create_market_router",
     "create_messages_router",
     "create_practice_router",
+    "create_realtime_news_router",
     "create_system_router",
 ]

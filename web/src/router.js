@@ -8,6 +8,7 @@ const dashboardPaths = [
   '/industry-flow',
   '/dragon-tiger',
   '/market-monitor',
+  '/realtime-news',
   '/x-monitor',
   '/us-ratings',
 ]
