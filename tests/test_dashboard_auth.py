@@ -4463,6 +4463,13 @@ console.log(JSON.stringify([
         self.assertIn('--terminal-button-border-dark:#000;', tongdaxin_styles)
         self.assertIn('background:#000080 !important;', tongdaxin_styles)
         self.assertIn('border-color:#fff #000 #000 #fff !important;', tongdaxin_styles)
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .appearance-current {\n'
+            '  border-color:#fff #000 #000 #fff;\n'
+            '  background:#c0c0c0;\n'
+            '  color:#000080 !important;',
+            tongdaxin_styles,
+        )
         self.assertIn('--red:#c00000;', tongdaxin_styles)
         self.assertIn('--green:#007b7b;', tongdaxin_styles)
         self.assertIn(

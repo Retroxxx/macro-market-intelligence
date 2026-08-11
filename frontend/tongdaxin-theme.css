@@ -3001,6 +3001,13 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .admin-header 
   box-shadow:inset 1px 1px 0 #dfdfdf,inset -1px -1px 0 #808080;
 }
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .dashboard-brand { color:#000; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .appearance-current {
+  border-color:#fff #000 #000 #fff;
+  background:#c0c0c0;
+  color:#000080 !important;
+  box-shadow:inset 1px 1px 0 #dfdfdf,inset -1px -1px 0 #808080;
+  text-shadow:none;
+}
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .overview-command-head .overview-command-meta {
   color:#fff;
 }
