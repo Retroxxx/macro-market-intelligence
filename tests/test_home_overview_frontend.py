@@ -542,6 +542,13 @@ console.log(JSON.stringify({{
             '  html[data-theme="tongdaxin"]:root .tab { min-height:30px; padding:5px 11px; font-size:13px; }',
             tongdaxin_styles,
         )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root :where(.overview-theme-table-head,.overview-candidate-table-head) {\n'
+            '  background:var(--terminal-header);\n'
+            '  color:#e0e0e0;\n'
+            '  padding-block:2px;',
+            tongdaxin_styles,
+        )
         self.assertIn(":payload=\"indicesState.marketBreadth\" terminal", component)
         self.assertIn("terminal: { type: Boolean, default: false }", breadth_component)
         self.assertIn("const showVolume = ref(!props.terminal)", breadth_component)

@@ -1573,6 +1573,7 @@ html[data-theme="tongdaxin"]:root .overview-index-tile { padding:4px 6px; }
 html[data-theme="tongdaxin"]:root :where(.overview-theme-table-head,.overview-candidate-table-head) {
   background:var(--terminal-header);
   color:#e0e0e0;
+  padding-block:2px;
 }
 html[data-theme="tongdaxin"]:root :where(.overview-theme-row,.overview-candidate-row,.overview-flow-row) {
   border-color:var(--overview-border);
