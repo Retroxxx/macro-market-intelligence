@@ -19,15 +19,22 @@ const cornerOptions = [
   { value: 'rounded', label: '圆角', description: '柔和的卡片与控件边缘' },
   { value: 'square', label: '直角', description: '紧凑严肃的金融终端风格' },
 ]
-const tongdaxinOption = {
-  value: 'tongdaxin',
-  label: '通达信',
-  description: '黑底灰表头、红色网格与数字分色的高密度行情风格',
-}
+const tongdaxinOptions = [
+  {
+    value: 'tongdaxin',
+    label: '经典暗色',
+    description: '黑底灰表头、红色网格与数字分色',
+  },
+  {
+    value: 'tongdaxin-light',
+    label: '浅色 · Windows 95',
+    description: '银灰窗口、海军蓝标题栏与立体按钮',
+  },
+]
 
 const appearanceSummary = computed(() => (
   isTongdaxin.value
-    ? '通达信'
+    ? (theme.value === 'tongdaxin-light' ? '通达信浅色 · Windows 95' : '通达信经典暗色')
     : `${theme.value === 'dark' ? '深色' : '浅色'} · ${cornerStyle.value === 'rounded' ? '圆角' : '直角'}`
 ))
 </script>
@@ -126,22 +133,30 @@ const appearanceSummary = computed(() => (
               </div>
               <span class="appearance-mode-state">{{ isTongdaxin ? '已启用' : '未启用' }}</span>
             </div>
-            <label class="appearance-option-card appearance-tongdaxin-option" :class="{ selected: isTongdaxin }">
-              <input
-                class="appearance-option-input"
-                type="radio"
-                name="appearance-mode"
-                :value="tongdaxinOption.value"
-                :checked="isTongdaxin"
-                @change="setTongdaxinTheme"
-              />
-              <span class="appearance-color-sample tongdaxin" aria-hidden="true"><i /><i /></span>
-              <span class="appearance-option-copy">
-                <strong>{{ tongdaxinOption.label }}</strong>
-                <small>{{ tongdaxinOption.description }}</small>
-              </span>
-              <span class="appearance-option-check" aria-hidden="true">✓</span>
-            </label>
+            <fieldset class="appearance-option-group appearance-tongdaxin-options">
+              <legend>终端配色</legend>
+              <label
+                v-for="option in tongdaxinOptions"
+                :key="option.value"
+                class="appearance-option-card appearance-tongdaxin-option"
+                :class="{ selected: theme === option.value }"
+              >
+                <input
+                  class="appearance-option-input"
+                  type="radio"
+                  name="appearance-mode"
+                  :value="option.value"
+                  :checked="theme === option.value"
+                  @change="setTongdaxinTheme(option.value)"
+                />
+                <span class="appearance-color-sample" :class="option.value" aria-hidden="true"><i /><i /></span>
+                <span class="appearance-option-copy">
+                  <strong>{{ option.label }}</strong>
+                  <small>{{ option.description }}</small>
+                </span>
+                <span class="appearance-option-check" aria-hidden="true">✓</span>
+              </label>
+            </fieldset>
           </section>
         </div>
       </div>

@@ -720,10 +720,10 @@ html[data-corners="square"] :where(
 .appearance-color-sample.dark i:last-child { background:#283240; }
 .appearance-color-sample.tongdaxin i:first-child { background:#000; }
 .appearance-color-sample.tongdaxin i:last-child { background:#a80000; }
+.appearance-color-sample.tongdaxin-light i:first-child { background:#c0c0c0; }
+.appearance-color-sample.tongdaxin-light i:last-child { background:#000080; }
+.appearance-tongdaxin-options { grid-template-columns:1fr; }
 .appearance-tongdaxin-option { width:100%; }
-@media(min-width:941px) {
-  .appearance-tongdaxin-option { margin-top:20px; }
-}
 .appearance-corner-sample { display:grid; place-items:center; }
 .appearance-corner-sample i { width:20px; height:16px; border:2px solid var(--accent); background:var(--accent-soft); }
 .appearance-corner-sample.rounded,

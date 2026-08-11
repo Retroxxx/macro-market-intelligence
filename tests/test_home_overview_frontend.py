@@ -709,6 +709,28 @@ console.log(JSON.stringify({{
             tongdaxin_styles,
         )
 
+    def test_terminal_market_breadth_time_stays_inside_header(self):
+        component = OVERVIEW_PATH.read_text(encoding="utf-8")
+
+        self.assertIn(
+            '.overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-head-meta) {\n'
+            '    box-sizing: border-box;\n'
+            '    min-width: 68px;\n'
+            '    overflow: hidden;\n'
+            '    padding: 0 6px 0 2px;',
+            component,
+        )
+        self.assertIn(
+            '.overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-time) {\n'
+            '    display: block;\n'
+            '    max-width: 100%;\n'
+            '    overflow: hidden;\n'
+            '    line-height: 1;\n'
+            '    text-align: right;\n'
+            '    white-space: nowrap;',
+            component,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

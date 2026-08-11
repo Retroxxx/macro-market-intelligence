@@ -2912,3 +2912,721 @@ html[data-theme="tongdaxin"]:root .realtime-news-item article > p { margin-top:2
     justify-content:flex-end;
   }
 }
+
+/* Tongdaxin light palette: the same dense quote-terminal layout with Windows 95 chrome. */
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root {
+  color-scheme:light;
+  --bg:#c0c0c0;
+  --panel:#fff;
+  --panel2:#f0f0f0;
+  --surface:#c0c0c0;
+  --surface2:#dfdfdf;
+  --field:#fff;
+  --text:#000;
+  --muted:#555;
+  --soft:#222;
+  --line:#808080;
+  --line2:#000;
+  --accent:#000080;
+  --accent-soft:#d6e4ff;
+  --accent-border:#000080;
+  --accent-text:#000080;
+  --primary:#000080;
+  --primary-text:#fff;
+  --green:#007b7b;
+  --green-soft:#d8f0ec;
+  --green-border:#008080;
+  --green-text:#006565;
+  --red:#c00000;
+  --red-soft:#f7dddd;
+  --red-border:#a00000;
+  --red-text:#a00000;
+  --yellow:#666000;
+  --yellow-soft:#fff8c6;
+  --yellow-border:#808000;
+  --yellow-text:#565000;
+  --danger-button-bg:#c0c0c0;
+  --danger-button-hover:#d4d0c8;
+  --danger-button-border:#000;
+  --danger-button-text:#a00000;
+  --terminal-header:#000080;
+  --terminal-header-deep:#000080;
+  --terminal-row:#fff;
+  --terminal-row-alt:#f0f0f0;
+  --terminal-selection:#000080;
+  --terminal-selection-border:#000;
+  --terminal-grid:#808080;
+  --terminal-orange:#9a4d00;
+  --terminal-magenta:#800080;
+  --terminal-button-bg:#c0c0c0;
+  --terminal-button-bg-hover:#d4d0c8;
+  --terminal-button-bg-pressed:#b0b0b0;
+  --terminal-button-border-light:#fff;
+  --terminal-button-border-dark:#000;
+  --terminal-button-text:#000;
+  --terminal-button-accent:#000080;
+  --chart-grid:rgba(0,0,0,.24);
+  --chart-grid-soft:rgba(0,0,0,.13);
+  --chart-zero:rgba(0,0,0,.48);
+  --chart-marker:#000;
+}
+
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body {
+  background:#c0c0c0;
+  color:#000;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root ::selection { background:#000080; color:#fff; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root { scrollbar-color:#c0c0c0 #fff; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root ::-webkit-scrollbar-track {
+  border-color:#808080;
+  background:#fff;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root ::-webkit-scrollbar-thumb {
+  border-color:#fff #000 #000 #fff;
+  background:#c0c0c0;
+  box-shadow:inset 1px 1px 0 #dfdfdf,inset -1px -1px 0 #808080;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root ::-webkit-scrollbar-corner { background:#c0c0c0; }
+
+/* Window frames and title bars. */
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root header,
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .admin-header {
+  border-color:#fff #000 #000 #fff;
+  background:#c0c0c0;
+  box-shadow:inset 1px 1px 0 #dfdfdf,inset -1px -1px 0 #808080;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .dashboard-brand { color:#000; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .overview-command-head .overview-command-meta {
+  color:#fff;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .overview-command-head .overview-stale-badge {
+  border-color:#808000;
+  background:#fff8c6;
+  color:#565000 !important;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .overview-news-source {
+  color:#000080;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .refresh-pill {
+  border-color:#fff #000 #000 #fff !important;
+  background:#c0c0c0 !important;
+  color:#000 !important;
+  box-shadow:inset 1px 1px 0 #dfdfdf,inset -1px -1px 0 #808080 !important;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .version-status,
+  .refresh-pill
+) :where(span,b) {
+  color:#000 !important;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .version-status:disabled :where(span,b) {
+  color:#808080 !important;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .category-tabs {
+  border:2px solid;
+  border-color:#808080 #fff #fff #808080;
+  background:#c0c0c0;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .tab { border-right-color:#808080; color:#000; }
+
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .overview-command-head,
+  .practice-account-head,
+  .mainline-heading,
+  .indices-part-head,
+  .market-card-head,
+  .market-monitor-table-head,
+  .market-section-head,
+  .market-day-pager,
+  .us-market-head,
+  .x-monitor-head,
+  .x-monitor-table-head,
+  .practice-chart-head,
+  .practice-position-bar,
+  .practice-log-head,
+  .practice-log-detail-head,
+  .practice-rule-head,
+  .practice-calendar-head,
+  .rating-table-title,
+  .rating-table th,
+  .theme-ranking-head,
+  .theme-stock-details-head,
+  .dragon-tiger-head,
+  .dragon-tiger-list-head,
+  .dragon-tiger-reasons-head,
+  .dragon-tiger-funds-head,
+  .dragon-tiger-seats-head,
+  .dragon-tiger-seat-side-head,
+  .settings-group-head,
+  .notification-channel-card-head,
+  .notification-channel-actions,
+  .backtest-form-head,
+  .backtest-result-head,
+  .backtest-progress-head,
+  .backtest-actions,
+  .backtest-table-wrap th,
+  .realtime-news-heading,
+  .realtime-news-table-head,
+  .overview-theme-table-head,
+  .overview-candidate-table-head,
+  .overview-theme-stock-list-head
+) {
+  border-color:#000;
+  background:#000080;
+  color:#fff;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .indices-index-stack > div > h3,
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .news-source-group header {
+  border-color:#000;
+  background:#000080;
+  color:#fff !important;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .overview-command-head,
+  .practice-account-head,
+  .mainline-heading,
+  .indices-part-head,
+  .market-card-head,
+  .market-monitor-table-head,
+  .market-section-head,
+  .market-day-pager,
+  .us-market-head,
+  .x-monitor-head,
+  .x-monitor-table-head,
+  .practice-chart-head,
+  .practice-position-bar,
+  .practice-log-head,
+  .practice-log-detail-head,
+  .practice-rule-head,
+  .practice-calendar-head,
+  .rating-table-title,
+  .theme-ranking-head,
+  .theme-stock-details-head,
+  .dragon-tiger-head,
+  .dragon-tiger-list-head,
+  .settings-group-head,
+  .backtest-form-head,
+  .backtest-result-head,
+  .backtest-progress-head,
+  .realtime-news-heading,
+  .realtime-news-table-head
+) :where(h1,h2,h3,h4,strong,b,small,span,p,time) { color:inherit !important; }
+
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .card,
+  .sector-cloud,
+  .market-breadth-card,
+  .market-monitor-grid,
+  .market-detail-overview,
+  .market-section,
+  .x-monitor-panel,
+  .x-detail,
+  .practice-log-panel,
+  .practice-chart-card,
+  .rating-card,
+  .rating-table-wrap,
+  .dragon-tiger-panel,
+  .mainline-hero,
+  .theme-ranking-panel,
+  .settings-group,
+  .settings-sidebar,
+  .admin-login-box,
+  .backtest-hero,
+  .backtest-form,
+  .backtest-progress-card,
+  .backtest-job-summary,
+  .backtest-result-card,
+  .backtest-quality,
+  .backtest-overview,
+  .backtest-month-diagnostic
+) {
+  border-color:#fff #000 #000 #fff;
+  background:#c0c0c0;
+  box-shadow:inset 1px 1px 0 #dfdfdf,inset -1px -1px 0 #808080;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .appearance-mode-section {
+  border-color:#fff #000 #000 #fff;
+  background:#c0c0c0;
+  box-shadow:inset 1px 1px 0 #dfdfdf,inset -1px -1px 0 #808080;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .appearance-mode-section.selected {
+  border-color:#000080;
+  background:#dfdfdf;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .settings-actions {
+  border-color:#808080;
+  background:#c0c0c0;
+}
+
+/* Quote canvases and alternating ledger rows. */
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .overview-panel,
+  .indices-index-stack > div,
+  .index-card,
+  .practice-stats .inline-field,
+  .practice-kpi,
+  .position-card,
+  .position-reason-block,
+  .empty,
+  .indices-switch,
+  .market-region-switch,
+  .practice-mode-control,
+  .market-breadth-controls,
+  .market-mood-panel,
+  .market-card-detail,
+  .market-card-detail .market-section,
+  .market-card-detail .market-section-body,
+  .x-detail,
+  .x-media-tile,
+  .thread-original,
+  .thread-reply,
+  .theme-stock-details,
+  .dragon-tiger-unavailable,
+  .dragon-tiger-list,
+  .dragon-tiger-detail,
+  .dragon-tiger-detail-meta,
+  .dragon-tiger-reasons,
+  .dragon-tiger-funds,
+  .dragon-tiger-seats,
+  .dragon-tiger-limit-up-reason,
+  .dragon-tiger-continuous-news,
+  .dragon-tiger-seat-side,
+  .dragon-tiger-seat-side.buy,
+  .dragon-tiger-seat-side.sell,
+  .dragon-tiger-seat-rank,
+  .dragon-tiger-seat-category,
+  .dragon-tiger-limit-up-tooltip,
+  .dragon-tiger-continuous-tooltip,
+  .news-source-groups,
+  .news-source-group,
+  .backtest-quality-details,
+  .backtest-table-wrap table,
+  .backtest-diagnostic-groups,
+  .backtest-diagnostic-groups article,
+  .realtime-news-header,
+  .realtime-news-stream,
+  .realtime-news-controls
+) { background:#fff !important; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .backtest-notice,
+  .backtest-tags span,
+  .backtest-quality-icon,
+  .backtest-quality-count,
+  .backtest-status,
+  .backtest-blockers li,
+  .realtime-news-eyebrow,
+  .realtime-news-health,
+  .dragon-tiger-status,
+  .dragon-tiger-item > summary::after,
+  .dragon-tiger-continuous-tooltip-head em
+) { border-color:#808080; background:#c0c0c0; color:#000; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .backtest-progress-track {
+  border-color:#808080;
+  background:#fff;
+}
+
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .sector-item,
+  .hot-item,
+  .market-monitor-card,
+  .us-market-summary-card,
+  .x-row,
+  .position-brief-card,
+  .practice-log-row,
+  .theme-row,
+  .theme-stock-detail-row,
+  .overview-theme-row,
+  .overview-candidate-row,
+  .overview-flow-row,
+  .overview-theme-stock,
+  .rating-table tbody tr,
+  .dragon-tiger-item,
+  .dragon-tiger-detail-record,
+  .dragon-tiger-seat-record,
+  .news-source-option,
+  .realtime-news-item,
+  .backtest-table-wrap tbody tr,
+  .backtest-overview > div,
+  .backtest-month-diagnostic
+) { background:var(--terminal-row); color:#000; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .market-monitor-card:nth-of-type(even),
+  .x-row:nth-of-type(even),
+  .theme-row:nth-child(even),
+  .theme-stock-detail-row:nth-child(odd),
+  .overview-theme-row:nth-child(odd),
+  .overview-candidate-row:nth-child(odd),
+  .overview-theme-stock:nth-child(even),
+  .rating-table tbody tr:nth-child(even),
+  .dragon-tiger-item:nth-of-type(even),
+  .dragon-tiger-seat-record:nth-child(even),
+  .realtime-news-item:nth-child(even),
+  .backtest-table-wrap tbody tr:nth-child(even),
+  .backtest-month-diagnostic:nth-child(even)
+) { background:var(--terminal-row-alt); }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .market-monitor-card:hover,
+  .x-row:hover,
+  .rating-table tbody tr:hover,
+  .dragon-tiger-item > summary:hover,
+  .news-source-option:hover,
+  .realtime-news-item:hover,
+  .backtest-table-wrap tbody tr:hover,
+  .setting-row:hover
+) { background:#d6e4ff; color:#000; }
+
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .market-monitor-card.open .market-card-head,
+  .us-market-summary-card.open .us-market-head,
+  .x-row.open,
+  .rating-table tbody tr.expanded,
+  .dragon-tiger-item[open] > summary,
+  .news-source-option.selected,
+  .realtime-news-sources button.active,
+  .realtime-news-item:hover
+) {
+  border-color:#000;
+  background:#000080 !important;
+  color:#fff !important;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .market-monitor-card.open .market-card-head,
+  .us-market-summary-card.open .us-market-head,
+  .x-row.open,
+  .rating-table tbody tr.expanded,
+  .dragon-tiger-item[open] > summary,
+  .news-source-option.selected,
+  .realtime-news-sources button.active,
+  .realtime-news-item:hover
+) :where(a,b,strong,small,span,p,time,h3) { color:inherit !important; }
+
+/* Windows 95 form controls and raised/pressed push buttons. */
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(input,select,textarea) {
+  border:2px solid;
+  border-color:#808080 #fff #fff #808080;
+  background:#fff;
+  color:#000;
+  box-shadow:inset 1px 1px 0 #000;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body :where(
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card):not(.x-row),
+  a.header-link,
+  a.settings-link,
+  a.toplink,
+  a.settings-back-link,
+  a.settings-card,
+  a.tab,
+  .dragon-tiger-unavailable a,
+  .version-update-actions a
+) {
+  border-color:#fff #000 #000 #fff !important;
+  background:#c0c0c0 !important;
+  color:#000 !important;
+  box-shadow:inset 1px 1px 0 #dfdfdf,inset -1px -1px 0 #808080 !important;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body :where(
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card):not(.x-row),
+  a.header-link,
+  a.settings-link,
+  a.toplink,
+  a.settings-back-link,
+  a.settings-card,
+  a.tab,
+  .dragon-tiger-unavailable a,
+  .version-update-actions a
+):hover:not(:disabled) {
+  border-color:#fff #000 #000 #fff !important;
+  background:#d4d0c8 !important;
+  color:#000080 !important;
+  box-shadow:inset 1px 1px 0 #fff,inset -1px -1px 0 #808080 !important;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body :where(
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card):not(.x-row),
+  a.header-link,
+  a.settings-link,
+  a.toplink,
+  a.settings-back-link,
+  a.settings-card,
+  a.tab,
+  .dragon-tiger-unavailable a,
+  .version-update-actions a
+):active:not(:disabled) {
+  border-color:#000 #fff #fff #000 !important;
+  background:#b0b0b0 !important;
+  box-shadow:inset 1px 1px 0 #808080 !important;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body :where(
+  button.active,
+  button[aria-pressed="true"],
+  .settings-link.active,
+  .tab.active,
+  .notification-channel-activation.is-active
+):not(.practice-trade-marker):not(.theme-toggle):not(.admin-theme-toggle) {
+  border-color:#000 #fff #fff #000 !important;
+  background:#000080 !important;
+  color:#fff !important;
+  box-shadow:inset 1px 1px 0 #000 !important;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body .category-tabs .tab.active { color:#fff !important; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body :where(
+  .settings-link,
+  .settings-back-link,
+  .settings-card,
+  .header-link[href*="github.com"]
+) { color:#000080 !important; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body :where(
+  button:disabled,
+  [role="button"][aria-disabled="true"]
+) {
+  border-color:#dfdfdf #808080 #808080 #dfdfdf !important;
+  background:#c0c0c0 !important;
+  color:#808080 !important;
+  box-shadow:none !important;
+}
+
+/* Light-mode text and market semantics. */
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .sector-name,
+  .index-name,
+  .index-head,
+  .market-card-title,
+  .market-card-preview,
+  .market-metric-value,
+  .market-section-title,
+  .market-detail-line,
+  .market-flow-value,
+  .market-symbol,
+  .us-market-title,
+  .us-market-preview,
+  .x-author,
+  .x-copy,
+  .inline-value,
+  .position-value,
+  .position-reason-text,
+  .position-brief-name,
+  .practice-log-title,
+  .practice-log-summary,
+  .practice-rule-title,
+  .practice-rule-body,
+  .practice-kpi-value,
+  .rating-table .ticker,
+  .dragon-tiger-item > summary,
+  .dragon-tiger-list-name,
+  .dragon-tiger-list-name > span,
+  .dragon-tiger-list-sector,
+  .dragon-tiger-detail-meta b,
+  .dragon-tiger-detail-values b,
+  .dragon-tiger-seat-values b,
+  .dragon-tiger-reason-list li,
+  .dragon-tiger-limit-up-reason p,
+  .dragon-tiger-continuous-news p,
+  .dragon-tiger-seat-record-head b,
+  .config-label,
+  .config-meta,
+  .admin-login-box label,
+  .news-source-option-copy strong,
+  .backtest-page,
+  .backtest-hero-copy h2,
+  .backtest-form h2,
+  .backtest-progress-card h2,
+  .backtest-result-card h2,
+  .backtest-table-wrap td,
+  .realtime-news-title-row > a,
+  .realtime-news-title-row > h3
+) { color:#000; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .indices-part-meta,
+  .index-time,
+  .market-card-time,
+  .market-day-sub,
+  .us-market-sub,
+  .x-monitor-sub,
+  .x-handle,
+  .x-time,
+  .practice-log-count,
+  .practice-log-detail,
+  .practice-rule-meta,
+  .position-label,
+  .inline-label,
+  .rating-table-title small,
+  .rating-table .muted,
+  .dragon-tiger-sub,
+  .dragon-tiger-foot,
+  .dragon-tiger-detail-meta small,
+  .dragon-tiger-detail-values small,
+  .dragon-tiger-seat-values small,
+  .setting-state-label,
+  .news-source-option-copy small,
+  .backtest-hero-copy p,
+  .backtest-form-head p,
+  .backtest-progress-card p,
+  .backtest-result-head p,
+  .realtime-news-heading p,
+  .realtime-news-item article > p
+) { color:#555; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .sector-item.up,
+  .hot-item.up,
+  .index-card.index-up,
+  .practice-calendar-day.has-result.up,
+  .sector-item.down,
+  .hot-item.down,
+  .index-card.index-down,
+  .practice-calendar-day.has-result.down
+) { background:#fff !important; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-card {
+  --market-breadth-limit-down:#007b7b;
+  --market-breadth-limit-up:#800000;
+  --market-breadth-broken-limit:#b05000;
+  --market-breadth-red:#d00000;
+  --market-breadth-green:#008000;
+  --market-breadth-estimated-turnover:#565000;
+  --market-breadth-actual-turnover:#c00000;
+  --market-breadth-previous-turnover:#555;
+  --market-breadth-turnover-increment:#007b7b;
+  --market-breadth-same-time-delta:#800080;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-chart-wrap {
+  border:2px solid;
+  border-color:#b0b0b0 #fff #fff #b0b0b0;
+  background:#fff;
+  box-shadow:inset 1px 1px 0 #dfdfdf;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-controls {
+  border:1px solid #a0a0a0;
+  background:#e4e4e4 !important;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-toggle {
+  border-color:transparent;
+  background:transparent;
+  color:#444;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-toggle.active {
+  border-color:#6f8fc8;
+  background:#f4f7fc;
+  color:#222;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-toggle input {
+  accent-color:#6b8fca;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-time {
+  color:#555;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-line-muted {
+  stroke-width:1.5;
+  opacity:.9;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-grid { stroke:#c0c0c0; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-grid-vertical { stroke:#dfdfdf; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-axis-line { stroke:#808080; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-axis-label { fill:#444; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-axis-title { fill:#000; color:#000; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-endpoint,
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-hover-point { stroke:#fff; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-crosshair { stroke:#000080; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-info-popover,
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-desktop-tooltip,
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-compact-tooltip {
+  border-color:#000;
+  background:#fff;
+  color:#000;
+  box-shadow:3px 3px 0 rgba(0,0,0,.45);
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-tooltip-panel {
+  fill:#fff;
+  stroke:#000;
+  filter:drop-shadow(3px 3px 0 rgba(0,0,0,.35));
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .market-breadth-tooltip-time,
+  .market-breadth-tooltip-value
+) { fill:#000; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-tooltip-label { fill:#555; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-tooltip-divider { stroke:#808080; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-desktop-tooltip time {
+  border-bottom-color:#808080;
+  color:#000080;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-desktop-tooltip-item b,
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-compact-tooltip-item b { color:#555; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-desktop-tooltip-item strong,
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-compact-tooltip-item strong { color:#000; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .practice-axis-label { color:#555; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .practice-axis-label.zero { color:#000080; }
+
+/* Popovers, dialogs and special status surfaces. */
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .overview-page,
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .overview-theme-stock-popover {
+  --overview-surface:#fff;
+  --overview-surface-raised:#f0f0f0;
+  --overview-surface-strong:#c0c0c0;
+  --overview-border:#808080;
+  --overview-border-strong:#000;
+  --overview-text:#000;
+  --overview-muted:#555;
+  --overview-faint:#707070;
+  --overview-accent:#000080;
+  --overview-accent-soft:#d6e4ff;
+  --overview-up:#c00000;
+  --overview-up-soft:#f7dddd;
+  --overview-down:#007b7b;
+  --overview-down-soft:#d8f0ec;
+  --overview-warning:#565000;
+  --overview-warning-soft:#fff8c6;
+  --overview-mainline-accent:#000080;
+  --overview-mainline-secondary:#555;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .practice-hover-tooltip,
+  .practice-trade-marker-tooltip,
+  .theme-stock-details,
+  [class$="-popover"]
+) {
+  border:2px solid;
+  border-color:#fff #000 #000 #fff;
+  background:#fff;
+  color:#000;
+  box-shadow:4px 4px 0 #000;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .practice-candidates-backdrop {
+  --candidate-overlay:rgba(0,0,0,.48);
+  --candidate-dialog-surface:#c0c0c0;
+  --candidate-dialog-head:#000080;
+  --candidate-dialog-border:#000;
+  --candidate-dialog-shadow:6px 6px 0 rgba(0,0,0,.55);
+  --candidate-card-surface:#fff;
+  --candidate-card-border:#808080;
+  --candidate-card-expanded-border:#000080;
+  --candidate-card-divider:#808080;
+  --candidate-card-subtle:#f0f0f0;
+  --candidate-card-shadow:none;
+  --candidate-card-expanded-shadow:3px 3px 0 rgba(0,0,0,.35);
+  --candidate-niuone-bg:#d6e4ff;
+  --candidate-niuone-border:#000080;
+  --candidate-niuone-text:#000080;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .practice-data-readiness,
+  .dragon-tiger-status.stale,
+  .backtest-notice.is-warning,
+  .backtest-quality,
+  .backtest-quality-icon,
+  .backtest-quality-count
+) { border-color:#808000; background:#fff8c6; color:#565000; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
+  .realtime-news-item.important,
+  .realtime-news-item.important:hover
+) { background:#f7dddd !important; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .realtime-news-important {
+  border-color:#a00000;
+  background:#f7dddd;
+  color:#a00000;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .realtime-news-health.success {
+  border-color:#008080;
+  background:#d8f0ec;
+  color:#006565;
+}

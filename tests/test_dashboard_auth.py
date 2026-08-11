@@ -4290,7 +4290,10 @@ console.log(JSON.stringify([
             theme_composable,
         )
         self.assertIn('document.documentElement.dataset.corners = normalized', theme_composable)
-        self.assertIn("new Set(['light', 'dark', 'tongdaxin'])", theme_composable)
+        self.assertIn(
+            "new Set(['light', 'dark', 'tongdaxin', 'tongdaxin-light'])",
+            theme_composable,
+        )
         self.assertIn("const STANDARD_THEMES = new Set(['light', 'dark'])", theme_composable)
         self.assertIn('SUPPORTED_THEMES.has(event.newValue)', theme_composable)
         self.assertIn('setCornerStyle,', theme_composable)
@@ -4299,11 +4302,12 @@ console.log(JSON.stringify([
         self.assertIn('setTheme,', theme_composable)
         self.assertIn('setTongdaxinTheme,', theme_composable)
         self.assertNotIn('toggleTheme', theme_composable)
-        self.assertIn("if (theme.value === 'tongdaxin')", theme_composable)
+        self.assertIn('if (isTongdaxinTheme(theme.value))', theme_composable)
         self.assertIn('applyTheme(standardTheme.value, true)', theme_composable)
         self.assertIn("corners = 'square'", index_html)
         self.assertIn('document.documentElement.dataset.corners = corners', index_html)
-        self.assertIn("theme !== 'tongdaxin'", index_html)
+        self.assertIn("theme !== 'tongdaxin-light'", index_html)
+        self.assertIn('dataset.tongdaxinPalette', index_html)
 
         self.assertIn('<h2 id="appearanceSettingsTitle">界面主题</h2>', appearance_component)
         self.assertIn('<h3 id="standardAppearanceTitle">深浅色与边角样式</h3>', appearance_component)
@@ -4313,6 +4317,8 @@ console.log(JSON.stringify([
         self.assertIn("{ value: 'light', label: '浅色'", appearance_component)
         self.assertIn("{ value: 'dark', label: '深色'", appearance_component)
         self.assertIn("value: 'tongdaxin'", appearance_component)
+        self.assertIn("value: 'tongdaxin-light'", appearance_component)
+        self.assertIn("label: '浅色 · Windows 95'", appearance_component)
         self.assertIn("{ value: 'rounded', label: '圆角'", appearance_component)
         self.assertIn("{ value: 'square', label: '直角'", appearance_component)
         self.assertIn(':class="{ selected: !isTongdaxin && theme === option.value }"', appearance_component)
@@ -4320,8 +4326,8 @@ console.log(JSON.stringify([
         self.assertIn(':checked="!isTongdaxin && cornerStyle === option.value"', appearance_component)
         self.assertIn('@change="setStandardTheme(option.value)"', appearance_component)
         self.assertIn('@change="setStandardCornerStyle(option.value)"', appearance_component)
-        self.assertIn('@change="setTongdaxinTheme"', appearance_component)
-        self.assertIn("? '通达信'", appearance_component)
+        self.assertIn('@change="setTongdaxinTheme(option.value)"', appearance_component)
+        self.assertIn("? '通达信浅色 · Windows 95'", appearance_component)
         self.assertIn("slug: 'appearance'", settings_index)
         self.assertIn('在常规外观与互斥的通达信模式之间切换', settings_index)
         self.assertIn('class="settings-card"', settings_index)
@@ -4344,12 +4350,9 @@ console.log(JSON.stringify([
         self.assertIn('.appearance-option-card.selected', admin_styles)
         self.assertIn('.appearance-mode-layout {', admin_styles)
         self.assertIn('.appearance-mode-section.selected', admin_styles)
-        self.assertIn('.appearance-tongdaxin-option { margin-top:20px; }', admin_styles)
-        self.assertIn(
-            '.appearance-tongdaxin-option { margin-top:18px; }',
-            tongdaxin_styles,
-        )
+        self.assertIn('.appearance-tongdaxin-options { grid-template-columns:1fr; }', admin_styles)
         self.assertIn('.appearance-color-sample.tongdaxin i:first-child', admin_styles)
+        self.assertIn('.appearance-color-sample.tongdaxin-light i:first-child', admin_styles)
         self.assertIn(
             '.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}',
             admin_styles,
@@ -4424,6 +4427,123 @@ console.log(JSON.stringify([
         self.assertIn(
             '<style src="../../../frontend/tongdaxin-theme.css"></style>',
             backtest_page,
+        )
+
+    def test_tongdaxin_light_reuses_terminal_layout_with_windows_95_palette(self):
+        theme_composable = (
+            ROOT / 'web' / 'src' / 'composables' / 'useTheme.js'
+        ).read_text(encoding='utf-8')
+        appearance_component = (
+            ROOT / 'web' / 'src' / 'components' / 'AdminAppearanceSettings.vue'
+        ).read_text(encoding='utf-8')
+        index_html = (ROOT / 'web' / 'index.html').read_text(encoding='utf-8')
+        tongdaxin_styles = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+        admin_styles = (ROOT / 'frontend' / 'admin.css').read_text(encoding='utf-8')
+
+        self.assertIn("value === 'tongdaxin' || value === 'tongdaxin-light'", theme_composable)
+        self.assertIn("? 'tongdaxin'\n      : normalized", theme_composable)
+        self.assertIn("normalized === 'tongdaxin-light'", theme_composable)
+        self.assertIn("localStorage.setItem(THEME_STORAGE_KEY, normalized)", theme_composable)
+        self.assertIn("theme === 'tongdaxin-light' ? 'light' : 'dark'", index_html)
+        self.assertIn('<legend>终端配色</legend>', appearance_component)
+        self.assertIn(':checked="theme === option.value"', appearance_component)
+
+        light_selector = (
+            'html[data-theme="tongdaxin"]'
+            '[data-tongdaxin-palette="light"]:root'
+        )
+        self.assertIn(light_selector, tongdaxin_styles)
+        self.assertNotIn('html[data-theme="tongdaxin-light"]', tongdaxin_styles)
+        self.assertIn('--bg:#c0c0c0;', tongdaxin_styles)
+        self.assertIn('--terminal-header:#000080;', tongdaxin_styles)
+        self.assertIn('--terminal-row:#fff;', tongdaxin_styles)
+        self.assertIn('--terminal-button-border-light:#fff;', tongdaxin_styles)
+        self.assertIn('--terminal-button-border-dark:#000;', tongdaxin_styles)
+        self.assertIn('background:#000080 !important;', tongdaxin_styles)
+        self.assertIn('border-color:#fff #000 #000 #fff !important;', tongdaxin_styles)
+        self.assertIn('--red:#c00000;', tongdaxin_styles)
+        self.assertIn('--green:#007b7b;', tongdaxin_styles)
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .overview-command-head '
+            '.overview-command-meta {\n  color:#fff;',
+            tongdaxin_styles,
+        )
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .overview-command-head '
+            '.overview-stale-badge {\n'
+            '  border-color:#808000;\n'
+            '  background:#fff8c6;\n'
+            '  color:#565000 !important;',
+            tongdaxin_styles,
+        )
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .overview-news-source {\n'
+            '  color:#000080;',
+            tongdaxin_styles,
+        )
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .refresh-pill {\n'
+            '  border-color:#fff #000 #000 #fff !important;\n'
+            '  background:#c0c0c0 !important;\n'
+            '  color:#000 !important;',
+            tongdaxin_styles,
+        )
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root :where(\n'
+            '  .version-status,\n'
+            '  .refresh-pill\n'
+            ') :where(span,b) {\n'
+            '  color:#000 !important;',
+            tongdaxin_styles,
+        )
+        self.assertIn(
+            '.appearance-color-sample.tongdaxin-light i:last-child { background:#000080; }',
+            admin_styles,
+        )
+
+    def test_tongdaxin_light_market_breadth_uses_semantic_chart_colors(self):
+        stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('--market-breadth-limit-down:#007b7b;', stylesheet)
+        self.assertIn('--market-breadth-limit-up:#800000;', stylesheet)
+        self.assertIn('--market-breadth-broken-limit:#b05000;', stylesheet)
+        self.assertIn('--market-breadth-red:#d00000;', stylesheet)
+        self.assertIn('--market-breadth-green:#008000;', stylesheet)
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .market-breadth-chart-wrap {\n'
+            '  border:2px solid;\n'
+            '  border-color:#b0b0b0 #fff #fff #b0b0b0;\n'
+            '  background:#fff;',
+            stylesheet,
+        )
+        self.assertIn('accent-color:#6b8fca;', stylesheet)
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .market-breadth-controls {\n'
+            '  border:1px solid #a0a0a0;\n'
+            '  background:#e4e4e4 !important;',
+            stylesheet,
+        )
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .market-breadth-toggle.active {\n'
+            '  border-color:#6f8fc8;\n'
+            '  background:#f4f7fc;\n'
+            '  color:#222;',
+            stylesheet,
+        )
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .market-breadth-line-muted {\n'
+            '  stroke-width:1.5;\n'
+            '  opacity:.9;',
+            stylesheet,
+        )
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .market-breadth-time {\n'
+            '  color:#555;',
+            stylesheet,
         )
 
     def test_tongdaxin_uses_shared_terminal_button_chrome(self):

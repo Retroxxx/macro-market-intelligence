@@ -14,11 +14,15 @@
           theme = localStorage.getItem(themeStorageKey) || '';
           corners = localStorage.getItem(cornerStorageKey) || '';
         } catch (error) {}
-        if (theme !== 'light' && theme !== 'dark' && theme !== 'tongdaxin') {
+        if (theme !== 'light' && theme !== 'dark' && theme !== 'tongdaxin' && theme !== 'tongdaxin-light') {
           theme = window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
         if (corners !== 'rounded' && corners !== 'square') corners = 'square';
-        document.documentElement.dataset.theme = theme;
+        const isTongdaxin = theme === 'tongdaxin' || theme === 'tongdaxin-light';
+        document.documentElement.dataset.theme = isTongdaxin ? 'tongdaxin' : theme;
+        if (isTongdaxin) {
+          document.documentElement.dataset.tongdaxinPalette = theme === 'tongdaxin-light' ? 'light' : 'dark';
+        }
         document.documentElement.dataset.corners = corners;
       })();
     </script>

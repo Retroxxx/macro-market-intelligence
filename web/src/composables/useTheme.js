@@ -3,8 +3,12 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 const THEME_STORAGE_KEY = 'niuone-dashboard-theme-v1'
 const STANDARD_THEME_STORAGE_KEY = 'niuone-dashboard-standard-theme-v1'
 const CORNER_STORAGE_KEY = 'niuone-dashboard-corners-v1'
-const SUPPORTED_THEMES = new Set(['light', 'dark', 'tongdaxin'])
+const SUPPORTED_THEMES = new Set(['light', 'dark', 'tongdaxin', 'tongdaxin-light'])
 const STANDARD_THEMES = new Set(['light', 'dark'])
+
+function isTongdaxinTheme(value) {
+  return value === 'tongdaxin' || value === 'tongdaxin-light'
+}
 
 function storedTheme() {
   try {
@@ -17,6 +21,12 @@ function storedTheme() {
 
 function documentTheme() {
   const value = document.documentElement.dataset.theme || ''
+  if (
+    value === 'tongdaxin'
+    && document.documentElement.dataset.tongdaxinPalette === 'light'
+  ) {
+    return 'tongdaxin-light'
+  }
   return SUPPORTED_THEMES.has(value) ? value : 'light'
 }
 
@@ -59,7 +69,16 @@ export function useTheme() {
   function applyTheme(nextTheme, persist = false) {
     const normalized = SUPPORTED_THEMES.has(nextTheme) ? nextTheme : 'light'
     theme.value = normalized
-    document.documentElement.dataset.theme = normalized
+    document.documentElement.dataset.theme = isTongdaxinTheme(normalized)
+      ? 'tongdaxin'
+      : normalized
+    if (isTongdaxinTheme(normalized)) {
+      document.documentElement.dataset.tongdaxinPalette = normalized === 'tongdaxin-light'
+        ? 'light'
+        : 'dark'
+    } else {
+      delete document.documentElement.dataset.tongdaxinPalette
+    }
     if (STANDARD_THEMES.has(normalized)) {
       standardTheme.value = normalized
     }
@@ -103,14 +122,14 @@ export function useTheme() {
   }
 
   function setStandardCornerStyle(nextStyle) {
-    if (theme.value === 'tongdaxin') {
+    if (isTongdaxinTheme(theme.value)) {
       applyTheme(standardTheme.value, true)
     }
     applyCornerStyle(nextStyle, true)
   }
 
-  function setTongdaxinTheme() {
-    applyTheme('tongdaxin', true)
+  function setTongdaxinTheme(nextTheme = 'tongdaxin') {
+    applyTheme(nextTheme === 'tongdaxin-light' ? 'tongdaxin-light' : 'tongdaxin', true)
   }
 
   function handleSystemTheme(event) {
@@ -153,7 +172,7 @@ export function useTheme() {
   return {
     cornerStyle: computed(() => cornerStyle.value),
     isSquare: computed(() => cornerStyle.value === 'square'),
-    isTongdaxin: computed(() => theme.value === 'tongdaxin'),
+    isTongdaxin: computed(() => isTongdaxinTheme(theme.value)),
     setCornerStyle,
     setStandardCornerStyle,
     setStandardTheme,

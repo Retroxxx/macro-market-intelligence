@@ -1541,7 +1541,21 @@ onBeforeUnmount(() => {
   .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-controls) { gap: 4px; justify-content: flex-start; }
   .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-toggle) { min-height: 22px; padding: 3px 6px; }
   .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-toggle small) { display: none; }
-  .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-head-meta) { font-size: 9px; }
+  .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-head-meta) {
+    box-sizing: border-box;
+    min-width: 68px;
+    overflow: hidden;
+    padding: 0 6px 0 2px;
+    font-size: 9px;
+  }
+  .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-time) {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    line-height: 1;
+    text-align: right;
+    white-space: nowrap;
+  }
   .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-chart-wrap) { flex: 1 1 auto; margin-top: 1px; min-height: 0; padding: 0; }
   .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-chart) { height: 100%; min-height: 0; width: 100%; }
   .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-compact-tooltip) { font-size: 9px; }
