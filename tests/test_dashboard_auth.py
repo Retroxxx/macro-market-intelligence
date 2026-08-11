@@ -4667,6 +4667,25 @@ console.log(JSON.stringify([
             stylesheet,
         )
 
+    def test_tongdaxin_realtime_news_uses_full_route_width(self):
+        stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .realtime-news-page {\n'
+            '  gap:2px;\n'
+            '  max-width:none;\n'
+            '}',
+            stylesheet,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root '
+            '.realtime-news-item article > p {\n'
+            '  max-width:none;\n',
+            stylesheet,
+        )
+
     def test_tongdaxin_uses_shared_terminal_button_chrome(self):
         stylesheet = (
             ROOT / 'frontend' / 'tongdaxin-theme.css'
