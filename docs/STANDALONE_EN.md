@@ -156,6 +156,7 @@ By default, runtime data is stored in:
 | `DASHBOARD_HOME` | `.local-data/runtime` | Root directory for runtime data |
 | `DASHBOARD_HOST` | `127.0.0.1` | Listening address |
 | `DASHBOARD_PORT` | `8787` | Listening port |
+| `NEWSNOW_DECISION_ENABLED` | `1` | Use important Market Flash items as decision evidence; after-close and non-trading-day items belong to the next session; hot-applied |
 | `NEWSNOW_OVERVIEW_IMPORTANT_ONLY` | `1` | Keep only important items in the Overview strip; hot-applied |
 | `NEWSNOW_SOURCES` | `cls-telegraph,jin10,wallstreetcn-quick` | Market Flash sources, separated by commas |
 | `NEWSNOW_MAX_ITEMS` | `300` | Total rolling-history limit from 1 through 3000; hot-applied |

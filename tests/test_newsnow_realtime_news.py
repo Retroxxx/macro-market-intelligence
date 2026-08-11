@@ -21,6 +21,7 @@ from app.monitoring.news import (
     SUPPORTED_SOURCES,
     normalize_endpoint,
     parse_source_ids,
+    shared_newsnow_service,
     source_options,
 )
 
@@ -109,6 +110,13 @@ class NewsNowClientTests(unittest.TestCase):
                 "NEWSNOW_MAX_ITEMS": "49",
                 "NEWSNOW_MAX_IMPORTANT_ITEMS": "50",
             })
+
+    def test_dashboard_and_decision_consumers_share_one_refresh_service(self):
+        with tempfile.TemporaryDirectory(prefix="niuone-newsnow-shared-") as tmp:
+            cache_path = Path(tmp) / "realtime_news_latest.json"
+            first = shared_newsnow_service(cache_path)
+            second = shared_newsnow_service(cache_path)
+        self.assertIs(first, second)
 
     def test_source_registry_exposes_only_finance_choices_in_settings(self):
         options = source_options()

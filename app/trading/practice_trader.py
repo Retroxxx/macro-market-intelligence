@@ -41,6 +41,11 @@ from market_data.news_precheck import (
 )
 from market_data.tencent_kline_cache import merge_live_quote, quote_trade_date
 from niuone_paths import get_dashboard_env_file, get_dashboard_home
+from trading.news_decision_context import (
+    DEFAULT_DECISION_NEWS_MAX_ITEMS,
+    format_important_realtime_news_for_prompt,
+    load_important_realtime_news_decision_context,
+)
 from screening.stock_universe import (
     STOCK_UNIVERSE_ENV,
     friendly_stock_universe,
@@ -249,6 +254,7 @@ def env_hhmm(name: str, default: str) -> dtime:
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 DASHBOARD_HOME = get_dashboard_home(PROJECT_ROOT)
+REALTIME_NEWS_CACHE_FILE = DASHBOARD_HOME / "news" / "realtime_news_latest.json"
 
 
 def load_dashboard_env() -> None:
@@ -271,6 +277,7 @@ def load_dashboard_env() -> None:
         "DASHBOARD_DECISION_INTELLIGENCE_ENABLED",
         "DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS",
         "DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS",
+        "NEWSNOW_DECISION_ENABLED",
         "DASHBOARD_NOTIFICATION_ENABLED",
         "DASHBOARD_NOTIFICATION_TIMEOUT_SECONDS",
         "DASHBOARD_FEISHU_NOTIFICATION_ENABLED",
@@ -2778,6 +2785,7 @@ DECISION_INTELLIGENCE_ENABLED = env_bool("DASHBOARD_DECISION_INTELLIGENCE_ENABLE
 DECISION_INTELLIGENCE_TTL_SECONDS = max(15, env_int("DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS", 75))
 DECISION_INTELLIGENCE_MAX_ITEMS = max(1, min(8, env_int("DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS", 5)))
 DECISION_INTELLIGENCE_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
+NEWSNOW_DECISION_ENABLED = env_bool("NEWSNOW_DECISION_ENABLED", True)
 
 
 def market_session_phase(now: datetime | None = None) -> str:
@@ -4021,10 +4029,36 @@ def build_decision_intelligence_context(
     money_flow = sources.get("money_flow") if isinstance(sources.get("money_flow"), dict) else {}
     hot_stocks = sources.get("hot_stocks") if isinstance(sources.get("hot_stocks"), dict) else {}
     market_flow = sources.get("market_flow") if isinstance(sources.get("market_flow"), dict) else {}
+    try:
+        realtime_news = load_important_realtime_news_decision_context(
+            REALTIME_NEWS_CACHE_FILE,
+            enabled=NEWSNOW_DECISION_ENABLED,
+            max_items=DEFAULT_DECISION_NEWS_MAX_ITEMS,
+        )
+    except Exception as exc:
+        realtime_news = {
+            "enabled": NEWSNOW_DECISION_ENABLED,
+            "available": False,
+            "status": "unavailable",
+            "items": [],
+            "error": type(exc).__name__,
+        }
+    source_status = {
+        key: _source_status(value if isinstance(value, dict) else {})
+        for key, value in sources.items()
+    }
+    if realtime_news.get("enabled"):
+        if realtime_news.get("error"):
+            news_status = "stale" if realtime_news.get("stale") else "error"
+        elif realtime_news.get("stale"):
+            news_status = "stale"
+        else:
+            news_status = str(realtime_news.get("status") or "empty")
+        source_status["realtime_news"] = news_status
     ctx = {
         "enabled": True,
         "generated_at": raw.get("generated_at") if isinstance(raw, dict) else now_ts(),
-        "source_status": {key: _source_status(value if isinstance(value, dict) else {}) for key, value in sources.items()},
+        "source_status": source_status,
         "portfolio": compact_portfolio_exposure_for_decision(portfolio),
         "market_guidance": compact_market_strategy_context(market_strategy_ctx),
         "indices": compact_indices_for_decision(sources.get("indices") if isinstance(sources.get("indices"), dict) else {}),
@@ -4050,6 +4084,7 @@ def build_decision_intelligence_context(
             "available": bool(str(news_context or "").strip()),
             "text": _compact_text(news_context, 1200) if news_context else "",
         },
+        "realtime_news": realtime_news,
     }
     ctx["candidate_alignment"] = build_candidate_market_alignment(candidates, sectors, money_flow, hot_stocks)
     ctx["decision_notes"] = derive_decision_intelligence_notes(ctx)
@@ -4137,6 +4172,12 @@ def format_decision_intelligence_context_for_prompt(ctx: dict[str, Any]) -> str:
         if sector_mappings:
             lines.append("隔夜美股映射：" + "；".join(sector_mappings[:DECISION_INTELLIGENCE_MAX_ITEMS]))
 
+    realtime_news_prompt = format_important_realtime_news_for_prompt(
+        ctx.get("realtime_news") if isinstance(ctx.get("realtime_news"), dict) else {}
+    )
+    if realtime_news_prompt:
+        lines.extend(realtime_news_prompt.splitlines())
+
     sectors = ctx.get("sectors") or {}
     lines.append("板块涨跌：涨幅 " + _format_rank_line(sectors.get("gain_top") or []))
     lines.append("板块涨跌：跌幅 " + _format_rank_line(sectors.get("loss_top") or []))
@@ -4163,7 +4204,8 @@ def format_decision_intelligence_context_for_prompt(ctx: dict[str, Any]) -> str:
     if source_status:
         lines.append("来源状态：" + "；".join(f"{key}={value}" for key, value in sorted(source_status.items())))
     lines.append(
-        "决策要求：每个BUY/SELL/HOLD都必须同时考虑盘面指引、隔夜美股/美股映射、指数/期货、板块与资金、候选消息面、账户仓位和现金状态；"
+        "决策要求：每个BUY/SELL/HOLD都必须同时考虑盘面指引、隔夜美股/美股映射、指数/期货、板块与资金、"
+        "已启用的财经快讯重要信息、候选消息面、账户仓位和现金状态；"
         "若任一关键渠道与技术评分冲突，优先降仓、等待确认或HOLD，并在reason写明冲突来源。"
     )
     return "\n".join(lines)

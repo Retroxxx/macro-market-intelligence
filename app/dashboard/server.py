@@ -128,6 +128,7 @@ from app.monitoring.news import (
     SUPPORTED_SOURCES as NEWSNOW_SUPPORTED_SOURCES,
     normalize_endpoint as normalize_newsnow_endpoint,
     parse_source_ids as parse_newsnow_source_ids,
+    shared_newsnow_service,
     source_options as newsnow_source_options,
 )
 from niuone_paths import apply_container_runtime_overrides, get_dashboard_env_file, get_dashboard_home, get_local_data_dir
@@ -566,6 +567,7 @@ NEWSNOW_SERVICE_LOCK = threading.Lock()
 NEWSNOW_SERVICE: NewsNowService | None = None
 NEWSNOW_CONFIG_NAMES = (
     "NEWSNOW_ENABLED",
+    "NEWSNOW_DECISION_ENABLED",
     "NEWSNOW_OVERVIEW_IMPORTANT_ONLY",
     "NEWSNOW_BASE_URL",
     "NEWSNOW_SOURCES",
@@ -690,6 +692,18 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
         "default": "1",
         "effect": "runtime",
         "bool_no_default": "1",
+    },
+    {
+        "name": "NEWSNOW_DECISION_ENABLED",
+        "label": "重要快讯辅助买卖决策",
+        "group": "财经快讯",
+        "kind": "bool",
+        "default": "1",
+        "effect": "runtime",
+        "bool_no_default": "1",
+        "help_title": "决策信息归属",
+        "help_summary": "开启后，模型决策只读取上游标记为重要且具备可靠发布时间的财经快讯。",
+        "help_footer": "交易日 15:00 前的快讯归属当日；15:00 后及休市日快讯归属下一交易日。快讯只作辅助，不会绕过候选资格、仓位与风控。",
     },
     {
         "name": "NEWSNOW_OVERVIEW_IMPORTANT_ONLY",
@@ -912,6 +926,7 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "DASHBOARD_NIUONE_MAINLINE_MINUTE_REFRESH_ENABLED",
     "DASHBOARD_MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS",
     "NEWSNOW_ENABLED",
+    "NEWSNOW_DECISION_ENABLED",
     "NEWSNOW_OVERVIEW_IMPORTANT_ONLY",
     "NEWSNOW_SOURCES",
     "NEWSNOW_MAX_ITEMS",
@@ -1045,6 +1060,7 @@ TRADER_RUNTIME_ENV_NAMES = {
     "DASHBOARD_DECISION_INTELLIGENCE_ENABLED",
     "DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS",
     "DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS",
+    "NEWSNOW_DECISION_ENABLED",
     "DASHBOARD_MARKET_GUIDANCE_ENABLED",
     TRADE_DISCIPLINE_TEXT_ENV,
     "DASHBOARD_MAX_OPEN_POSITIONS",
@@ -5905,7 +5921,7 @@ def realtime_news_service() -> NewsNowService:
         return NEWSNOW_SERVICE
     with NEWSNOW_SERVICE_LOCK:
         if NEWSNOW_SERVICE is None:
-            NEWSNOW_SERVICE = NewsNowService(NEWSNOW_CACHE_FILE)
+            NEWSNOW_SERVICE = shared_newsnow_service(NEWSNOW_CACHE_FILE)
         return NEWSNOW_SERVICE
 
 
@@ -6240,7 +6256,7 @@ CRON_TIME_CONFIGS = {
     "DASHBOARD_US_RATING_CRON": {"day_label": "每天"},
 }
 ADMIN_GROUP_NOTES = {
-    "财经快讯": "通过 NewsNow 聚合财联社电报、金十数据和华尔街见闻快讯。无需 API Key 或服务地址配置；Compose 部署会随牛牛1号自动启动内置实例，来源抓取失败时继续展示最近一次成功缓存并标记陈旧。",
+    "财经快讯": "通过 NewsNow 聚合财联社电报、金十数据和华尔街见闻快讯。可选择是否将重要快讯写入买卖决策证据；交易日 15:00 后及休市日信息归入下一交易日。无需 API Key 或服务地址配置；Compose 部署会随牛牛1号自动启动内置实例，来源抓取失败时继续展示最近一次成功缓存并标记陈旧。",
     "牛牛美股": "集中管理 X/推文监控、美股买入评级和隔夜美股盘面总结使用的 Grok 配置。长度默认：上下文 128000 tokens，最大输出 4096 tokens；关闭时隐藏 X/评级相关设置，隔夜美股总结仍会读取已配置的 Grok 参数。",
     "消息面预检模型": "用于 A 股候选股及龙虎榜连板/连榜股票最近 3 天消息面预检，并把雪球/X公开内容单列为市场舆情；auto 会为 Grok 4.5 和 GPT-5 系列搜索模型选择 Responses API，Grok Responses 还会使用 x_search。也可显式选择 responses 或 chat。长度默认：上下文 128000 tokens，最大输出 4096 tokens。模型和密钥留空则跳过。",
     "买卖决策模型": "推荐使用 deepseek-v4-pro；也可填写其他兼容 /chat/completions 的模型服务。长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
@@ -6936,6 +6952,7 @@ def sync_business_runtime_settings(
 
     newsnow_names = {
         "NEWSNOW_ENABLED",
+        "NEWSNOW_DECISION_ENABLED",
         "NEWSNOW_OVERVIEW_IMPORTANT_ONLY",
         "NEWSNOW_BASE_URL",
         "NEWSNOW_SOURCES",

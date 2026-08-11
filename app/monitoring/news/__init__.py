@@ -20,6 +20,7 @@ from .newsnow import (
     SUPPORTED_SOURCES,
     normalize_endpoint,
     parse_source_ids,
+    shared_newsnow_service,
     source_options,
 )
 
@@ -43,5 +44,6 @@ __all__ = [
     "SUPPORTED_SOURCES",
     "normalize_endpoint",
     "parse_source_ids",
+    "shared_newsnow_service",
     "source_options",
 ]

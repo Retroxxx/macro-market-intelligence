@@ -752,3 +752,27 @@ class NewsNowService:
             "items": items,
             "error": "" if successful_count else next(iter(errors.values())).code if errors else "request_failed",
         }
+
+
+_SHARED_SERVICE_LOCK = threading.Lock()
+_SHARED_SERVICES: dict[str, NewsNowService] = {}
+
+
+def shared_newsnow_service(cache_path: Path) -> NewsNowService:
+    """Return one process-local service per cache path.
+
+    Dashboard rendering and trading decisions share the same bounded refresh
+    state so they do not race separate refreshes or duplicate upstream calls.
+    """
+
+    path = Path(cache_path).expanduser()
+    try:
+        key = str(path.resolve())
+    except OSError:
+        key = str(path.absolute())
+    with _SHARED_SERVICE_LOCK:
+        service = _SHARED_SERVICES.get(key)
+        if service is None:
+            service = NewsNowService(path)
+            _SHARED_SERVICES[key] = service
+        return service

@@ -7383,7 +7383,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('保存本组设置', ADMIN_FRONTEND)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 20)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('iwencai')), 8)
-        self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 9)
+        self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 10)
         self.assertEqual(
             dashboard.admin_setting_group_env_names('about'),
             {'DASHBOARD_AUTO_VERSION_CHECK_ENABLED'},
@@ -7947,6 +7947,16 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(enabled_item['kind'], 'bool')
         self.assertEqual(enabled_item['default'], '1')
         self.assertEqual(enabled_item['bool_no_default'], '1')
+        decision_item = next(
+            item for item in payload['items'] if item['name'] == 'NEWSNOW_DECISION_ENABLED'
+        )
+        self.assertEqual(decision_item['group'], '财经快讯')
+        self.assertEqual(decision_item['kind'], 'bool')
+        self.assertEqual(decision_item['default'], '1')
+        self.assertEqual(decision_item['effect'], 'runtime')
+        self.assertEqual(decision_item['bool_no_default'], '1')
+        self.assertIn('15:00', decision_item['help_footer'])
+        self.assertIn('NEWSNOW_DECISION_ENABLED', dashboard.TRADER_RUNTIME_ENV_NAMES)
         overview_item = next(
             item
             for item in payload['items']

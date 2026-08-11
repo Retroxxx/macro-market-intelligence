@@ -156,6 +156,7 @@ NiuOne 需要接入大模型后才能驱动完整工作流。没有模型配置�
 | `DASHBOARD_HOME` | `.local-data/runtime` | 运行数据根目录 |
 | `DASHBOARD_HOST` | `127.0.0.1` | 监听地址 |
 | `DASHBOARD_PORT` | `8787` | 监听端口 |
+| `NEWSNOW_DECISION_ENABLED` | `1` | 重要财经快讯辅助买卖决策；15:00 后及休市日信息归入下一交易日；运行时热生效 |
 | `NEWSNOW_OVERVIEW_IMPORTANT_ONLY` | `1` | 总览快讯条仅显示重要信息；运行时热生效 |
 | `NEWSNOW_SOURCES` | `cls-telegraph,jin10,wallstreetcn-quick` | 财经快讯来源，使用英文逗号分隔 |
 | `NEWSNOW_MAX_ITEMS` | `300` | 滚动历史总上限，允许 1～3000 条；运行时热生效 |
