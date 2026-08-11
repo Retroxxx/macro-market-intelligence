@@ -3007,6 +3007,23 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .overview-comm
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .overview-news-source {
   color:#000080;
 }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .news-source-toolbar input[type="search"] {
+  border-color:#808080 #fff #fff #808080;
+  background:#fff;
+  color:#000;
+  box-shadow:inset 1px 1px 0 #000;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .news-source-toolbar input[type="search"]::placeholder {
+  color:#666;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .news-source-count {
+  border-color:#808080;
+  background:#dfdfdf;
+  color:#333;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .news-source-count b {
+  color:#000080;
+}
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .refresh-pill {
   border-color:#fff #000 #000 #fff !important;
   background:#c0c0c0 !important;
@@ -3274,6 +3291,10 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .backtest-table-wrap tbody tr:hover,
   .setting-row:hover
 ) { background:#d6e4ff; color:#000; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .setting-row:hover {
+  background:#d6e4ff;
+  color:#000;
+}
 
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .market-monitor-card.open .market-card-head,

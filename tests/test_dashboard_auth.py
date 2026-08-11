@@ -4484,6 +4484,27 @@ console.log(JSON.stringify([
             tongdaxin_styles,
         )
         self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .news-source-toolbar '
+            'input[type="search"] {\n'
+            '  border-color:#808080 #fff #fff #808080;\n'
+            '  background:#fff;\n'
+            '  color:#000;',
+            tongdaxin_styles,
+        )
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .news-source-count {\n'
+            '  border-color:#808080;\n'
+            '  background:#dfdfdf;\n'
+            '  color:#333;',
+            tongdaxin_styles,
+        )
+        self.assertIn(
+            '[data-tongdaxin-palette="light"]:root .setting-row:hover {\n'
+            '  background:#d6e4ff;\n'
+            '  color:#000;',
+            tongdaxin_styles,
+        )
+        self.assertIn(
             '[data-tongdaxin-palette="light"]:root .refresh-pill {\n'
             '  border-color:#fff #000 #000 #fff !important;\n'
             '  background:#c0c0c0 !important;\n'
