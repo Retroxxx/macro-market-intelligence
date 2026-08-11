@@ -7376,7 +7376,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('保存本组设置', ADMIN_FRONTEND)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 20)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('iwencai')), 8)
-        self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 7)
+        self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 9)
         self.assertEqual(
             dashboard.admin_setting_group_env_names('about'),
             {'DASHBOARD_AUTO_VERSION_CHECK_ENABLED'},
@@ -7892,12 +7892,16 @@ process.stdout.write(JSON.stringify({{
         )
         dashboard.validate_business_updates({'NEWSNOW_BASE_URL': ''})
         dashboard.validate_business_updates({
+            'NEWSNOW_MAX_ITEMS': '300',
+            'NEWSNOW_MAX_IMPORTANT_ITEMS': '50',
             'NEWSNOW_REFRESH_SECONDS': '15',
             'NEWSNOW_TIMEOUT_SECONDS': '30',
             'NEWSNOW_MAX_RETRIES': '2',
             'NEWSNOW_MAX_CONCURRENCY': '3',
         })
         for name, value in (
+            ('NEWSNOW_MAX_ITEMS', '3001'),
+            ('NEWSNOW_MAX_IMPORTANT_ITEMS', '1001'),
             ('NEWSNOW_REFRESH_SECONDS', '14'),
             ('NEWSNOW_TIMEOUT_SECONDS', '31'),
             ('NEWSNOW_MAX_RETRIES', '3'),
@@ -7905,6 +7909,14 @@ process.stdout.write(JSON.stringify({{
         ):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 dashboard.validate_business_updates({name: value})
+        with self.assertRaisesRegex(
+            ValueError,
+            'NEWSNOW_MAX_IMPORTANT_ITEMS 不能大于 NEWSNOW_MAX_ITEMS',
+        ):
+            dashboard.validate_business_updates({
+                'NEWSNOW_MAX_ITEMS': '49',
+                'NEWSNOW_MAX_IMPORTANT_ITEMS': '50',
+            })
         with self.assertRaises(ValueError):
             dashboard.validate_business_updates({'NEWSNOW_SOURCES': 'jin10,unknown'})
 
@@ -7948,6 +7960,28 @@ process.stdout.write(JSON.stringify({{
             item for item in payload['items'] if item['name'] == 'NEWSNOW_MAX_CONCURRENCY'
         )
         self.assertEqual(concurrency_item['default'], '3')
+        max_items = next(
+            item for item in payload['items'] if item['name'] == 'NEWSNOW_MAX_ITEMS'
+        )
+        max_important_items = next(
+            item
+            for item in payload['items']
+            if item['name'] == 'NEWSNOW_MAX_IMPORTANT_ITEMS'
+        )
+        self.assertEqual(max_items['default'], '300')
+        self.assertEqual(max_items['effect'], 'runtime')
+        self.assertEqual(max_items['min'], '1')
+        self.assertEqual(max_items['max'], '3000')
+        self.assertEqual(max_important_items['default'], '50')
+        self.assertEqual(max_important_items['effect'], 'runtime')
+        self.assertEqual(max_important_items['min'], '1')
+        self.assertEqual(max_important_items['max'], '1000')
+        configured = dashboard.newsnow_config({
+            'NEWSNOW_MAX_ITEMS': '450',
+            'NEWSNOW_MAX_IMPORTANT_ITEMS': '75',
+        })
+        self.assertEqual(configured.max_items, 450)
+        self.assertEqual(configured.max_important_items, 75)
 
     def test_bundled_newsnow_ignores_saved_endpoint_but_process_override_wins(self):
         dashboard.os.environ['NIUONE_BUNDLED_NEWSNOW_URL'] = 'http://newsnow:4444/'

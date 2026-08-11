@@ -14,6 +14,7 @@ from app.monitoring.news import (
     NEWSNOW_SOURCE_REGISTRY_REVISION,
     NewsNowClient,
     NewsNowConfig,
+    NewsNowConfigurationError,
     NewsNowRequestError,
     NewsNowResponseError,
     NewsNowService,
@@ -79,6 +80,8 @@ class NewsNowClientTests(unittest.TestCase):
             ("cls-telegraph", "jin10", "wallstreetcn-quick"),
         )
         self.assertEqual(default_config.max_concurrency, 3)
+        self.assertEqual(default_config.max_items, 300)
+        self.assertEqual(default_config.max_important_items, 50)
         self.assertEqual(
             normalize_endpoint("https://example.com/news/api/s/"),
             "https://example.com/news/api/s",
@@ -91,6 +94,21 @@ class NewsNowClientTests(unittest.TestCase):
             normalize_endpoint("https://user:secret@example.com")
         with self.assertRaises(ValueError):
             parse_source_ids("jin10,unknown-source")
+        configured_limits = NewsNowConfig.from_env({
+            "NEWSNOW_MAX_ITEMS": "450",
+            "NEWSNOW_MAX_IMPORTANT_ITEMS": "75",
+        })
+        self.assertEqual(configured_limits.max_items, 450)
+        self.assertEqual(configured_limits.max_important_items, 75)
+        self.assertNotEqual(default_config.fingerprint, configured_limits.fingerprint)
+        with self.assertRaisesRegex(
+            NewsNowConfigurationError,
+            "NEWSNOW_MAX_IMPORTANT_ITEMS 不能大于 NEWSNOW_MAX_ITEMS",
+        ):
+            NewsNowConfig.from_env({
+                "NEWSNOW_MAX_ITEMS": "49",
+                "NEWSNOW_MAX_IMPORTANT_ITEMS": "50",
+            })
 
     def test_source_registry_exposes_only_finance_choices_in_settings(self):
         options = source_options()
@@ -289,6 +307,30 @@ class NewsNowClientTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "invalid_content_type")
         self.assertNotIn("Attention Required", str(caught.exception))
 
+    def test_response_normalization_obeys_configured_total_limit(self):
+        payload = source_payload("jin10", "item-0", "快讯 0")
+        payload["items"] = [
+            {
+                "id": f"item-{index}",
+                "title": f"快讯 {index}",
+                "pubDate": 1_786_420_800_000 + index,
+                "url": f"https://example.com/item-{index}",
+            }
+            for index in range(5)
+        ]
+
+        result = NewsNowClient._parse_response(
+            "jin10",
+            json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            item_limit=3,
+        )
+
+        self.assertEqual([item["external_id"] for item in result["items"]], [
+            "item-0",
+            "item-1",
+            "item-2",
+        ])
+
 
 class ControlledClient:
     def __init__(self, responses):
@@ -322,7 +364,29 @@ class NewsNowServiceTests(unittest.TestCase):
             json.dumps(source_payload(source_id, item_id, title), ensure_ascii=False).encode("utf-8"),
         )
 
-    def test_partial_failure_reuses_only_the_last_valid_source(self):
+    @staticmethod
+    def normalized_source_items(source_id: str, entries: list[tuple[str, int, bool]]) -> dict:
+        payload = {
+            "id": source_id,
+            "status": "success",
+            "updatedTime": max(published_at for _, published_at, _ in entries),
+            "items": [
+                {
+                    "id": item_id,
+                    "title": item_id,
+                    "pubDate": published_at,
+                    "url": f"https://example.com/{item_id}",
+                    "extra": {"info": "✰" if important else ""},
+                }
+                for item_id, published_at, important in entries
+            ],
+        }
+        return NewsNowClient._parse_response(
+            source_id,
+            json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        )
+
+    def test_partial_failure_reuses_failed_source_and_preserves_success_history(self):
         clock = [1000.0]
         responses = {
             "cls-telegraph": self.normalized_source("cls-telegraph", "cls-1", "财联社旧消息"),
@@ -351,7 +415,7 @@ class NewsNowServiceTests(unittest.TestCase):
             self.assertTrue(partial["stale"])
             self.assertEqual(
                 {item["title"] for item in partial["items"]},
-                {"财联社新消息", "金十旧消息"},
+                {"财联社新消息", "财联社旧消息", "金十旧消息"},
             )
             jin10 = next(source for source in partial["sources"] if source["id"] == "jin10")
             self.assertEqual(jin10["status"], "cache")
@@ -362,11 +426,67 @@ class NewsNowServiceTests(unittest.TestCase):
             responses["cls-telegraph"] = NewsNowRequestError("network_error", "offline")
             cached = service.get_news(self.config())
             self.assertEqual(cached["status"], "cache")
-            self.assertEqual(len(cached["items"]), 2)
+            self.assertEqual(len(cached["items"]), 3)
             self.assertEqual(
                 json.loads(path.read_text(encoding="utf-8"))["attempted_at_ms"],
                 persisted_attempt,
             )
+
+    def test_successful_refresh_keeps_bounded_history_and_prioritizes_important_items(self):
+        clock = [1000.0]
+        base = 1_786_420_800_000
+        responses = {
+            "jin10": self.normalized_source_items("jin10", [
+                ("old-important", base + 10, True),
+                ("old-ordinary", base + 20, False),
+            ]),
+        }
+        config = self.config(
+            source_ids=("jin10",),
+            max_concurrency=1,
+            max_items=3,
+            max_important_items=1,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "news.json"
+            service = NewsNowService(
+                path,
+                client_factory=lambda _config: ControlledClient(responses),
+                now=lambda: clock[0],
+            )
+            first = service.get_news(config)
+            self.assertEqual(len(first["items"]), 2)
+
+            clock[0] += 20
+            responses["jin10"] = self.normalized_source_items("jin10", [
+                ("new-ordinary-1", base + 40, False),
+                ("new-ordinary-2", base + 30, False),
+            ])
+            second = service.get_news(config)
+
+            self.assertEqual(
+                {item["external_id"] for item in second["items"]},
+                {"old-important", "new-ordinary-1", "new-ordinary-2"},
+            )
+            self.assertEqual(sum(item["important"] for item in second["items"]), 1)
+            self.assertEqual(second["sources"][0]["count"], 3)
+
+            clock[0] += 20
+            responses["jin10"] = self.normalized_source_items("jin10", [
+                ("new-important-1", base + 60, True),
+                ("new-important-2", base + 50, True),
+            ])
+            third = service.get_news(config)
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(len(third["items"]), 3)
+        self.assertEqual(
+            [item["external_id"] for item in third["items"] if item["important"]],
+            ["new-important-1"],
+        )
+        self.assertNotIn("old-important", {item["external_id"] for item in third["items"]})
+        self.assertEqual(persisted["max_items"], 3)
+        self.assertEqual(persisted["max_important_items"], 1)
 
     def test_refresh_window_suppresses_duplicate_request_storms(self):
         calls = []

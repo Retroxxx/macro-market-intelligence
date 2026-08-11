@@ -116,19 +116,21 @@ NiuOne 需要大模型驱动完整工作流。X 关注列表监控使用具备 `
 
 ### 3.1 财经快讯
 
-`/realtime-news` 由 Dashboard 服务端调用 NewsNow，不需要 API Key。Compose 默认启动 `ghcr.io/ourongxing/newsnow:latest` 并通过内网 `http://newsnow:4444/api/s` 使用；该容器不映射宿主机端口，即使只启动 Dashboard 也会被自动带起。Dashboard 只等待 NewsNow 容器进入 started 状态，不等待其健康检查，因此后续抓取异常不会拖垮主服务。默认来源为财联社电报 `cls-telegraph`、金十数据 `jin10` 和华尔街见闻快讯 `wallstreetcn-quick`；管理设置的“财经快讯”页面仅提供财经商业分类下 12 个实际来源的搜索与多选。总览页在右下角复用同一份快讯数据，纵向展示最近 5 条；默认只显示上游标记或本地规则识别出的重要快讯，可在设置中关闭该筛选。浏览器每 30 秒检查同源 API；服务端按 `NEWSNOW_REFRESH_SECONDS` 合并重复请求，并继续遵守各来源在 NewsNow 注册表中的上游更新间隔。
+`/realtime-news` 由 Dashboard 服务端调用 NewsNow，不需要 API Key。Compose 默认启动 `ghcr.io/ourongxing/newsnow:latest` 并通过内网 `http://newsnow:4444/api/s` 使用；该容器不映射宿主机端口，即使只启动 Dashboard 也会被自动带起。Dashboard 只等待 NewsNow 容器进入 started 状态，不等待其健康检查，因此后续抓取异常不会拖垮主服务。默认来源为财联社电报 `cls-telegraph`、金十数据 `jin10` 和华尔街见闻快讯 `wallstreetcn-quick`；管理设置的“财经快讯”页面仅提供财经商业分类下 12 个实际来源的搜索与多选。总览页在右下角复用同一份快讯数据，纵向展示最近 5 条；默认只显示上游标记或本地规则识别出的重要快讯，可在设置中关闭该筛选。浏览器每 30 秒检查同源 API；服务端按 `NEWSNOW_REFRESH_SECONDS` 合并重复请求，并继续遵守各来源在 NewsNow 注册表中的上游更新间隔。成功响应会按新闻 ID 合并到本地滚动历史，默认最多保留 300 条，其中重要快讯优先保留且最多 50 条。
 
 | 配置 | 默认值 | 可选范围 | 生效方式 |
 |---|---:|---:|---|
 | `NEWSNOW_ENABLED` | `1` | `0` 或 `1` | 运行时热应用 |
 | `NEWSNOW_OVERVIEW_IMPORTANT_ONLY` | `1` | `0` 或 `1`；只影响总览快讯条 | 运行时热应用 |
 | `NEWSNOW_SOURCES` | `cls-telegraph,jin10,wallstreetcn-quick` | 管理页列出的 NewsNow 实际来源；至少一项 | 运行时热应用 |
+| `NEWSNOW_MAX_ITEMS` | `300` | `1`～`3000` 条；完整滚动历史总上限 | 运行时热应用 |
+| `NEWSNOW_MAX_IMPORTANT_ITEMS` | `50` | `1`～`1000` 条，且不得大于总上限 | 运行时热应用 |
 | `NEWSNOW_REFRESH_SECONDS` | `60` | `15`～`1800` 秒 | 运行时热应用 |
 | `NEWSNOW_TIMEOUT_SECONDS` | `10` | `2`～`30` 秒 | 运行时热应用 |
 | `NEWSNOW_MAX_RETRIES` | `1` | `0`～`2` | 运行时热应用 |
 | `NEWSNOW_MAX_CONCURRENCY` | `3` | `1`～`3` | 运行时热应用 |
 
-各来源在有界并发和超时内独立获取。成功结果原子保存到 `.local-data/runtime/news/realtime_news_latest.json`；单个来源失败时只回退该来源最近一次有效数据并标记 `stale/cache`，全部失败也不会用空结果覆盖缓存。内置 NewsNow 的状态保存在 `newsnow-data` volume，并跟随 `docker compose up/down` 自动启动和停止；用户不需要配置服务地址。来源越多，首次聚合耗时和上游请求量越大，应按需选择。运维排障可使用 `docker compose ps newsnow` 和 `docker compose logs newsnow`，如需固定上游版本可选设置 `NEWSNOW_IMAGE`。服务必须能出站访问所选来源，并按各内容来源的服务条款处理展示、存储和转载。
+各来源在有界并发和超时内独立获取。成功结果与已有记录按 ID 去重合并，新副本优先，并按时间裁剪到 `NEWSNOW_MAX_ITEMS`；最多 `NEWSNOW_MAX_IMPORTANT_ITEMS` 条重要快讯在总容量内优先保留。结果原子保存到 `.local-data/runtime/news/realtime_news_latest.json`；单个来源失败时只回退该来源已保存的历史并标记 `stale/cache`，全部失败也不会用空结果覆盖缓存。内置 NewsNow 的状态保存在 `newsnow-data` volume，并跟随 `docker compose up/down` 自动启动和停止；用户不需要配置服务地址。来源越多，首次聚合耗时和上游请求量越大，应按需选择。运维排障可使用 `docker compose ps newsnow` 和 `docker compose logs newsnow`，如需固定上游版本可选设置 `NEWSNOW_IMAGE`。服务必须能出站访问所选来源，并按各内容来源的服务条款处理展示、存储和转载。
 
 ### 3.2 行情与资金流设置
 

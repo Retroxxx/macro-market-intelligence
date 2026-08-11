@@ -2,7 +2,13 @@
 
 from .newsnow import (
     DEFAULT_ENDPOINT,
+    DEFAULT_MAX_IMPORTANT_ITEMS,
+    DEFAULT_MAX_ITEMS,
     DEFAULT_SOURCE_IDS,
+    MAX_MAX_IMPORTANT_ITEMS,
+    MAX_MAX_ITEMS,
+    MIN_MAX_IMPORTANT_ITEMS,
+    MIN_MAX_ITEMS,
     NEWSNOW_SOURCE_REGISTRY_REVISION,
     NewsNowClient,
     NewsNowConfig,
@@ -19,7 +25,13 @@ from .newsnow import (
 
 __all__ = [
     "DEFAULT_ENDPOINT",
+    "DEFAULT_MAX_IMPORTANT_ITEMS",
+    "DEFAULT_MAX_ITEMS",
     "DEFAULT_SOURCE_IDS",
+    "MAX_MAX_IMPORTANT_ITEMS",
+    "MAX_MAX_ITEMS",
+    "MIN_MAX_IMPORTANT_ITEMS",
+    "MIN_MAX_ITEMS",
     "NEWSNOW_SOURCE_REGISTRY_REVISION",
     "NewsNowClient",
     "NewsNowConfig",

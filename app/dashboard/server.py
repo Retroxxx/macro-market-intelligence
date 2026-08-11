@@ -115,7 +115,13 @@ from market_data.tencent_kline_cache import (
     prewarm_completed_for_date,
 )
 from app.monitoring.news import (
+    DEFAULT_MAX_IMPORTANT_ITEMS as DEFAULT_NEWSNOW_MAX_IMPORTANT_ITEMS,
+    DEFAULT_MAX_ITEMS as DEFAULT_NEWSNOW_MAX_ITEMS,
     DEFAULT_SOURCE_IDS as DEFAULT_NEWSNOW_SOURCE_IDS,
+    MAX_MAX_IMPORTANT_ITEMS as NEWSNOW_MAX_IMPORTANT_ITEMS_MAX,
+    MAX_MAX_ITEMS as NEWSNOW_MAX_ITEMS_MAX,
+    MIN_MAX_IMPORTANT_ITEMS as NEWSNOW_MAX_IMPORTANT_ITEMS_MIN,
+    MIN_MAX_ITEMS as NEWSNOW_MAX_ITEMS_MIN,
     NewsNowConfig,
     NewsNowConfigurationError,
     NewsNowService,
@@ -563,6 +569,8 @@ NEWSNOW_CONFIG_NAMES = (
     "NEWSNOW_OVERVIEW_IMPORTANT_ONLY",
     "NEWSNOW_BASE_URL",
     "NEWSNOW_SOURCES",
+    "NEWSNOW_MAX_ITEMS",
+    "NEWSNOW_MAX_IMPORTANT_ITEMS",
     "NEWSNOW_REFRESH_SECONDS",
     "NEWSNOW_TIMEOUT_SECONDS",
     "NEWSNOW_MAX_RETRIES",
@@ -702,6 +710,32 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
         "help_title": "NewsNow 数据源",
         "help_summary": "可搜索并多选 NewsNow 当前财经商业来源；至少选择一项。",
         "help_footer": "兼容跳转别名不会重复显示。来源越多，首次刷新耗时和上游请求量越大，建议按需选择。",
+    },
+    {
+        "name": "NEWSNOW_MAX_ITEMS",
+        "label": "快讯总保留上限",
+        "group": "财经快讯",
+        "kind": "int",
+        "default": str(DEFAULT_NEWSNOW_MAX_ITEMS),
+        "effect": "runtime",
+        "min": str(NEWSNOW_MAX_ITEMS_MIN),
+        "max": str(NEWSNOW_MAX_ITEMS_MAX),
+        "help_title": "滚动历史容量",
+        "help_summary": "控制财经快讯完整页和本地持久缓存合计保留的最大条数。",
+        "help_footer": "成功刷新会合并去重后按新到旧裁剪；重要快讯在总容量内优先保留。",
+    },
+    {
+        "name": "NEWSNOW_MAX_IMPORTANT_ITEMS",
+        "label": "重要快讯保留上限",
+        "group": "财经快讯",
+        "kind": "int",
+        "default": str(DEFAULT_NEWSNOW_MAX_IMPORTANT_ITEMS),
+        "effect": "runtime",
+        "min": str(NEWSNOW_MAX_IMPORTANT_ITEMS_MIN),
+        "max": str(NEWSNOW_MAX_IMPORTANT_ITEMS_MAX),
+        "help_title": "重要快讯容量",
+        "help_summary": "控制滚动历史中最多保留多少条上游标记为重要的快讯。",
+        "help_footer": "该值不能大于快讯总保留上限；达到上限后优先淘汰最旧的重要快讯。",
     },
     {"name": "NEWSNOW_REFRESH_SECONDS", "label": "本地刷新间隔（秒）", "group": "财经快讯", "kind": "int", "default": "60", "effect": "runtime", "min": "15", "max": "1800"},
     {"name": "NEWSNOW_TIMEOUT_SECONDS", "label": "单次请求超时（秒）", "group": "财经快讯", "kind": "int", "default": "10", "effect": "runtime", "min": "2", "max": "30"},
@@ -880,6 +914,8 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "NEWSNOW_ENABLED",
     "NEWSNOW_OVERVIEW_IMPORTANT_ONLY",
     "NEWSNOW_SOURCES",
+    "NEWSNOW_MAX_ITEMS",
+    "NEWSNOW_MAX_IMPORTANT_ITEMS",
     "NEWSNOW_REFRESH_SECONDS",
     "NEWSNOW_TIMEOUT_SECONDS",
     "NEWSNOW_MAX_RETRIES",
@@ -6643,6 +6679,8 @@ def validate_business_updates(updates: dict[str, str]) -> None:
         elif name == "NEWSNOW_SOURCES":
             parse_newsnow_source_ids(value)
         elif name in {
+            "NEWSNOW_MAX_ITEMS",
+            "NEWSNOW_MAX_IMPORTANT_ITEMS",
             "NEWSNOW_REFRESH_SECONDS",
             "NEWSNOW_TIMEOUT_SECONDS",
             "NEWSNOW_MAX_RETRIES",
@@ -6650,6 +6688,11 @@ def validate_business_updates(updates: dict[str, str]) -> None:
         } and str(value or "").strip():
             number = int(value)
             minimum, maximum = {
+                "NEWSNOW_MAX_ITEMS": (NEWSNOW_MAX_ITEMS_MIN, NEWSNOW_MAX_ITEMS_MAX),
+                "NEWSNOW_MAX_IMPORTANT_ITEMS": (
+                    NEWSNOW_MAX_IMPORTANT_ITEMS_MIN,
+                    NEWSNOW_MAX_IMPORTANT_ITEMS_MAX,
+                ),
                 "NEWSNOW_REFRESH_SECONDS": (15, 1800),
                 "NEWSNOW_TIMEOUT_SECONDS": (2, 30),
                 "NEWSNOW_MAX_RETRIES": (0, 2),
@@ -6803,6 +6846,21 @@ def validate_business_updates(updates: dict[str, str]) -> None:
             fallback=INDUSTRY_FLOW_SAMPLING_WINDOWS,
             strict=True,
         )
+    newsnow_limit_names = {"NEWSNOW_MAX_ITEMS", "NEWSNOW_MAX_IMPORTANT_ITEMS"}
+    if set(updates) & newsnow_limit_names:
+        current = parse_env_file()
+        max_items = int(
+            updates.get("NEWSNOW_MAX_ITEMS")
+            or current.get("NEWSNOW_MAX_ITEMS")
+            or DEFAULT_NEWSNOW_MAX_ITEMS
+        )
+        max_important_items = int(
+            updates.get("NEWSNOW_MAX_IMPORTANT_ITEMS")
+            or current.get("NEWSNOW_MAX_IMPORTANT_ITEMS")
+            or DEFAULT_NEWSNOW_MAX_IMPORTANT_ITEMS
+        )
+        if max_important_items > max_items:
+            raise ValueError("NEWSNOW_MAX_IMPORTANT_ITEMS 不能大于 NEWSNOW_MAX_ITEMS")
 
 
 def sync_business_runtime_settings(
@@ -6881,6 +6939,8 @@ def sync_business_runtime_settings(
         "NEWSNOW_OVERVIEW_IMPORTANT_ONLY",
         "NEWSNOW_BASE_URL",
         "NEWSNOW_SOURCES",
+        "NEWSNOW_MAX_ITEMS",
+        "NEWSNOW_MAX_IMPORTANT_ITEMS",
         "NEWSNOW_REFRESH_SECONDS",
         "NEWSNOW_TIMEOUT_SECONDS",
         "NEWSNOW_MAX_RETRIES",

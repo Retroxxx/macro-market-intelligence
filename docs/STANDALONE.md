@@ -113,7 +113,7 @@ NiuOne 需要接入大模型后才能驱动完整工作流。没有模型配置�
 | 选股后的买卖决策 | 推荐 DeepSeek，可用其他兼容模型 | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL` |
 | 买卖决策情报包 | 本地聚合，不需要额外模型 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`、`DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`、`DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 
-“财经快讯”不依赖大模型、API Key 或服务地址配置。Compose 部署会随牛牛1号自动启动、停止和恢复官方 NewsNow 容器，Dashboard 通过私有容器网络读取，用户无需管理独立端口或进程；NewsNow 数据保存在独立的 `newsnow-data` volume。管理设置页仅提供财经商业分类下 12 个实际来源的搜索与多选，默认来源为财联社电报、金十数据和华尔街见闻快讯。总览页会在右下角纵向展示最近 5 条快讯，默认仅显示重要信息；关闭“在总览中仅显示重要信息”后会显示全部类型，但不改变完整财经快讯页。使用 `run.sh` / `run.bat` 的原生部署也无需配置，未运行容器 sidecar 时会自动使用公共服务兜底。Dashboard 只向浏览器暴露规范化后的同源 `/api/realtime-news`，上游失败时保留 `.local-data/runtime/news/realtime_news_latest.json` 中最近一次有效来源数据并标记缓存状态。
+“财经快讯”不依赖大模型、API Key 或服务地址配置。Compose 部署会随牛牛1号自动启动、停止和恢复官方 NewsNow 容器，Dashboard 通过私有容器网络读取，用户无需管理独立端口或进程；NewsNow 数据保存在独立的 `newsnow-data` volume。管理设置页仅提供财经商业分类下 12 个实际来源的搜索与多选，默认来源为财联社电报、金十数据和华尔街见闻快讯。总览页会在右下角纵向展示最近 5 条快讯，默认仅显示重要信息；关闭“在总览中仅显示重要信息”后会显示全部类型，但不改变完整财经快讯页。使用 `run.sh` / `run.bat` 的原生部署也无需配置，未运行容器 sidecar 时会自动使用公共服务兜底。Dashboard 只向浏览器暴露规范化后的同源 `/api/realtime-news`，成功刷新按 ID 合并并默认有界保留 300 条滚动历史，其中优先保留最多 50 条重要快讯；上游失败时继续使用 `.local-data/runtime/news/realtime_news_latest.json` 中的已保存历史并标记缓存状态。
 
 启动后点击页面上的设置按钮，在设置页维护模型、任务时间和推文监控作者。所有需要模型和 API Key 的分组均可点击“测试模型连接”，测试页面当前填写值但不会自动保存；API Key 留空时复用已保存密钥。推文监控作者填写 X/Twitter handle，不需要 `@`。
 推文监控和美股评级相关设置由“开启牛牛美股”总开关控制；关闭时这些设置会折叠隐藏，后台 X 监控和美股评级定时任务会跳过。只关闭“开启 X 关注列表监控”时，X 守护进程和直接执行入口都会跳过查询，美股评级日报仍按计划运行。
@@ -158,6 +158,8 @@ NiuOne 需要接入大模型后才能驱动完整工作流。没有模型配置�
 | `DASHBOARD_PORT` | `8787` | 监听端口 |
 | `NEWSNOW_OVERVIEW_IMPORTANT_ONLY` | `1` | 总览快讯条仅显示重要信息；运行时热生效 |
 | `NEWSNOW_SOURCES` | `cls-telegraph,jin10,wallstreetcn-quick` | 财经快讯来源，使用英文逗号分隔 |
+| `NEWSNOW_MAX_ITEMS` | `300` | 滚动历史总上限，允许 1～3000 条；运行时热生效 |
+| `NEWSNOW_MAX_IMPORTANT_ITEMS` | `50` | 重要快讯上限，允许 1～1000 条且不得大于总上限；运行时热生效 |
 | `NEWSNOW_REFRESH_SECONDS` | `60` | NiuOne 本地检查间隔，允许 15～1800 秒；运行时热生效 |
 | `DASHBOARD_ADMIN_PASSWORD` | 空 | 设置页管理员密码；为空时使用 `$DASHBOARD_HOME/dashboard_admin_token.txt` 中的 bootstrap 管理密钥 |
 | `PYTHON_BIN` | `.local-data/.venv/bin/python` 或 Windows venv Python | Python 可执行文件 |

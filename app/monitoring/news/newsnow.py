@@ -107,7 +107,12 @@ SUPPORTED_SOURCES: dict[str, dict[str, Any]] = {
     for source_id, label, category, interval_seconds in _SOURCE_DEFINITIONS
 }
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
-MAX_ITEMS_PER_SOURCE = 30
+DEFAULT_MAX_ITEMS = 300
+DEFAULT_MAX_IMPORTANT_ITEMS = 50
+MIN_MAX_ITEMS = 1
+MAX_MAX_ITEMS = 3000
+MIN_MAX_IMPORTANT_ITEMS = 1
+MAX_MAX_IMPORTANT_ITEMS = 1000
 CN_TZ = timezone(timedelta(hours=8))
 TRUTHY_VALUES = {"1", "true", "yes", "on"}
 IMPORTANT_INFO_MARKERS = {"1", "important", "on", "true", "yes", "✰", "★", "⭐", "重要"}
@@ -232,6 +237,29 @@ class NewsNowConfig:
     max_retries: int = 1
     max_concurrency: int = 3
     refresh_seconds: int = 60
+    max_items: int = DEFAULT_MAX_ITEMS
+    max_important_items: int = DEFAULT_MAX_IMPORTANT_ITEMS
+
+    def __post_init__(self) -> None:
+        for name, value, minimum, maximum in (
+            ("NEWSNOW_MAX_ITEMS", self.max_items, MIN_MAX_ITEMS, MAX_MAX_ITEMS),
+            (
+                "NEWSNOW_MAX_IMPORTANT_ITEMS",
+                self.max_important_items,
+                MIN_MAX_IMPORTANT_ITEMS,
+                MAX_MAX_IMPORTANT_ITEMS,
+            ),
+        ):
+            if value < minimum or value > maximum:
+                raise NewsNowConfigurationError(
+                    "invalid_configuration",
+                    f"{name} 必须在 {minimum} 到 {maximum} 之间",
+                )
+        if self.max_important_items > self.max_items:
+            raise NewsNowConfigurationError(
+                "invalid_configuration",
+                "NEWSNOW_MAX_IMPORTANT_ITEMS 不能大于 NEWSNOW_MAX_ITEMS",
+            )
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "NewsNowConfig":
@@ -244,6 +272,25 @@ class NewsNowConfig:
             )
         except ValueError as exc:
             raise NewsNowConfigurationError("invalid_configuration", str(exc)) from exc
+        max_items = _bounded_int(
+            values,
+            "NEWSNOW_MAX_ITEMS",
+            DEFAULT_MAX_ITEMS,
+            MIN_MAX_ITEMS,
+            MAX_MAX_ITEMS,
+        )
+        max_important_items = _bounded_int(
+            values,
+            "NEWSNOW_MAX_IMPORTANT_ITEMS",
+            DEFAULT_MAX_IMPORTANT_ITEMS,
+            MIN_MAX_IMPORTANT_ITEMS,
+            MAX_MAX_IMPORTANT_ITEMS,
+        )
+        if max_important_items > max_items:
+            raise NewsNowConfigurationError(
+                "invalid_configuration",
+                "NEWSNOW_MAX_IMPORTANT_ITEMS 不能大于 NEWSNOW_MAX_ITEMS",
+            )
         return cls(
             enabled=enabled,
             endpoint=endpoint,
@@ -252,11 +299,18 @@ class NewsNowConfig:
             max_retries=_bounded_int(values, "NEWSNOW_MAX_RETRIES", 1, 0, 2),
             max_concurrency=_bounded_int(values, "NEWSNOW_MAX_CONCURRENCY", 3, 1, 3),
             refresh_seconds=_bounded_int(values, "NEWSNOW_REFRESH_SECONDS", 60, 15, 1800),
+            max_items=max_items,
+            max_important_items=max_important_items,
         )
 
     @property
     def fingerprint(self) -> str:
-        raw = "\n".join((self.endpoint, *self.source_ids)).encode("utf-8")
+        raw = "\n".join((
+            self.endpoint,
+            *self.source_ids,
+            f"max_items={self.max_items}",
+            f"max_important_items={self.max_important_items}",
+        )).encode("utf-8")
         return hashlib.sha256(raw).hexdigest()
 
 
@@ -354,6 +408,32 @@ def _normalized_item(source_id: str, raw: Mapping[str, Any], rank: int) -> dict[
     }
 
 
+def _item_sort_key(item: Mapping[str, Any]) -> tuple[int, int]:
+    return (
+        int(item.get("published_at_ms") or item.get("collected_at_ms") or 0),
+        -int(item.get("rank") or 0),
+    )
+
+
+def _retain_items(
+    items: list[dict[str, Any]],
+    *,
+    max_items: int,
+    max_important_items: int,
+) -> list[dict[str, Any]]:
+    """Keep a bounded rolling history while reserving room for important items."""
+
+    ordered = sorted(items, key=_item_sort_key, reverse=True)
+    important = [item for item in ordered if item.get("important") is True][
+        :max_important_items
+    ]
+    ordinary_limit = max(0, max_items - len(important))
+    ordinary = [item for item in ordered if item.get("important") is not True][
+        :ordinary_limit
+    ]
+    return sorted([*important, *ordinary], key=_item_sort_key, reverse=True)
+
+
 class NewsNowClient:
     """Fetch and validate one NewsNow source with bounded I/O and retries."""
 
@@ -414,7 +494,11 @@ class NewsNowClient:
                         raise NewsNowResponseError("response_too_large", "NewsNow 响应超过大小上限")
                     if content_type and "json" not in content_type.lower():
                         raise NewsNowResponseError("invalid_content_type", "NewsNow 未返回 JSON")
-                    return self._parse_response(source_id, body)
+                    return self._parse_response(
+                        source_id,
+                        body,
+                        item_limit=self.config.max_items,
+                    )
             finally:
                 self._semaphore.release()
             if attempt < self.config.max_retries:
@@ -424,7 +508,12 @@ class NewsNowClient:
         raise NewsNowRequestError("request_failed", "NewsNow 请求失败")
 
     @staticmethod
-    def _parse_response(source_id: str, body: bytes) -> dict[str, Any]:
+    def _parse_response(
+        source_id: str,
+        body: bytes,
+        *,
+        item_limit: int = DEFAULT_MAX_ITEMS,
+    ) -> dict[str, Any]:
         try:
             parsed = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -436,7 +525,7 @@ class NewsNowClient:
         if status not in {"success", "cache"} or not isinstance(items, list):
             raise NewsNowResponseError("invalid_response", "NewsNow 响应缺少有效状态或新闻列表")
         normalized_items = []
-        for rank, raw in enumerate(items[:MAX_ITEMS_PER_SOURCE], start=1):
+        for rank, raw in enumerate(items[:item_limit], start=1):
             if not isinstance(raw, Mapping):
                 continue
             item = _normalized_item(source_id, raw, rank)
@@ -530,6 +619,8 @@ class NewsNowService:
             "attempted_at_ms": now_ms,
             "successful_source_count": 0,
             "source_ids": list(config.source_ids),
+            "max_items": config.max_items,
+            "max_important_items": config.max_important_items,
             "sources": [],
             "items": [],
             "error": "realtime_news_disabled",
@@ -578,7 +669,11 @@ class NewsNowService:
             meta = SUPPORTED_SOURCES[source_id]
             success = successes.get(source_id)
             if success is not None:
-                items = list(success["items"])
+                items = []
+                for item in success["items"]:
+                    collected = dict(item)
+                    collected["collected_at_ms"] = now_ms
+                    items.append(collected)
                 source_rows.append({
                     "id": source_id,
                     "label": meta["label"],
@@ -592,6 +687,7 @@ class NewsNowService:
                     "error": "",
                 })
                 all_items.extend(items)
+                all_items.extend(cached_items.get(source_id) or [])
                 continue
 
             stale = True
@@ -617,14 +713,17 @@ class NewsNowService:
             item_id = str(item.get("id") or "")
             if item_id and item_id not in deduplicated:
                 deduplicated[item_id] = item
-        items = sorted(
-            deduplicated.values(),
-            key=lambda item: (
-                int(item.get("published_at_ms") or 0),
-                -int(item.get("rank") or 0),
-            ),
-            reverse=True,
+        items = _retain_items(
+            list(deduplicated.values()),
+            max_items=config.max_items,
+            max_important_items=config.max_important_items,
         )
+        retained_counts: dict[str, int] = {}
+        for item in items:
+            source_id = str(item.get("source_id") or "")
+            retained_counts[source_id] = retained_counts.get(source_id, 0) + 1
+        for source in source_rows:
+            source["count"] = retained_counts.get(str(source.get("id") or ""), 0)
         successful_count = len(successes)
         if successful_count == len(config.source_ids):
             status = "success"
@@ -647,6 +746,8 @@ class NewsNowService:
             "attempted_at_ms": now_ms,
             "successful_source_count": successful_count,
             "source_ids": list(config.source_ids),
+            "max_items": config.max_items,
+            "max_important_items": config.max_important_items,
             "sources": source_rows,
             "items": items,
             "error": "" if successful_count else next(iter(errors.values())).code if errors else "request_failed",
