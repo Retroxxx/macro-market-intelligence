@@ -43,6 +43,8 @@ Private runtime directory:
 | `.local-data/runtime/config.yaml` | Model provider, model, and model-key configuration |
 | `.local-data/runtime/cron/state/` | Scheduled-task, X-monitoring, and catch-up-run state |
 | `.local-data/runtime/cron/output/` | Practice-trading candidate-scan cache, simulated-account state, and other non-message runtime caches |
+| `.local-data/runtime/cron/output/multi_strategy_history/` | Bounded full-scan snapshots for investigation; retains only the latest archive date and at most 12 runs for that date |
+| `.local-data/runtime/cron/output/b1_history/` | Retired duplicate B1 archive; the next successful scan removes only old JSON files with the standard date/timestamp layout and preserves unknown files |
 | `.local-data/runtime/logs/` | Service and task logs |
 | `.local-data/backups/` | Deployment backups, which may contain older configuration |
 

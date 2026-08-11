@@ -361,6 +361,13 @@ class MultiStrategyRuleTests(unittest.TestCase):
                 screen.PRACTICE_CANDIDATES_CACHE = root / "practice_candidates_latest.json"
                 screen.B1_HISTORY_DIR = root / "b1_history"
                 screen.MULTI_STRATEGY_HISTORY = root / "multi_strategy_history"
+                legacy_archive = (
+                    screen.B1_HISTORY_DIR
+                    / "2026-08-03"
+                    / "2026-08-03_14-50-00.json"
+                )
+                legacy_archive.parent.mkdir(parents=True)
+                legacy_archive.write_text("{}\n", encoding="utf-8")
                 screen.write_outputs(
                     {
                         "generated_at": "2026-08-04 10:00:00",
@@ -375,6 +382,20 @@ class MultiStrategyRuleTests(unittest.TestCase):
                 compact = json.loads(
                     screen.PRACTICE_CANDIDATES_CACHE.read_text(encoding="utf-8")
                 )
+                primary_archive = (
+                    screen.MULTI_STRATEGY_HISTORY
+                    / "2026-08-04"
+                    / "2026-08-04_10-00-00.json"
+                )
+                self.assertTrue(primary_archive.exists())
+                self.assertFalse(legacy_archive.exists())
+                self.assertFalse(
+                    (
+                        screen.B1_HISTORY_DIR
+                        / "2026-08-04"
+                        / "2026-08-04_10-00-00.json"
+                    ).exists()
+                )
             finally:
                 for name, value in originals.items():
                     setattr(screen, name, value)
@@ -382,6 +403,52 @@ class MultiStrategyRuleTests(unittest.TestCase):
         self.assertEqual(compact["items"], [{"code": "600001"}])
         self.assertEqual(compact["trade_items"], [])
         self.assertNotIn("niuone_context", compact)
+
+    def test_scan_history_cleanup_retires_legacy_and_bounds_primary(self):
+        with tempfile.TemporaryDirectory(prefix="niuone-scan-history-") as directory:
+            root = Path(directory)
+            legacy = root / "b1_history"
+            primary = root / "multi_strategy_history"
+
+            def archive(base: Path, date: str, time_value: str) -> Path:
+                path = base / date / f"{date}_{time_value}.json"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}\n", encoding="utf-8")
+                return path
+
+            archive(legacy, "2026-08-03", "10-00-00")
+            archive(legacy, "2026-08-04", "09-25-00")
+            legacy_unknown = legacy / "2026-08-04" / "keep.txt"
+            legacy_unknown.write_text("preserve\n", encoding="utf-8")
+
+            archive(primary, "2026-08-03", "10-00-00")
+            archive(primary, "2026-08-03", "14-50-00")
+            archive(primary, "2026-08-04", "09-25-00")
+            archive(primary, "2026-08-04", "10-00-00")
+            archive(primary, "2026-08-04", "10-30-00")
+            archive(primary, "2026-08-04", "11-00-00")
+            primary_unknown = primary / "2026-08-03" / "manual-note.json"
+            primary_unknown.write_text("{}\n", encoding="utf-8")
+
+            result = screen.cleanup_scan_history(
+                "2026-08-04",
+                legacy_history_dir=legacy,
+                primary_history_dir=primary,
+                retention_dates=1,
+                max_files_per_date=2,
+            )
+
+            self.assertEqual(result["legacy_removed"], 2)
+            self.assertEqual(result["primary_removed"], 4)
+            self.assertTrue(legacy_unknown.exists())
+            self.assertTrue(primary_unknown.exists())
+            self.assertEqual(
+                sorted(path.name for path in (primary / "2026-08-04").glob("*.json")),
+                [
+                    "2026-08-04_10-30-00.json",
+                    "2026-08-04_11-00-00.json",
+                ],
+            )
 
     @staticmethod
     def _tencent_quote_response():

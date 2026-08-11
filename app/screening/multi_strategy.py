@@ -177,6 +177,8 @@ STOCK_INDUSTRY_CACHE = B1_OUTPUT_DIR / "stock_industry_cache.json"
 EASTMONEY_BOARD_CACHE = B1_OUTPUT_DIR / "eastmoney_stock_boards.json"
 B1_HISTORY_DIR = B1_OUTPUT_DIR / "b1_history"
 MULTI_STRATEGY_HISTORY = B1_OUTPUT_DIR / "multi_strategy_history"
+SCAN_HISTORY_RETENTION_DATES = 1
+SCAN_HISTORY_MAX_FILES_PER_DATE = 12
 DISPLAY_CANDIDATE_LIMIT = 16
 DISPLAY_HEAD_LIMIT = 8
 TRADE_CANDIDATE_LIMIT = 8
@@ -1534,13 +1536,131 @@ def annotate_candidate_industries(
 # ========== Main ==========
 
 
+def _valid_archive_date(value: str) -> bool:
+    try:
+        parsed = datetime.strptime(str(value), "%Y-%m-%d")
+    except ValueError:
+        return False
+    return parsed.strftime("%Y-%m-%d") == value
+
+
+def _archive_date_directories(root: Path) -> list[Path]:
+    if root.is_symlink() or not root.is_dir():
+        return []
+    return sorted(
+        path
+        for path in root.iterdir()
+        if not path.is_symlink()
+        and path.is_dir()
+        and _valid_archive_date(path.name)
+    )
+
+
+def _archive_json_files(date_dir: Path) -> list[Path]:
+    archives: list[Path] = []
+    for path in date_dir.iterdir():
+        if path.is_symlink() or not path.is_file() or path.suffix != ".json":
+            continue
+        try:
+            timestamp = datetime.strptime(path.stem, "%Y-%m-%d_%H-%M-%S")
+        except ValueError:
+            continue
+        if timestamp.strftime("%Y-%m-%d") != date_dir.name:
+            continue
+        archives.append(path)
+    return sorted(archives, key=lambda path: path.name)
+
+
+def cleanup_scan_history(
+    active_date: str,
+    *,
+    legacy_history_dir: Path | None = None,
+    primary_history_dir: Path | None = None,
+    retention_dates: int = SCAN_HISTORY_RETENTION_DATES,
+    max_files_per_date: int = SCAN_HISTORY_MAX_FILES_PER_DATE,
+) -> dict[str, int]:
+    """Retire legacy B1 archives and bound the primary scan history.
+
+    Only timestamped JSON files inside validated date directories are eligible
+    for deletion. Unknown files, nested directories, and symbolic links are
+    deliberately preserved.
+    """
+    if not _valid_archive_date(active_date):
+        raise ValueError("active scan archive date must use YYYY-MM-DD")
+    if retention_dates < 1:
+        raise ValueError("scan history must retain at least one archive date")
+    if max_files_per_date < 1:
+        raise ValueError("scan history must retain at least one file per date")
+
+    legacy_root = Path(legacy_history_dir or B1_HISTORY_DIR)
+    primary_root = Path(primary_history_dir or MULTI_STRATEGY_HISTORY)
+    removed_legacy = 0
+    removed_primary = 0
+    failures: list[str] = []
+
+    def remove_archives(paths: list[Path], *, legacy: bool) -> None:
+        nonlocal removed_legacy, removed_primary
+        for path in paths:
+            try:
+                path.unlink()
+            except OSError as exc:
+                failures.append(type(exc).__name__)
+            else:
+                if legacy:
+                    removed_legacy += 1
+                else:
+                    removed_primary += 1
+
+    for date_dir in _archive_date_directories(legacy_root):
+        remove_archives(_archive_json_files(date_dir), legacy=True)
+        try:
+            date_dir.rmdir()
+        except OSError:
+            pass
+    try:
+        legacy_root.rmdir()
+    except OSError:
+        pass
+
+    primary_dates = _archive_date_directories(primary_root)
+    retained_names = {
+        path.name for path in primary_dates[-retention_dates:]
+    }
+    retained_names.add(active_date)
+    for date_dir in primary_dates:
+        archives = _archive_json_files(date_dir)
+        if date_dir.name not in retained_names:
+            remove_archives(archives, legacy=False)
+            try:
+                date_dir.rmdir()
+            except OSError:
+                pass
+            continue
+        remove_archives(
+            archives[:-max_files_per_date],
+            legacy=False,
+        )
+
+    if failures:
+        error_types = ",".join(sorted(set(failures)))
+        print(
+            "[WARN] scan history cleanup incomplete: "
+            f"failures={len(failures)} error_types={error_types}",
+            file=sys.stderr,
+        )
+    return {
+        "legacy_removed": removed_legacy,
+        "primary_removed": removed_primary,
+    }
+
+
 def write_outputs(
     payload: Mapping[str, Any],
     generated_at: str,
     *,
     json_str: str | None = None,
 ) -> None:
-    """Write B1 cache (backward compat), multi-strategy cache, and archives."""
+    """Write latest caches and one bounded multi-strategy history."""
     B1_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     serialized = json_str or json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -1554,17 +1674,16 @@ def write_outputs(
     tmp_b1.write_text(serialized + "\n", encoding="utf-8")
     tmp_b1.replace(B1_CACHE_FILE)
 
-    # Archive
+    # Primary archive. The former B1 history was an identical compatibility
+    # copy and is removed by the bounded cleanup below.
     safe_ts = str(generated_at).replace(":", "-").replace(" ", "_")
     date_part = safe_ts.split("_")[0]
-
-    for archive_dir in [B1_HISTORY_DIR, MULTI_STRATEGY_HISTORY]:
-        d = archive_dir / date_part
-        d.mkdir(parents=True, exist_ok=True)
-        f = d / f"{safe_ts}.json"
-        ft = f.with_suffix(f.suffix + ".new")
-        ft.write_text(serialized + "\n", encoding="utf-8")
-        ft.replace(f)
+    d = MULTI_STRATEGY_HISTORY / date_part
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / f"{safe_ts}.json"
+    ft = f.with_suffix(f.suffix + ".new")
+    ft.write_text(serialized + "\n", encoding="utf-8")
+    ft.replace(f)
 
     # The Dashboard polls this bounded read model instead of the full scan.
     write_practice_candidates_cache(
@@ -1572,6 +1691,14 @@ def write_outputs(
         payload,
         source_path=MULTI_STRATEGY_CACHE,
     )
+    try:
+        cleanup_scan_history(date_part)
+    except (OSError, ValueError) as exc:
+        print(
+            "[WARN] scan history cleanup failed: "
+            f"error_type={type(exc).__name__}",
+            file=sys.stderr,
+        )
 
 
 def prewarm_full_market_klines(

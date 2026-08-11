@@ -43,6 +43,8 @@
 | `.local-data/runtime/config.yaml` | 模型服务商、模型和模型密钥配置 |
 | `.local-data/runtime/cron/state/` | 定时任务、X 监控和补跑状态 |
 | `.local-data/runtime/cron/output/` | 实战选股缓存、模拟账户状态和其他非消息类运行缓存 |
+| `.local-data/runtime/cron/output/multi_strategy_history/` | 完整选股扫描的有界复盘快照；只保留最近一个归档日期且每个日期最多 12 轮 |
+| `.local-data/runtime/cron/output/b1_history/` | 已停写的旧 B1 重复归档；下一轮成功扫描只清理其中符合标准日期/时间戳格式的旧 JSON，未知文件保持不动 |
 | `.local-data/runtime/logs/` | 服务和任务日志 |
 | `.local-data/backups/` | 部署备份，可能包含旧配置 |
 
