@@ -7,6 +7,7 @@ from app.monitoring.x.state import (
     canonical_post_time,
     choose_latest_value,
     is_newer_post,
+    is_valid_x_post_id,
     normalize_post_time,
     parse_post_time,
     post_time_is_implausible,
@@ -70,6 +71,18 @@ class XMonitoringStateTests(unittest.TestCase):
 
         self.assertFalse(is_newer_post(future_post, latest, future_id))
         self.assertEqual(choose_latest_value(latest, [future_post], "测试"), latest)
+
+    def test_nonnumeric_id_is_rejected_even_with_a_plausible_model_time(self):
+        self.assertFalse(is_valid_x_post_id("latest-post-placeholder"))
+        self.assertTrue(post_time_is_implausible("2026-07-20 16:00:00", "latest-post-placeholder"))
+        self.assertIsNone(canonical_post_time("2026-07-20 16:00:00", "latest-post-placeholder"))
+        self.assertFalse(
+            is_newer_post(
+                {"post_id": "latest-post-placeholder", "time": "2026-07-20 16:00:00"},
+                {},
+                "latest-post-placeholder",
+            )
+        )
 
 
 if __name__ == "__main__":

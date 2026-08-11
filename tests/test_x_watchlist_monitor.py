@@ -13,6 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / 'app'
 COMPAT = SRC / 'compat'
 ENTRYPOINTS = SRC / 'entrypoints'
+X_SNOWFLAKE_EPOCH_MS = 1288834974657
+
+
+def snowflake_id(utc_time):
+    return str((int(utc_time.timestamp() * 1000) - X_SNOWFLAKE_EPOCH_MS) << 22)
 
 
 class XWatchlistMonitorTests(unittest.TestCase):
@@ -47,7 +52,7 @@ spec = importlib.util.spec_from_file_location('x_watchlist_monitor_under_test', 
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 captured = {{}}
-def fake_openai_chat_json(base_url, api_key, prompt, max_tokens, timeout=m.REQUEST_TIMEOUT_SECONDS, x_handles=None):
+def fake_openai_chat_json(base_url, api_key, prompt, max_tokens, timeout=m.REQUEST_TIMEOUT_SECONDS, x_handles=None, **kwargs):
     captured['max_tokens'] = max_tokens
     return {{'accounts': []}}
 m.openai_chat_json = fake_openai_chat_json
@@ -79,7 +84,7 @@ spec = importlib.util.spec_from_file_location('x_watchlist_monitor_under_test', 
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 captured = {{}}
-def fake_openai_chat_json(base_url, api_key, prompt, max_tokens, timeout=m.REQUEST_TIMEOUT_SECONDS, x_handles=None):
+def fake_openai_chat_json(base_url, api_key, prompt, max_tokens, timeout=m.REQUEST_TIMEOUT_SECONDS, x_handles=None, **kwargs):
     captured['max_tokens'] = max_tokens
     return {{'accounts': []}}
 m.openai_chat_json = fake_openai_chat_json
@@ -95,6 +100,46 @@ print(json.dumps({{
             self.assertEqual(data['context_length'], 128000)
             self.assertEqual(data['configured_max_tokens'], 4096)
             self.assertEqual(data['max_tokens'], 4096)
+
+    def test_grok_prompt_requests_cursor_pagination_and_real_numeric_ids(self):
+        cursor_id = snowflake_id(datetime(2026, 8, 4, 11, 45, 20, tzinfo=timezone.utc))
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env['DASHBOARD_HOME'] = tmp
+            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
+            code = f"""
+import importlib.util, json, sys
+sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
+spec = importlib.util.spec_from_file_location('x_watchlist_monitor_under_test', {str(COMPAT / 'x_watchlist_monitor.py')!r})
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+captured = {{}}
+def fake_openai_chat_json(base_url, api_key, prompt, max_tokens, timeout=m.REQUEST_TIMEOUT_SECONDS, x_handles=None, **kwargs):
+    captured['prompt'] = prompt
+    captured['search_options'] = kwargs
+    return {{'accounts': [{{'handle': 'tester', 'posts': []}}]}}
+m.openai_chat_json = fake_openai_chat_json
+m.call_grok_once('', '', ['tester'], {{'tester': {{'post_id': {cursor_id!r}, 'time': '2026-08-04 19:45:20'}}}})
+prompt = captured['prompt']
+print(json.dumps({{
+  'has_cursor': {cursor_id!r} in prompt,
+  'page_size': '最多 10 条' in prompt,
+  'oldest_first': '从早到晚' in prompt and '最早的推文' in prompt,
+  'numeric_only': '纯数字 Snowflake ID' in prompt and '严禁编造 ID' in prompt,
+  'from_date': captured['search_options'].get('x_from_date'),
+  'to_date_set': bool(captured['search_options'].get('x_to_date')),
+  'required': captured['search_options'].get('require_x_search'),
+}}, ensure_ascii=False))
+"""
+            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
+            data = json.loads(out)
+            self.assertTrue(data['has_cursor'])
+            self.assertTrue(data['page_size'])
+            self.assertTrue(data['oldest_first'])
+            self.assertTrue(data['numeric_only'])
+            self.assertEqual(data['from_date'], '2026-08-04')
+            self.assertTrue(data['to_date_set'])
+            self.assertTrue(data['required'])
 
     def test_openai_chat_json_omits_temperature_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -232,13 +277,23 @@ class Resp:
     def __exit__(self, exc_type, exc, tb):
         return False
     def read(self):
-        return b'{{"output":[{{"content":[{{"type":"output_text","text":"{{\\\\\\"accounts\\\\\\":[]}}"}}]}}]}}'
+        return b'{{"output":[{{"type":"x_search_call","status":"completed"}},{{"type":"message","content":[{{"type":"output_text","text":"{{\\\\\\"accounts\\\\\\":[]}}"}}]}}]}}'
 def fake_urlopen(req, timeout=0):
     captured['url'] = req.full_url
     captured['payload'] = json.loads(req.data.decode('utf-8'))
     return Resp()
 m.urllib.request.urlopen = fake_urlopen
-result = m.openai_chat_json('https://x.example/v1', 'secret', 'return JSON', 321, timeout=3, x_handles=['@Foo'])
+result = m.openai_chat_json(
+    'https://x.example/v1',
+    'secret',
+    'return JSON',
+    321,
+    timeout=3,
+    x_handles=['@Foo'],
+    x_from_date='2026-08-04',
+    x_to_date='2026-08-10',
+    require_x_search=True,
+)
 print(json.dumps({{'captured': captured, 'result': result}}, ensure_ascii=False))
 """
             out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
@@ -246,9 +301,55 @@ print(json.dumps({{'captured': captured, 'result': result}}, ensure_ascii=False)
             payload = data['captured']['payload']
             self.assertEqual(data['captured']['url'], 'https://x.example/v1/responses')
             self.assertEqual(payload['max_output_tokens'], 321)
-            self.assertEqual(payload['tools'], [{'type': 'x_search', 'allowed_x_handles': ['foo']}])
+            self.assertEqual(payload['tools'], [{
+                'type': 'x_search',
+                'allowed_x_handles': ['foo'],
+                'from_date': '2026-08-04',
+                'to_date': '2026-08-10',
+            }])
+            self.assertEqual(payload['tool_choice'], 'required')
             self.assertEqual(payload['reasoning'], {'effort': 'low'})
             self.assertEqual(data['result'], {'accounts': []})
+
+    def test_required_x_search_rejects_gateway_message_without_search_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env['DASHBOARD_HOME'] = tmp
+            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
+            env['DASHBOARD_GROK_MODEL'] = 'grok-4.5'
+            env['DASHBOARD_GROK_API_MODE'] = 'auto'
+            code = f"""
+import importlib.util, json, sys
+sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
+spec = importlib.util.spec_from_file_location('x_watchlist_monitor_under_test', {str(COMPAT / 'x_watchlist_monitor.py')!r})
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+class Resp:
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc, tb):
+        return False
+    def read(self):
+        return b'{{"output":[{{"type":"message","content":[{{"type":"output_text","text":"{{\\\\\\"accounts\\\\\\":[]}}"}}]}}]}}'
+m.urllib.request.urlopen = lambda req, timeout=0: Resp()
+try:
+    m.openai_chat_json(
+        'https://x.example/v1',
+        'secret',
+        'return JSON',
+        321,
+        timeout=3,
+        x_handles=['@Foo'],
+        require_x_search=True,
+    )
+except Exception as exc:
+    print(json.dumps({{'type': type(exc).__name__, 'temporary': m.is_temporary_error(exc)}}))
+"""
+            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
+            self.assertEqual(
+                json.loads(out),
+                {'type': 'XSearchNotExecutedError', 'temporary': True},
+            )
 
     def test_api_mode_can_force_responses_for_gateway_model_alias(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -299,7 +400,7 @@ spec = importlib.util.spec_from_file_location('x_watchlist_monitor_under_test', 
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 captured_handles = []
-def fake_openai_chat_json(base_url, api_key, prompt, max_tokens, timeout=m.REQUEST_TIMEOUT_SECONDS, x_handles=None):
+def fake_openai_chat_json(base_url, api_key, prompt, max_tokens, timeout=m.REQUEST_TIMEOUT_SECONDS, x_handles=None, **kwargs):
     captured_handles.append(x_handles)
     return {{'posts': []}}
 m.openai_chat_json = fake_openai_chat_json
@@ -435,6 +536,68 @@ print(json.dumps({{
             self.assertEqual(data['returned_accounts'], [])
             self.assertEqual(data['last_issue'], 'watchlist_accounts_empty')
 
+    def test_main_checkpoints_each_account_before_fetching_the_next(self):
+        first_id = snowflake_id(datetime(2026, 8, 5, 1, 0, tzinfo=timezone.utc))
+        second_id = snowflake_id(datetime(2026, 8, 5, 1, 1, tzinfo=timezone.utc))
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env['DASHBOARD_HOME'] = tmp
+            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
+            env['X_WATCHLIST_ENABLED'] = '1'
+            code = f"""
+import copy, importlib.util, json, sys
+sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
+spec = importlib.util.spec_from_file_location('x_watchlist_monitor_under_test', {str(COMPAT / 'x_watchlist_monitor.py')!r})
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+m.ACCOUNTS = ['alpha', 'beta']
+m.load_config = lambda: ('', '')
+m.load_state = lambda: {{'seen_ids': {{}}, 'latest': {{}}}}
+m.reconcile_latest_with_database = lambda state, handles: 0
+m.repair_sent_missing_contexts = lambda *args, **kwargs: 0
+m.load_context_retry_items = lambda state, seen: []
+m.hydrate_posts = lambda _base, _key, items, timeout=8: items
+m.hydrate_missing_media_from_x_html = lambda items, deadline: items
+m.repair_missing_contexts = lambda _base, _key, items, deadline: items
+m.write_direct_x_alerts_to_db = lambda items: len(items)
+snapshots = []
+m.save_state = lambda state: snapshots.append(copy.deepcopy(state))
+calls = []
+ids = {{'alpha': {first_id!r}, 'beta': {second_id!r}}}
+def fake_call(_base, _key, handles, latest, timeout=45):
+    handle = handles[0]
+    calls.append({{'handle': handle, 'alpha_checkpointed': 'alpha' in latest}})
+    return [{{
+        'handle': handle,
+        'display_name': handle,
+        'posts': [{{
+            'post_id': ids[handle],
+            'time': '错误的模型时间',
+            'chinese_text': handle + ' 正文',
+            'conversation_type': 'original',
+            'media': [],
+        }}],
+    }}]
+m.call_grok_batch = fake_call
+m.main()
+print(json.dumps({{
+  'calls': calls,
+  'latest': snapshots[-1]['latest'],
+  'seen': snapshots[-1]['seen_ids'],
+  'fetch_status': snapshots[-1]['account_fetch_status'],
+}}, ensure_ascii=False))
+"""
+            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
+            data = json.loads(out)
+            self.assertEqual([call['handle'] for call in data['calls']], ['alpha', 'beta'])
+            self.assertFalse(data['calls'][0]['alpha_checkpointed'])
+            self.assertTrue(data['calls'][1]['alpha_checkpointed'])
+            self.assertEqual(data['latest']['alpha']['post_id'], first_id)
+            self.assertEqual(data['latest']['beta']['post_id'], second_id)
+            self.assertEqual(data['seen'], {'alpha': [first_id], 'beta': [second_id]})
+            self.assertEqual(data['fetch_status']['alpha']['status'], 'ok')
+            self.assertEqual(data['fetch_status']['beta']['status'], 'ok')
+
     def test_disabled_monitor_returns_before_loading_credentials_or_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
@@ -456,6 +619,7 @@ print(json.dumps({{'enabled': m.x_watchlist_enabled()}}, ensure_ascii=False))
             self.assertFalse(json.loads(out)['enabled'])
 
     def test_send_ready_items_writes_to_dashboard_database_only(self):
+        post_id = snowflake_id(datetime(2026, 6, 23, 2, 0, tzinfo=timezone.utc))
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
             env['DASHBOARD_HOME'] = tmp
@@ -470,18 +634,18 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 state = {{'seen_ids': {{}}, 'latest': {{}}}}
 post = {{
-  'post_id': 'unit-post-1',
+  'post_id': {post_id!r},
   'time': '2026-06-23 10:00:00',
   'chinese_text': '测试推文正文',
   'conversation_type': 'original',
   'media': [],
 }}
-ok = m.send_ready_items('', '', state, [('测试账号', post, 'unit-post-1', 'tester')], {{}}, time.monotonic() + 30)
+ok = m.send_ready_items('', '', state, [('测试账号', post, {post_id!r}, 'tester')], {{}}, time.monotonic() + 30)
 con = m.push_history.connect()
 try:
     row = con.execute(
         "SELECT category, content, metadata_json, delivery_json, raw_path FROM dashboard_messages WHERE external_id = ?",
-        ('unit-post-1',),
+        ({post_id!r},),
     ).fetchone()
 finally:
     con.close()
@@ -503,11 +667,11 @@ print(json.dumps({{
             data = json.loads(out)
             self.assertTrue(data['ok'])
             self.assertEqual(data['mode'], 'dashboard_database_only')
-            self.assertEqual(data['seen'], {'tester': ['unit-post-1']})
+            self.assertEqual(data['seen'], {'tester': [post_id]})
             self.assertEqual(data['record_category'], 'x_monitor')
             self.assertEqual(data['record_raw_path'], '')
             self.assertTrue(data['record_contains_text'])
-            self.assertEqual(data['metadata_post_id'], 'unit-post-1')
+            self.assertEqual(data['metadata_post_id'], post_id)
             self.assertEqual(data['delivery_mode'], 'dashboard_database_only')
             self.assertEqual(data['markdown_count'], 0)
 
@@ -620,7 +784,103 @@ print(json.dumps({{
             self.assertEqual(data['sent_missing_context'], [])
             self.assertEqual(data['held_for_context'], [])
 
+    def test_nonnumeric_model_post_is_rejected_without_using_ingestion_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env['DASHBOARD_HOME'] = tmp
+            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
+            env.pop('DASHBOARD_X_WATCHLIST_STATE', None)
+            code = f"""
+import importlib.util, json, sys
+sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
+spec = importlib.util.spec_from_file_location('x_watchlist_monitor_under_test', {str(COMPAT / 'x_watchlist_monitor.py')!r})
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+post = {{
+  'post_id': 'latest-post-placeholder',
+  'time': '2026-08-09 14:18:30',
+  'chinese_text': '搜索结果未提供该账号的具体推文内容',
+  'conversation_type': 'unknown',
+  'media': [],
+}}
+count = m.write_direct_x_alerts_to_db([('测试账号', post, post['post_id'], 'tester')])
+state = {{
+  'seen_ids': {{'tester': [post['post_id']]}},
+  'latest': {{'tester': {{'post_id': post['post_id'], 'time': post['time']}}}},
+}}
+changes = m.normalize_monitor_state_times(state)
+con = m.push_history.connect()
+try:
+    row_count = con.execute('SELECT COUNT(*) FROM dashboard_messages').fetchone()[0]
+finally:
+    con.close()
+print(json.dumps({{
+  'count': count,
+  'row_count': row_count,
+  'changes': changes,
+  'state': state,
+  'usable': m.post_has_usable_text(post),
+}}, ensure_ascii=False))
+"""
+            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
+            data = json.loads(out)
+            self.assertEqual(data['count'], 0)
+            self.assertEqual(data['row_count'], 0)
+            self.assertGreaterEqual(data['changes'], 2)
+            self.assertEqual(data['state']['latest'], {})
+            self.assertEqual(data['state']['seen_ids'], {'tester': []})
+            self.assertFalse(data['usable'])
+
+    def test_database_cursor_ignores_a_newer_invalid_record(self):
+        valid_id = snowflake_id(datetime(2026, 8, 4, 11, 45, 20, tzinfo=timezone.utc))
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env['DASHBOARD_HOME'] = tmp
+            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
+            env.pop('DASHBOARD_X_WATCHLIST_STATE', None)
+            code = f"""
+import importlib.util, json, sys, time
+sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
+spec = importlib.util.spec_from_file_location('x_watchlist_monitor_under_test', {str(COMPAT / 'x_watchlist_monitor.py')!r})
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+valid_id = {valid_id!r}
+m.write_direct_x_alerts_to_db([('测试账号', {{
+  'post_id': valid_id,
+  'time': '2099-01-01 00:00:00',
+  'chinese_text': '真实记录',
+  'conversation_type': 'original',
+  'media': [],
+}}, valid_id, 'tester')])
+m.push_history.upsert_many([{{
+  'id': 'invalid-newer-row',
+  'timestamp': time.time() + 9999,
+  'time_text': '2026-08-09 14:18:30',
+  'category': 'x_monitor',
+  'source_type': 'x_watchlist',
+  'source_id': 'tester',
+  'source_label': '错误记录',
+  'external_id': 'latest-post-placeholder',
+  'content': '占位记录',
+  'metadata': {{'post': {{'post_id': 'latest-post-placeholder'}}}},
+}}])
+state = {{'latest': {{'tester': {{'post_id': 'latest-post-placeholder', 'time': '2026-08-09 14:18:30'}}}}}}
+m.normalize_monitor_state_times(state)
+changes = m.reconcile_latest_with_database(state, ['tester'])
+print(json.dumps({{
+  'changes': changes,
+  'latest': state['latest'],
+  'database_latest': m.database_latest_by_handle(['tester']),
+}}, ensure_ascii=False))
+"""
+            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
+            data = json.loads(out)
+            self.assertEqual(data['changes'], 1)
+            self.assertEqual(data['latest']['tester']['post_id'], valid_id)
+            self.assertEqual(data['database_latest']['tester']['post_id'], valid_id)
+
     def test_database_failure_does_not_advance_seen_or_latest(self):
+        post_id = snowflake_id(datetime(2026, 6, 23, 2, 0, tzinfo=timezone.utc))
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
             env['DASHBOARD_HOME'] = tmp
@@ -636,13 +896,13 @@ spec.loader.exec_module(m)
 m.write_direct_x_alerts_to_db = lambda _items: 0
 state = {{'seen_ids': {{}}, 'latest': {{}}}}
 post = {{
-  'post_id': 'failed-post-1',
+  'post_id': {post_id!r},
   'time': '2026-06-23 10:00:00',
   'chinese_text': '数据库失败时必须重试',
   'conversation_type': 'original',
   'media': [],
 }}
-ok = m.send_ready_items('', '', state, [('测试账号', post, 'failed-post-1', 'tester')], {{}}, time.monotonic() + 30)
+ok = m.send_ready_items('', '', state, [('测试账号', post, {post_id!r}, 'tester')], {{}}, time.monotonic() + 30)
 print(json.dumps({{
   'ok': ok,
   'seen': state.get('seen_ids'),
@@ -667,10 +927,14 @@ print(json.dumps({{
             env.pop('DASHBOARD_X_WATCHLIST_STATE', None)
             code = f"""
 import importlib.util, json, sys, time
+from datetime import datetime, timezone
 sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
 spec = importlib.util.spec_from_file_location('x_watchlist_monitor_under_test', {str(COMPAT / 'x_watchlist_monitor.py')!r})
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
+def make_post_id(minute):
+    utc_time = datetime(2026, 6, 23, 2, minute, tzinfo=timezone.utc)
+    return str((int(utc_time.timestamp() * 1000) - 1288834974657) << 22)
 def item(post_id, minute):
     return ('测试账号', {{
         'post_id': post_id,
@@ -679,7 +943,7 @@ def item(post_id, minute):
         'conversation_type': 'original',
         'media': [],
     }}, post_id, 'tester')
-items = [item('batch-post-1', '00'), item('batch-post-2', '01')]
+items = [item(make_post_id(0), '00'), item(make_post_id(1), '01')]
 exception_state = {{'seen_ids': {{}}, 'latest': {{}}}}
 def raise_write(_items):
     raise RuntimeError('database unavailable')
@@ -711,6 +975,7 @@ print(json.dumps({{
             self.assertEqual(data['partial_error'], 'incomplete_write:1/2')
 
     def test_sent_missing_context_is_repaired_in_dashboard_db(self):
+        post_id = snowflake_id(datetime(2026, 6, 23, 2, 0, tzinfo=timezone.utc))
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
             env['DASHBOARD_HOME'] = tmp
@@ -725,13 +990,13 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 state = {{'seen_ids': {{}}, 'latest': {{}}}}
 post = {{
-  'post_id': 'reply-post-1',
+  'post_id': {post_id!r},
   'time': '2026-06-23 10:00:00',
   'chinese_text': '这是一条短回复',
   'conversation_type': 'reply',
   'media': [],
 }}
-ok = m.send_ready_items('', '', state, [('投研荟', post, 'reply-post-1', 'freearkshaw')], {{}}, time.monotonic() + 30)
+ok = m.send_ready_items('', '', state, [('投研荟', post, {post_id!r}, 'freearkshaw')], {{}}, time.monotonic() + 30)
 queued_before = len(state.get('sent_missing_context') or [])
 def fake_repair(_base_url, _api_key, display_name, original_post, post_id, handle, timeout=10):
     repaired = dict(original_post)
@@ -748,7 +1013,7 @@ con = m.push_history.connect()
 try:
     row = con.execute(
         "SELECT content, metadata_json FROM dashboard_messages WHERE external_id = ?",
-        ('reply-post-1',),
+        ({post_id!r},),
     ).fetchone()
 finally:
     con.close()

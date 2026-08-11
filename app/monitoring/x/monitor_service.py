@@ -39,8 +39,8 @@ if __package__ == "app":
     from .monitoring.x.formatting import display_text, fmt_media_items, fmt_missing_context, fmt_post, fmt_text_box
     from .monitoring.x.state import (
         canonical_post_time,
-        choose_latest_value,
         compact_sent_context_entry,
+        is_valid_x_post_id,
         is_newer_post,
         job_ran_after_pending,
         latest_from_items,
@@ -53,7 +53,6 @@ if __package__ == "app":
         parse_iso,
         parse_post_time,
         pending_is_already_latest,
-        post_time_is_implausible,
         sent_context_key,
         should_retry_sent_context,
     )
@@ -80,8 +79,8 @@ else:
     from monitoring.x.formatting import display_text, fmt_media_items, fmt_missing_context, fmt_post, fmt_text_box
     from monitoring.x.state import (
         canonical_post_time,
-        choose_latest_value,
         compact_sent_context_entry,
+        is_valid_x_post_id,
         is_newer_post,
         job_ran_after_pending,
         latest_from_items,
@@ -94,7 +93,6 @@ else:
         parse_iso,
         parse_post_time,
         pending_is_already_latest,
-        post_time_is_implausible,
         sent_context_key,
         should_retry_sent_context,
     )
@@ -198,14 +196,12 @@ MAX_SENT_CONTEXT_REPAIR_ATTEMPTS = 8
 SENT_CONTEXT_REPAIR_COOLDOWN_MINUTES = 20
 SENT_CONTEXT_REPAIR_LOOKBACK_HOURS = 72
 MAX_ATTEMPTS_PER_BATCH = 1
-MAX_FETCH_WORKERS = 5
 DELIVERY_RETRY_COOLDOWN_MINUTES = 45
-RECENT_POSTS_PER_ACCOUNT = 1
+POSTS_PER_ACCOUNT_PAGE = 10
+MAX_PAGES_PER_ACCOUNT = 5
 RECENT_MISSING_BACKFILL_HOURS = 12
-# Query each account separately but concurrently. Single-account prompts are far
-# more reliable with the Grok gateway, while concurrency keeps wall-clock time
-# below cron's script hard timeout and preserves every-account coverage.
-DEFAULT_BATCH_SIZE = 1
+# Query and durably checkpoint each account separately. This prevents one bad
+# model response or a later account timeout from discarding earlier progress.
 STATE_PATH = Path(os.environ.get("DASHBOARD_X_WATCHLIST_STATE") or str(DASHBOARD_HOME / "cron" / "state" / "x_watchlist_latest.json")).expanduser()
 CONFIG_PATH = Path(os.environ.get("DASHBOARD_CONFIG") or str(DASHBOARD_HOME / "config.yaml")).expanduser()
 JOBS_PATH = Path(os.environ.get("DASHBOARD_CRON_JOBS") or str(DASHBOARD_HOME / "cron" / "jobs.json")).expanduser()
@@ -267,6 +263,44 @@ def extract_json(text):
         return obj
 
 
+class XSearchNotExecutedError(RuntimeError):
+    """The upstream returned model text without executing the requested X search."""
+
+
+def model_response_used_x_search(parsed):
+    """Return whether a parsed Responses/Chat payload proves that X search ran."""
+    if re.search(r"(?:^|, )search_events=[1-9]\d*", str(parsed.detail or "")):
+        # This request exposes only x_search, so any streamed search event is an
+        # x_search event even when a gateway omits it from the completed object.
+        return True
+
+    def contains_x_search(value):
+        if isinstance(value, list):
+            return any(contains_x_search(item) for item in value)
+        if not isinstance(value, dict):
+            return False
+        item_type = str(value.get("type") or "").strip().lower()
+        if item_type == "x_search_call" or item_type.startswith("x_search_call."):
+            return True
+        function = value.get("function")
+        if isinstance(function, dict) and str(function.get("name") or "").strip().lower() == "x_search":
+            return True
+        for key, item in value.items():
+            normalized_key = str(key).strip().lower()
+            if "x_search" in normalized_key:
+                if isinstance(item, bool) and item:
+                    return True
+                if isinstance(item, (int, float)) and item > 0:
+                    return True
+                if isinstance(item, (dict, list)) and item:
+                    return True
+            if contains_x_search(item):
+                return True
+        return False
+
+    return contains_x_search(parsed.data or {})
+
+
 def is_temporary_error(exc):
     if isinstance(exc, urllib.error.HTTPError):
         return exc.code in TEMPORARY_HTTP_CODES
@@ -275,12 +309,22 @@ def is_temporary_error(exc):
     # Grok/model-gateway sometimes returns empty text, truncated JSON, or prose
     # instead of the strictly requested JSON. For a polling monitor this is a
     # transient upstream miss; stay quiet and retry on the next cron tick.
-    if isinstance(exc, (json.JSONDecodeError, ModelResponseParseError)):
+    if isinstance(exc, (json.JSONDecodeError, ModelResponseParseError, XSearchNotExecutedError)):
         return True
     return False
 
 
-def openai_chat_json(base_url, api_key, prompt, max_tokens, timeout=REQUEST_TIMEOUT_SECONDS, x_handles=None):
+def openai_chat_json(
+    base_url,
+    api_key,
+    prompt,
+    max_tokens,
+    timeout=REQUEST_TIMEOUT_SECONDS,
+    x_handles=None,
+    x_from_date=None,
+    x_to_date=None,
+    require_x_search=False,
+):
     handles = []
     for raw_handle in x_handles or []:
         handle = str(raw_handle or "").strip().lstrip("@").lower()
@@ -289,6 +333,10 @@ def openai_chat_json(base_url, api_key, prompt, max_tokens, timeout=REQUEST_TIME
     tool = {"type": "x_search"}
     if handles:
         tool["allowed_x_handles"] = handles[:20]
+    if x_from_date:
+        tool["from_date"] = str(x_from_date)
+    if x_to_date:
+        tool["to_date"] = str(x_to_date)
     model_request = build_model_request(
         base_url,
         MODEL,
@@ -298,6 +346,7 @@ def openai_chat_json(base_url, api_key, prompt, max_tokens, timeout=REQUEST_TIME
         tools=[tool],
         reasoning={"effort": "low"},
         stream=False,
+        extra_payload={"tool_choice": "required"} if require_x_search else None,
     )
     parsed = request_model(
         model_request,
@@ -305,21 +354,38 @@ def openai_chat_json(base_url, api_key, prompt, max_tokens, timeout=REQUEST_TIME
         timeout=timeout,
         opener=urllib.request.urlopen,
     )
+    if require_x_search and not model_response_used_x_search(parsed):
+        raise XSearchNotExecutedError("upstream returned no x_search_call")
     return extract_json(parsed.content)
 
 
 def call_grok_once(base_url, api_key, account_handles, latest_by_handle, timeout=REQUEST_TIMEOUT_SECONDS):
     account_text = ", ".join("@" + account for account in account_handles)
+    cursors = {
+        handle: latest_by_handle.get(handle) or {}
+        for handle in account_handles
+    }
+    cursor_times = [
+        canonical_post_time(None, cursor.get("post_id"))
+        for cursor in cursors.values()
+        if isinstance(cursor, dict)
+    ]
+    cursor_times = [cursor_time for cursor_time in cursor_times if cursor_time]
+    from_date = min(cursor_times).date().isoformat() if cursor_times else None
+    to_date = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
     prompt = f"""
-请使用你可用的实时 X/Twitter 能力，获取以下账号每个账号最近 {RECENT_POSTS_PER_ACCOUNT} 条公开推文的最小列表：{account_text}。
+请使用你可用的实时 X/Twitter 能力，逐个检查以下账号：{account_text}。
+每个账号只返回严格晚于其游标的公开推文；游标为空时返回最近的推文。账号游标：
+{json.dumps(cursors, ensure_ascii=False)}
 
 严格返回 JSON，不要 markdown，不要解释。格式：
-{{"accounts":[{{"handle":"wallstreet0name","display_name":"昵称","posts":[{{"post_id":"数字ID或唯一ID","time":"YYYY-MM-DD HH:mm:ss 北京时间","chinese_text":"完整正文；外文完整翻译成中文；中文保留原文","conversation_type":"original|reply|quote|repost|unknown","media":[{{"type":"image|video|gif|unknown","url":"媒体直链或图片URL；不能获取则不要添加该媒体项","description":""}}]}}]}}]}}
+{{"accounts":[{{"handle":"wallstreet0name","display_name":"昵称","posts":[{{"post_id":"X 推文 URL 中 /status/ 后的纯数字 ID","time":"YYYY-MM-DD HH:mm:ss 北京时间","chinese_text":"完整正文；外文完整翻译成中文；中文保留原文","conversation_type":"original|reply|quote|repost|unknown","media":[{{"type":"image|video|gif|unknown","url":"媒体直链或图片URL；不能获取则不要添加该媒体项","description":""}}]}}]}}]}}
 
 要求：
 - 必须返回上述每个账号，即使没有抓到也要给 posts: []。
-- 每个账号最多 {RECENT_POSTS_PER_ACCOUNT} 条，优先最新推文。
-- 必须包含 post_id；没有数字 ID 时用可稳定去重的唯一字符串。
+- 每个账号最多 {POSTS_PER_ACCOUNT_PAGE} 条，按发布时间从早到晚排列，优先返回游标之后最早的推文，不能只返回最新一条。
+- post_id 必须是 X 推文 URL 中 /status/ 后真实、完整的纯数字 Snowflake ID；无法取得真实数字 ID 的项目不要返回，严禁编造 ID 或使用占位字符串。
+- 不得返回游标本身或游标之前的推文。
 - 必须包含发布时间；尽量使用北京时间。
 - 不要省略推文正文。
 - 如果推文包含图片/视频/GIF，尽量返回可打开的 media url；不需要识图、OCR 或图片内容描述。
@@ -333,6 +399,9 @@ def call_grok_once(base_url, api_key, account_handles, latest_by_handle, timeout
         configured_max_tokens(min(3000, 1000 + 500 * len(account_handles))),
         timeout=timeout,
         x_handles=account_handles,
+        x_from_date=from_date,
+        x_to_date=to_date,
+        require_x_search=True,
     )
     return parsed.get("accounts", [])
 
@@ -363,10 +432,11 @@ def hydrate_posts(base_url, api_key, new_items, timeout=DETAIL_REQUEST_TIMEOUT_S
 {json.dumps(post_refs, ensure_ascii=False)}
 
 严格返回 JSON，不要 markdown，不要解释。格式：
-{{"posts":[{{"index":1,"handle":"账号handle","display_name":"昵称","post_id":"数字ID或唯一ID","time":"YYYY-MM-DD HH:mm:ss，尽量使用北京时间，如只能GMT请注明","full_text":"完整原文，不要摘要","chinese_text":"如果原文非中文则完整翻译成中文；如果原文中文则保留完整中文原文","conversation_type":"original|reply|quote|repost|unknown","reply_to_author":"如果本条是回复，填被回复账号昵称或handle，否则空字符串","reply_to_text":"如果本条是回复，填被回复推文完整原文，否则空字符串","reply_to_chinese_text":"被回复推文完整中文翻译/原文，否则空字符串","quoted_author":"如果有引用/转推，填被引用账号昵称或handle，否则空字符串","quoted_text":"如果有引用/转推的原文则填完整内容，否则空字符串","quoted_chinese_text":"引用内容的中文完整翻译/原文，否则空字符串","context_missing_reason":"如果判断是 reply/quote/repost 但无法取得上下文，说明原因；如果不是或已取得则空字符串","media":[{{"type":"image|video|gif|unknown","url":"媒体直链或图片URL；不能获取则不要添加该媒体项","description":""}}],"quoted_media":[{{"type":"image|video|gif|unknown","url":"被引用/转推内容的媒体直链或图片URL；不能获取则不要添加该媒体项","description":""}}],"reply_to_media":[{{"type":"image|video|gif|unknown","url":"被回复内容的媒体直链或图片URL；不能获取则不要添加该媒体项","description":""}}]}}]}}
+{{"posts":[{{"index":1,"handle":"账号handle","display_name":"昵称","post_id":"X 推文 URL 中 /status/ 后的纯数字 ID","time":"YYYY-MM-DD HH:mm:ss，尽量使用北京时间，如只能GMT请注明","full_text":"完整原文，不要摘要","chinese_text":"如果原文非中文则完整翻译成中文；如果原文中文则保留完整中文原文","conversation_type":"original|reply|quote|repost|unknown","reply_to_author":"如果本条是回复，填被回复账号昵称或handle，否则空字符串","reply_to_text":"如果本条是回复，填被回复推文完整原文，否则空字符串","reply_to_chinese_text":"被回复推文完整中文翻译/原文，否则空字符串","quoted_author":"如果有引用/转推，填被引用账号昵称或handle，否则空字符串","quoted_text":"如果有引用/转推的原文则填完整内容，否则空字符串","quoted_chinese_text":"引用内容的中文完整翻译/原文，否则空字符串","context_missing_reason":"如果判断是 reply/quote/repost 但无法取得上下文，说明原因；如果不是或已取得则空字符串","media":[{{"type":"image|video|gif|unknown","url":"媒体直链或图片URL；不能获取则不要添加该媒体项","description":""}}],"quoted_media":[{{"type":"image|video|gif|unknown","url":"被引用/转推内容的媒体直链或图片URL；不能获取则不要添加该媒体项","description":""}}],"reply_to_media":[{{"type":"image|video|gif|unknown","url":"被回复内容的媒体直链或图片URL；不能获取则不要添加该媒体项","description":""}}]}}]}}
 
 硬性要求：
 - 输出 posts 数量和 index 尽量与输入一致。
+- post_id 必须原样保留输入里的纯数字 ID，不得改写或生成新 ID。
 - 不要返回 X 链接字段。
 - 对非中文内容，chinese_text / reply_to_chinese_text / quoted_chinese_text 只填中文翻译，不要混入英文原文。
 - 对中文内容，上述中文字段只填中文原文，不要附加英文或“翻译：”。
@@ -386,6 +456,7 @@ def hydrate_posts(base_url, api_key, new_items, timeout=DETAIL_REQUEST_TIMEOUT_S
             prompt,
             configured_max_tokens(min(12000, 2200 + 1700 * len(new_items))),
             timeout=timeout,
+            require_x_search=True,
         )
         by_index = {int(post.get("index")): post for post in parsed.get("posts", []) if isinstance(post, dict) and str(post.get("index", "")).isdigit()}
     except Exception:
@@ -628,6 +699,7 @@ tweet_url：{tweet_url}
         prompt,
         configured_max_tokens(3000),
         timeout=timeout,
+        require_x_search=True,
     )
     if not isinstance(parsed, dict):
         return post
@@ -759,8 +831,9 @@ def call_grok_batch(base_url, api_key, account_handles, latest_by_handle, timeou
 
 
 def call_grok(base_url, api_key, latest_by_handle):
-    # Single-account prompts are the most reliable with the current Grok gateway.
-    # Run several in parallel so every cron tick still covers the full watchlist.
+    # Preserve this compatibility helper for callers outside main(), but keep
+    # its behavior sequential so the Grok gateway never handles multiple
+    # monitored users at the same time.
     call_grok.last_issue = ""
     if not ACCOUNTS:
         call_grok.last_issue = "watchlist_accounts_empty"
@@ -769,42 +842,22 @@ def call_grok(base_url, api_key, latest_by_handle):
     all_accounts = []
     temporary_errors = []
     non_temporary_errors = []
-    workers = max(1, min(len(ACCOUNTS), int(os.environ.get("X_WATCHLIST_MAX_WORKERS", str(MAX_FETCH_WORKERS)))))
 
-    def fetch_one(handle):
+    for handle in ACCOUNTS:
         remaining = deadline - time.monotonic()
         if remaining <= 5:
-            raise TimeoutError("deadline reached before request")
+            temporary_errors.append(f"{handle}: TimeoutError: deadline reached before request")
+            break
         timeout = max(8, min(REQUEST_TIMEOUT_SECONDS, int(remaining - 3)))
-        return call_grok_batch(base_url, api_key, [handle], latest_by_handle, timeout=timeout)
-
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
-    future_to_handle = {}
-    try:
-        future_to_handle = {executor.submit(fetch_one, handle): handle for handle in ACCOUNTS}
-        done, not_done = concurrent.futures.wait(
-            future_to_handle,
-            timeout=max(8, int(deadline - time.monotonic())),
-            return_when=concurrent.futures.ALL_COMPLETED,
-        )
-        for future in done:
-            try:
-                accounts = future.result(timeout=0)
-                if accounts:
-                    all_accounts.extend(accounts)
-            except Exception as exc:
-                if is_temporary_error(exc):
-                    temporary_errors.append(f"{future_to_handle.get(future)}: {type(exc).__name__}: {exc}")
-                else:
-                    non_temporary_errors.append(exc)
-        for future in not_done:
-            future.cancel()
-            temporary_errors.append(f"{future_to_handle.get(future)}: TimeoutError: deadline exceeded")
-    finally:
-        # Do not wait for stuck urllib/model-gateway worker threads here. The cron
-        # runner has a hard ~120s timeout; waiting for cancelled-but-stuck futures
-        # caused user-visible script timeout alerts.
-        executor.shutdown(wait=False, cancel_futures=True)
+        try:
+            accounts = call_grok_batch(base_url, api_key, [handle], latest_by_handle, timeout=timeout)
+            if accounts:
+                all_accounts.extend(accounts)
+        except Exception as exc:
+            if is_temporary_error(exc):
+                temporary_errors.append(f"{handle}: {type(exc).__name__}: {exc}")
+            else:
+                non_temporary_errors.append(exc)
 
     if temporary_errors and not all_accounts:
         call_grok.last_issue = "; ".join(temporary_errors[-5:])[:700]
@@ -830,12 +883,12 @@ def normalize_item_post_times(items):
     return [
         (display_name, normalize_post_time(post, post_id), post_id, handle)
         for display_name, post, post_id, handle in items
-        if not post_time_is_implausible(post.get("time"), post_id)
+        if is_valid_x_post_id(post_id)
     ]
 
 
 def normalize_monitor_state_times(state):
-    """Repair persisted X state times and discard impossible future cursors."""
+    """Repair state times and discard entries without a real X Snowflake ID."""
     changed = 0
 
     def normalize_latest(values):
@@ -845,7 +898,7 @@ def normalize_monitor_state_times(state):
         for handle, value in list(values.items()):
             if not isinstance(value, dict):
                 continue
-            if post_time_is_implausible(value.get("time"), value.get("post_id")):
+            if not is_valid_x_post_id(value.get("post_id")):
                 values.pop(handle, None)
                 changed += 1
                 continue
@@ -859,6 +912,18 @@ def normalize_monitor_state_times(state):
     if isinstance(pending, dict):
         normalize_latest(pending.get("latest"))
 
+    seen = state.get("seen_ids")
+    if isinstance(seen, dict):
+        for handle, post_ids in list(seen.items()):
+            if not isinstance(post_ids, list):
+                seen.pop(handle, None)
+                changed += 1
+                continue
+            valid_ids = [str(post_id) for post_id in post_ids if is_valid_x_post_id(post_id)]
+            if valid_ids != post_ids:
+                seen[handle] = valid_ids[-80:]
+                changed += 1
+
     for queue_name in ("sent_missing_context", "held_for_context"):
         queue = state.get(queue_name)
         if not isinstance(queue, list):
@@ -870,7 +935,7 @@ def normalize_monitor_state_times(state):
                 continue
             post = entry.get("post") if isinstance(entry.get("post"), dict) else {}
             post_id = entry.get("post_id") or post.get("post_id")
-            if post_time_is_implausible(post.get("time") or entry.get("time"), post_id):
+            if not is_valid_x_post_id(post_id):
                 changed += 1
                 continue
             normalized_post = normalize_post_time(post, post_id)
@@ -896,6 +961,63 @@ def normalize_monitor_state_times(state):
             valid_entries.append(entry)
         queue[:] = valid_entries
     return changed
+
+
+def database_latest_by_handle(handles):
+    """Load the latest durable, valid X cursor for each requested account."""
+    requested = {
+        str(handle or "").strip().lstrip("@").lower()
+        for handle in handles or []
+        if str(handle or "").strip()
+    }
+    if push_history is None or not requested:
+        return {}
+    con = push_history.connect()
+    try:
+        placeholders = ",".join("?" for _handle in requested)
+        rows = con.execute(
+            f"""
+            SELECT source_id, source_label, external_id
+            FROM dashboard_messages
+            WHERE category = 'x_monitor'
+              AND lower(source_id) IN ({placeholders})
+              AND external_id IS NOT NULL
+              AND external_id != ''
+            """,
+            tuple(sorted(requested)),
+        ).fetchall()
+    finally:
+        con.close()
+
+    latest = {}
+    latest_times = {}
+    for row in rows:
+        handle = str(row["source_id"] or "").strip().lstrip("@").lower()
+        post_id = str(row["external_id"] or "").strip()
+        post_time = canonical_post_time(None, post_id)
+        if handle not in requested or not post_time:
+            continue
+        if handle in latest_times and latest_times[handle] >= post_time:
+            continue
+        latest_times[handle] = post_time
+        latest[handle] = {
+            "post_id": post_id,
+            "time": post_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "display_name": row["source_label"] or handle,
+        }
+    return latest
+
+
+def reconcile_latest_with_database(state, handles):
+    """Make durable database rows authoritative over model-derived state."""
+    database_latest = database_latest_by_handle(handles)
+    latest = state.setdefault("latest", {})
+    changes = 0
+    for handle, value in database_latest.items():
+        if latest.get(handle) != value:
+            latest[handle] = value
+            changes += 1
+    return changes
 
 
 def save_state(state):
@@ -992,18 +1114,15 @@ def write_direct_x_alerts_to_db(send_items):
     if push_history is None or not send_items:
         return 0
     messages = []
-    now = datetime.now(timezone.utc)
     for idx, (display_name, post, post_id, handle) in enumerate(send_items, 1):
-        if post_time_is_implausible(post.get("time"), post_id):
+        if not is_valid_x_post_id(post_id):
             continue
         post = normalize_post_time(post, post_id)
-        post_time = canonical_post_time(post.get("time"), post_id)
-        if post_time:
-            timestamp = post_time.replace(tzinfo=timezone(timedelta(hours=8))).timestamp()
-            time_text = post_time.strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            timestamp = now.timestamp()
-            time_text = now.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        post_time = canonical_post_time(None, post_id)
+        if not post_time:
+            continue
+        timestamp = post_time.replace(tzinfo=timezone(timedelta(hours=8))).timestamp()
+        time_text = post_time.strftime("%Y-%m-%d %H:%M:%S")
         content = fmt_post(idx, display_name, post, include_media_urls=False)
         messages.append({
             "id": push_history.stable_id("x_watchlist", handle, post_id),
@@ -1440,6 +1559,76 @@ def send_ready_items(base_url, api_key, state, items, latest, deadline, limit=10
     return True
 
 
+_POST_PLACEHOLDER_RE = re.compile(
+    r"^(?:n/?a|unknown|none|null|\.\.\.|-|"
+    r"暂无(?:推文)?内容|内容(?:缺失|不可用)|"
+    r"未找到(?:具体)?(?:推文)?内容|无法(?:获取|读取)(?:具体)?(?:推文)?内容|"
+    r"该推文(?:已删除|不存在|不可用)|tweet (?:unavailable|not found))"
+    r"[。.!！]*$",
+    flags=re.I,
+)
+
+
+def post_has_usable_text(post):
+    """Reject empty or explicit placeholder payloads before they reach storage."""
+    candidates = [
+        str(post.get(field) or "").strip()
+        for field in ("full_text", "chinese_text")
+    ]
+    placeholder_markers = (
+        "搜索结果未提供",
+        "未能获取推文",
+        "无法访问该推文",
+        "推文内容暂不可用",
+        "no tweet content",
+    )
+    return any(
+        text
+        and not _POST_PLACEHOLDER_RE.fullmatch(text)
+        and not (len(text) <= 120 and any(marker in text.lower() for marker in placeholder_markers))
+        for text in candidates
+    )
+
+
+def collect_account_new_items(account, expected_handle, seen, latest):
+    """Validate one Grok account payload and return chronologically sorted new posts."""
+    if not isinstance(account, dict):
+        return [], 0
+    expected_handle = str(expected_handle or "").strip().lstrip("@").lower()
+    handle = str(account.get("handle") or "").strip().lstrip("@").lower()
+    if not expected_handle or handle != expected_handle:
+        return [], 0
+    display_name = account.get("display_name") or handle
+    valid_posts = []
+    for raw_post in account.get("posts") or []:
+        if not isinstance(raw_post, dict):
+            continue
+        post_id = str(raw_post.get("post_id") or "").strip()
+        if not is_valid_x_post_id(post_id) or not post_has_usable_text(raw_post):
+            continue
+        post = normalize_post_time(raw_post, post_id)
+        valid_posts.append((canonical_post_time(None, post_id), post, post_id))
+
+    account_seen = {str(post_id) for post_id in seen.get(handle, [])}
+    latest_value = latest.get(handle) or {}
+    latest_time = canonical_post_time(None, latest_value.get("post_id"))
+    new_items = []
+    for post_time, post, post_id in sorted(valid_posts, key=lambda item: item[0]):
+        recent_unseen = bool(
+            post_id not in account_seen
+            and post_time
+            and latest_time
+            and post_time >= latest_time - timedelta(hours=RECENT_MISSING_BACKFILL_HOURS)
+        )
+        if post_id in account_seen:
+            continue
+        if not (is_newer_post(post, latest_value, post_id) or recent_unseen):
+            continue
+        new_items.append((display_name, post, post_id, handle))
+        account_seen.add(post_id)
+    return new_items, len(valid_posts)
+
+
 def main():
     if not x_watchlist_enabled():
         return
@@ -1447,7 +1636,17 @@ def main():
     self_deadline = started + int(os.environ.get("X_WATCHLIST_DEADLINE_SECONDS", str(TOTAL_DEADLINE_SECONDS)))
     base_url, api_key = load_config()
     state = load_state()
-    normalize_monitor_state_times(state)
+    state_changed = normalize_monitor_state_times(state)
+    try:
+        state_changed += reconcile_latest_with_database(state, ACCOUNTS)
+    except Exception as exc:
+        state["last_database_error"] = f"cursor_load:{type(exc).__name__}: {exc}"
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        save_state(state)
+        return
+    if state_changed:
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        save_state(state)
     clear_stale_pending(state)
     apply_pending_if_delivered(state)
     if pending_in_cooldown(state):
@@ -1496,98 +1695,188 @@ def main():
             return
     for stale_key in ("last_fetch_at", "consecutive_empty_fetches", "last_fetch_issue", "last_fetch_failure_alert_at"):
         state.pop(stale_key, None)
-    accounts = call_grok(base_url, api_key, latest)
-    state["last_fetch_at"] = datetime.now(timezone.utc).isoformat()
-    state["last_fetch_account_count"] = len(accounts)
-    state["last_fetch_post_count"] = sum(len((account or {}).get("posts") or []) for account in accounts)
-    state["last_fetch_issue"] = "empty_fetch" if not accounts else ""
-    grok_issue = getattr(call_grok, "last_issue", "")
-    if grok_issue:
-        state["last_fetch_issue"] = grok_issue
-
-    new_items = retry_items[:]
-    new_item_keys = {(handle, post_id) for _display_name, _post, post_id, handle in new_items}
-    pending_seen_ids = {}
-    pending_latest = {}
-    for account in accounts:
-        handle = (account.get("handle") or "").lstrip("@").lower()
-        if not handle:
-            continue
-        display_name = account.get("display_name") or handle
-        posts = [
-            normalize_post_time(post, post.get("post_id"))
-            for post in (account.get("posts") or [])
-            if isinstance(post, dict)
-            and not post_time_is_implausible(post.get("time"), post.get("post_id"))
-        ]
-        account_seen = set(seen.get(handle, []))
-        latest_value = latest.get(handle) or {}
-        account_pending = []
-        sortable_posts = []
-        for post in posts:
-            sortable_posts.append((canonical_post_time(post.get("time"), post.get("post_id")) or datetime.min, post))
-        for _post_time, post in sorted(sortable_posts, key=lambda item: item[0]):
-            post_id = str(post.get("post_id") or "").strip()
-            if not post_id:
-                text_key = (post.get("full_text") or post.get("chinese_text") or "")[:80]
-                post_id = f"{handle}:{post.get('time','')}:{text_key}"
-            post_time = canonical_post_time(post.get("time"), post_id)
-            latest_time = canonical_post_time(
-                (latest_value or {}).get("time"),
-                (latest_value or {}).get("post_id"),
-            )
-            # Fetching only the latest post per account misses active accounts that
-            # post multiple times in one 20-minute poll window. Now that Grok returns
-            # recent 3, deliver any not-yet-seen item within a bounded lookback even
-            # if it is older than the account's latest pointer.
-            recent_unseen = bool(
-                post_id not in account_seen
-                and post_time
-                and latest_time
-                and post_time >= latest_time - timedelta(hours=RECENT_MISSING_BACKFILL_HOURS)
-            )
-            if post_id not in account_seen and (is_newer_post(post, latest_value, post_id) or recent_unseen) and (handle, post_id) not in new_item_keys:
-                new_item_keys.add((handle, post_id))
-                new_items.append((display_name, post, post_id, handle))
-                account_pending.append(post_id)
-                account_seen.add(post_id)
-        if posts:
-            pending_latest[handle] = choose_latest_value(latest_value, posts, display_name)
-        if account_pending:
-            pending_seen_ids[handle] = account_pending
-
-    if not new_items:
+    state["last_fetch_account_count"] = 0
+    state["last_fetch_post_count"] = 0
+    state["last_invalid_post_count"] = 0
+    state["last_fetch_issue"] = ""
+    fetched_handles = set()
+    max_pages = MAX_PAGES_PER_ACCOUNT
+    account_count = len(ACCOUNTS)
+    if not account_count:
+        state["last_fetch_issue"] = "watchlist_accounts_empty"
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
-        if pending_latest:
-            merge_latest(state.setdefault("latest", {}), pending_latest)
         save_state(state)
         return
-
-    remaining_for_details = self_deadline - time.monotonic()
-    if remaining_for_details > 18:
-        context_timeout = max(5, min(DETAIL_REQUEST_TIMEOUT_SECONDS, int(remaining_for_details - 10)))
-        new_items = hydrate_posts(base_url, api_key, new_items, timeout=context_timeout)
-        if (self_deadline - time.monotonic()) > 16:
-            new_items = hydrate_missing_media_from_x_html(new_items, self_deadline)
-        new_items = repair_missing_contexts(base_url, api_key, new_items, self_deadline)
-        repair_stats = getattr(repair_missing_contexts, "last_stats", {})
-        if repair_stats.get("attempts"):
-            state["last_context_repair"] = repair_stats
-        state["last_detail_issue"] = ""
-    else:
-        state["last_detail_issue"] = "skipped_low_time"
-
+    account_fetch_status = state.setdefault("account_fetch_status", {})
+    for stale_handle in list(account_fetch_status):
+        if stale_handle not in ACCOUNTS:
+            account_fetch_status.pop(stale_handle, None)
     try:
-        if send_ready_items(base_url, api_key, state, new_items, latest, self_deadline):
+        start_index = int(state.get("next_account_index") or 0) % account_count
+    except (TypeError, ValueError):
+        start_index = 0
+    account_order = ACCOUNTS[start_index:] + ACCOUNTS[:start_index]
+
+    # Fetch, validate, hydrate, store, and checkpoint one user at a time. If a
+    # later request hits the deadline, every earlier user's cursor is already
+    # durable and the next invocation resumes without creating a gap.
+    for account_offset, handle in enumerate(account_order):
+        account_index = (start_index + account_offset) % account_count
+        next_account_index = (account_index + 1) % account_count
+        account_completed = False
+        for _page in range(max_pages):
+            remaining = self_deadline - time.monotonic()
+            if remaining <= 15:
+                state["next_account_index"] = account_index
+                state["last_fetch_issue"] = "deadline_reached_after_checkpoint"
+                state["updated_at"] = datetime.now(timezone.utc).isoformat()
+                save_state(state)
+                return
+            timeout = max(8, min(REQUEST_TIMEOUT_SECONDS, int(remaining - 7)))
+            try:
+                accounts = call_grok_batch(
+                    base_url,
+                    api_key,
+                    [handle],
+                    latest,
+                    timeout=timeout,
+                )
+            except Exception as exc:
+                state["next_account_index"] = next_account_index
+                state["last_fetch_issue"] = f"{handle}:{type(exc).__name__}: {exc}"[:700]
+                state["last_fetch_at"] = datetime.now(timezone.utc).isoformat()
+                account_fetch_status[handle] = {
+                    "status": "error",
+                    "error_type": type(exc).__name__,
+                    "checked_at": state["last_fetch_at"],
+                }
+                state["updated_at"] = datetime.now(timezone.utc).isoformat()
+                save_state(state)
+                account_completed = True
+                break
+
+            fetched_handles.add(handle)
+            raw_post_count = sum(
+                len((account or {}).get("posts") or [])
+                for account in accounts or []
+                if isinstance(account, dict)
+            )
+            state["last_fetch_at"] = datetime.now(timezone.utc).isoformat()
+            state["last_fetch_account_count"] = len(fetched_handles)
+            state["last_fetch_post_count"] += raw_post_count
+
+            matching_accounts = [
+                account
+                for account in accounts or []
+                if isinstance(account, dict)
+                and str(account.get("handle") or "").strip().lstrip("@").lower() == handle
+            ]
+            new_items = []
+            valid_post_count = 0
+            for account in matching_accounts:
+                account_items, account_valid_count = collect_account_new_items(
+                    account,
+                    handle,
+                    seen,
+                    latest,
+                )
+                valid_post_count += account_valid_count
+                existing_keys = {(item_handle, str(post_id)) for _name, _post, post_id, item_handle in new_items}
+                new_items.extend(
+                    item
+                    for item in account_items
+                    if (item[3], str(item[2])) not in existing_keys
+                )
+            state["last_invalid_post_count"] += max(0, raw_post_count - valid_post_count)
+
+            if not new_items:
+                state["next_account_index"] = next_account_index
+                account_fetch_status[handle] = {
+                    "status": "ok" if not raw_post_count or valid_post_count else "rejected",
+                    "returned_posts": raw_post_count,
+                    "valid_posts": valid_post_count,
+                    "checked_at": state["last_fetch_at"],
+                }
+                if raw_post_count and not valid_post_count:
+                    state["last_fetch_issue"] = f"{handle}:all_posts_rejected"
+                state["updated_at"] = datetime.now(timezone.utc).isoformat()
+                save_state(state)
+                account_completed = True
+                break
+
+            remaining_for_details = self_deadline - time.monotonic()
+            if remaining_for_details > 18:
+                context_timeout = max(5, min(DETAIL_REQUEST_TIMEOUT_SECONDS, int(remaining_for_details - 10)))
+                new_items = hydrate_posts(base_url, api_key, new_items, timeout=context_timeout)
+                if (self_deadline - time.monotonic()) > 16:
+                    new_items = hydrate_missing_media_from_x_html(new_items, self_deadline)
+                new_items = repair_missing_contexts(base_url, api_key, new_items, self_deadline)
+                repair_stats = getattr(repair_missing_contexts, "last_stats", {})
+                if repair_stats.get("attempts"):
+                    state["last_context_repair"] = repair_stats
+                state["last_detail_issue"] = ""
+            else:
+                state["last_detail_issue"] = "skipped_low_time"
+
+            try:
+                stored = send_ready_items(
+                    base_url,
+                    api_key,
+                    state,
+                    new_items,
+                    latest,
+                    self_deadline,
+                    limit=POSTS_PER_ACCOUNT_PAGE,
+                )
+            except Exception as exc:
+                state["last_database_error"] = f"{type(exc).__name__}: {exc}"
+                stored = False
+            state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
+            if not stored:
+                state["next_account_index"] = account_index
+                account_fetch_status[handle] = {
+                    "status": "storage_error" if state.get("last_database_error") else "held",
+                    "returned_posts": raw_post_count,
+                    "valid_posts": valid_post_count,
+                    "checked_at": state["last_fetch_at"],
+                }
+                if state.get("last_database_error"):
+                    state["last_delivery_mode"] = "dashboard_database_failed_retry_pending"
+                    save_state(state)
+                    return
+                save_state(state)
+                return
+            if valid_post_count < POSTS_PER_ACCOUNT_PAGE:
+                state["next_account_index"] = next_account_index
+                account_fetch_status[handle] = {
+                    "status": "ok",
+                    "returned_posts": raw_post_count,
+                    "valid_posts": valid_post_count,
+                    "stored_posts": len(new_items),
+                    "checked_at": state["last_fetch_at"],
+                }
+                state["updated_at"] = datetime.now(timezone.utc).isoformat()
+                save_state(state)
+                account_completed = True
+                break
+
+        if not account_completed:
+            # Every page was full. Resume the same account next time so a busy
+            # account is completely drained before the cursor rotates onward.
+            state["next_account_index"] = account_index
+            account_fetch_status[handle] = {
+                "status": "paging",
+                "checked_at": state.get("last_fetch_at") or datetime.now(timezone.utc).isoformat(),
+            }
+            state["updated_at"] = datetime.now(timezone.utc).isoformat()
             save_state(state)
             return
-    except Exception as exc:
-        state["last_database_error"] = f"{type(exc).__name__}: {exc}"
 
-    # Do not fall back to stdout for X alerts. Leave seen/latest unmerged so the
-    # next poll can retry the database write.
+    if not fetched_handles and not state.get("last_fetch_issue"):
+        state["last_fetch_issue"] = "empty_fetch"
+    state["next_account_index"] = start_index
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
-    state["last_delivery_mode"] = "dashboard_database_failed_retry_pending"
     save_state(state)
     return
 

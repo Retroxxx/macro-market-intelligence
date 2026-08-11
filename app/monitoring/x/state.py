@@ -73,6 +73,11 @@ def x_snowflake_post_time(post_id: object, *, now: datetime | None = None) -> da
     return post_time
 
 
+def is_valid_x_post_id(post_id: object, *, now: datetime | None = None) -> bool:
+    """Return whether *post_id* is a plausible, already-published X Snowflake."""
+    return x_snowflake_post_time(post_id, now=now) is not None
+
+
 def post_time_is_implausible(
     value: object,
     post_id: object = None,
@@ -81,10 +86,7 @@ def post_time_is_implausible(
 ) -> bool:
     """Return whether an ID/time pair cannot represent an already-published X post."""
     post_id_text = str(post_id or "").strip()
-    if X_SNOWFLAKE_ID_RE.fullmatch(post_id_text):
-        return x_snowflake_post_time(post_id_text, now=now) is None
-    parsed = parse_post_time(value)
-    return bool(parsed and parsed > current_cn_wall_time(now) + MAX_X_POST_FUTURE_SKEW)
+    return not is_valid_x_post_id(post_id_text, now=now)
 
 
 def canonical_post_time(
@@ -93,14 +95,14 @@ def canonical_post_time(
     *,
     now: datetime | None = None,
 ) -> datetime | None:
-    """Prefer a plausible X Snowflake, or a plausible model time for nonnumeric IDs."""
-    post_id_text = str(post_id or "").strip()
-    if X_SNOWFLAKE_ID_RE.fullmatch(post_id_text):
-        return x_snowflake_post_time(post_id_text, now=now)
-    post_time = parse_post_time(value)
-    if post_time and not post_time_is_implausible(value, post_id, now=now):
-        return post_time
-    return None
+    """Return the authoritative time encoded by a valid X Snowflake.
+
+    Model-provided wall times are deliberately not accepted as a fallback. A
+    fabricated string ID plus an equally fabricated time must never advance the
+    durable monitoring cursor or appear as a newly published post.
+    """
+    del value
+    return x_snowflake_post_time(post_id, now=now)
 
 
 def normalize_post_time(
@@ -129,8 +131,7 @@ def is_newer_post(post: dict[str, Any], latest_value: dict[str, Any] | None, pos
     post_time = canonical_post_time(post.get("time"), resolved_id)
     if latest_time and post_time:
         return post_time > latest_time
-    latest_id = str((latest_value or {}).get("post_id") or "").strip()
-    return bool(post_id and post_id != latest_id)
+    return bool(post_time and not latest_time)
 
 
 def choose_latest_value(existing_latest: dict[str, Any] | None, posts: list[dict[str, Any]], display_name: str) -> dict[str, Any]:
@@ -139,7 +140,7 @@ def choose_latest_value(existing_latest: dict[str, Any] | None, posts: list[dict
     usable_posts = [
         post
         for post in (posts or [])
-        if not post_time_is_implausible(post.get("time"), post.get("post_id"))
+        if is_valid_x_post_id(post.get("post_id"))
     ]
     for post in usable_posts:
         post_time = canonical_post_time(post.get("time"), post.get("post_id"))
