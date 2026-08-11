@@ -4631,6 +4631,42 @@ console.log(JSON.stringify([
             stylesheet,
         )
 
+    def test_tongdaxin_light_realtime_news_uses_high_contrast_text(self):
+        stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+
+        light_selector = (
+            'html[data-theme="tongdaxin"]'
+            '[data-tongdaxin-palette="light"]:root'
+        )
+        for selector, color in (
+            ('.realtime-news-item .realtime-news-source-cell span', '#704000'),
+            ('.realtime-news-item time strong', '#000080'),
+            ('.realtime-news-item time span', '#555'),
+            ('.realtime-news-item .realtime-news-title-row > h3', '#111'),
+            ('.realtime-news-item article > p', '#444'),
+            ('.realtime-news-item.important .realtime-news-title-row > h3', '#a00000'),
+        ):
+            self.assertIn(
+                f'{light_selector} {selector} {{\n  color:{color} !important;\n}}',
+                stylesheet,
+            )
+        self.assertIn(
+            f'{light_selector} .realtime-news-item:not(.important):hover :where(\n'
+            '  .realtime-news-source-cell,\n'
+            '  .realtime-news-source-cell span,\n'
+            '  time strong,\n'
+            '  time span,\n'
+            '  .realtime-news-title-row > a,\n'
+            '  .realtime-news-title-row > h3,\n'
+            '  article > p\n'
+            ') {\n'
+            '  color:#fff !important;\n'
+            '}',
+            stylesheet,
+        )
+
     def test_tongdaxin_uses_shared_terminal_button_chrome(self):
         stylesheet = (
             ROOT / 'frontend' / 'tongdaxin-theme.css'
