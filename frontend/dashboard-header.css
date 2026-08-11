@@ -121,8 +121,8 @@ html[data-corners="square"] .dashboard-site-header :where(.settings-link,.header
     font-size:11px;
   }
   html:not([data-theme="tongdaxin"]) .dashboard-site-header :where(.version-status,.refresh-pill) :where(span,b) { font-size:10px; }
-  html:not([data-theme="tongdaxin"]) .dashboard-site-header .category-tabs { margin-top:5px; padding:2px; }
-  html:not([data-theme="tongdaxin"]) .dashboard-site-header .tab { padding:5px 9px; font-size:11px; }
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header .category-tabs { margin-top:7px; padding:3px; }
+  html:not([data-theme="tongdaxin"]) .dashboard-site-header .tab { min-height:34px; padding:7px 12px; font-size:13px; }
   html:not([data-theme="tongdaxin"]) .dashboard-site-header :where(.settings-link,.header-link,.version-status,.refresh-pill,.theme-toggle,.category-tabs,.tab) { box-shadow:none; }
 }
 

@@ -529,8 +529,18 @@ console.log(JSON.stringify({{
             dashboard_header_styles,
         )
         self.assertIn(
-            'html:not([data-theme="tongdaxin"]) .dashboard-site-header .category-tabs { margin-top:5px; padding:2px; }',
+            'html:not([data-theme="tongdaxin"]) .dashboard-site-header .category-tabs { margin-top:7px; padding:3px; }',
             dashboard_header_styles,
+        )
+        self.assertIn(
+            'html:not([data-theme="tongdaxin"]) .dashboard-site-header .tab { min-height:34px; padding:7px 12px; font-size:13px; }',
+            dashboard_header_styles,
+        )
+        self.assertIn(
+            '@media(min-width:721px) {\n'
+            '  html[data-theme="tongdaxin"]:root .category-tabs { margin-top:4px; padding:2px; }\n'
+            '  html[data-theme="tongdaxin"]:root .tab { min-height:30px; padding:5px 11px; font-size:13px; }',
+            tongdaxin_styles,
         )
         self.assertIn(":payload=\"indicesState.marketBreadth\" terminal", component)
         self.assertIn("terminal: { type: Boolean, default: false }", breadth_component)
