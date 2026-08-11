@@ -109,7 +109,7 @@ Click an animation to open the corresponding live page.
 
 ## Feature Overview
 
-- **Market dashboard**: View theme strength, indices, sectors, market breadth, industry capital flows, Dragon-Tiger data, and historical news in one place.
+- **Market dashboard**: View theme strength, indices, sectors, market breadth, industry capital flows, important market flashes, Dragon-Tiger data, and historical news in one place.
 - **Theme and strategy research**: Compare today's theme strength with cross-session structural rankings, using full-market quotes, theme attribution, and Eastmoney rankings as context. NiuOne includes Base, Z-ge, Li Daxiao, Sector Tide, and NiuOne strategies, and also accepts natural-language rules for candidates, entries, exits, position sizing, and timing.
 - **Information and model-assisted analysis**: Aggregate live CLS and Jin10 flashes through NewsNow, alongside A-share auction, midday, and close reports, overnight U.S. markets, institutional ratings, Twitter/X watchlists, and iWencai Dragon-Tiger data. Compatible model services can support retrieval, summarization, and structured analysis.
 - **Simulated trading**: Track candidates, decisions, positions, P&L, equity curves, and trade logs without connecting to a brokerage or using real funds.
@@ -125,7 +125,7 @@ Primary pages and dependencies:
 | `/indices`, `/industry-flow` | Indices, sectors, active stocks, industry main-fund flow, market sentiment, and turnover | No key; market sources must be reachable |
 | `/dragon-tiger` | Dated Dragon-Tiger seats, limit-up/consecutive-list signals, and news prechecks | Enable and configure iWencai; news-precheck model is optional |
 | `/market-monitor` | A-share auction/midday/close and overnight U.S. summaries | Keep the scheduler running; model enhancement is optional |
-| `/realtime-news` | NewsNow aggregation for selectable financial-news sources | No API key; Compose bundles NewsNow and the admin page exposes finance and business sources as searchable multi-select options |
+| `/realtime-news` | NewsNow aggregation for selectable financial-news sources; Overview shows five items with an important-only option | No API key; Compose bundles NewsNow and the admin page exposes finance and business sources as searchable multi-select options |
 | `/x-monitor`, `/us-ratings` | Twitter/X watchlists and U.S. institutional ratings | Enable “NiuNiu U.S. Stocks” and configure the relevant model |
 | `/admin` | Configuration, connection tests, version, and runtime status | Administrator authentication is always required |
 

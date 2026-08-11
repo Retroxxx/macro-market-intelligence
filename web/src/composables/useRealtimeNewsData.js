@@ -15,6 +15,7 @@ const state = reactive({
   available: false,
   status: '',
   stale: false,
+  overviewImportantOnly: true,
   items: [],
   sources: [],
   generatedAt: '',
@@ -43,6 +44,7 @@ function payloadSnapshot() {
     available: state.available,
     status: state.status,
     stale: state.stale,
+    overviewImportantOnly: state.overviewImportantOnly,
     items: state.items,
     sources: state.sources,
     generatedAt: state.generatedAt,
@@ -61,6 +63,8 @@ function applyPayload(payload) {
   state.available = payload?.available === true
   state.status = String(payload?.status || '')
   state.stale = payload?.stale === true
+  state.overviewImportantOnly = payload?.overview_important_only !== false
+    && payload?.overviewImportantOnly !== false
   state.items = Array.isArray(payload?.items) ? payload.items : []
   state.sources = Array.isArray(payload?.sources) ? payload.sources : []
   state.generatedAt = String(payload?.generated_at || payload?.generatedAt || '')

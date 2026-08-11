@@ -116,11 +116,12 @@ NiuOne 需要大模型驱动完整工作流。X 关注列表监控使用具备 `
 
 ### 3.1 财经快讯
 
-`/realtime-news` 由 Dashboard 服务端调用 NewsNow，不需要 API Key。Compose 默认启动 `ghcr.io/ourongxing/newsnow:latest` 并通过内网 `http://newsnow:4444/api/s` 使用；该容器不映射宿主机端口，即使只启动 Dashboard 也会被自动带起。Dashboard 只等待 NewsNow 容器进入 started 状态，不等待其健康检查，因此后续抓取异常不会拖垮主服务。默认来源为财联社电报 `cls-telegraph`、金十数据 `jin10` 和华尔街见闻快讯 `wallstreetcn-quick`；管理设置的“财经快讯”页面仅提供财经商业分类下 12 个实际来源的搜索与多选。浏览器每 30 秒检查同源 API；服务端按 `NEWSNOW_REFRESH_SECONDS` 合并重复请求，并继续遵守各来源在 NewsNow 注册表中的上游更新间隔。
+`/realtime-news` 由 Dashboard 服务端调用 NewsNow，不需要 API Key。Compose 默认启动 `ghcr.io/ourongxing/newsnow:latest` 并通过内网 `http://newsnow:4444/api/s` 使用；该容器不映射宿主机端口，即使只启动 Dashboard 也会被自动带起。Dashboard 只等待 NewsNow 容器进入 started 状态，不等待其健康检查，因此后续抓取异常不会拖垮主服务。默认来源为财联社电报 `cls-telegraph`、金十数据 `jin10` 和华尔街见闻快讯 `wallstreetcn-quick`；管理设置的“财经快讯”页面仅提供财经商业分类下 12 个实际来源的搜索与多选。总览页在右下角复用同一份快讯数据，纵向展示最近 5 条；默认只显示上游标记或本地规则识别出的重要快讯，可在设置中关闭该筛选。浏览器每 30 秒检查同源 API；服务端按 `NEWSNOW_REFRESH_SECONDS` 合并重复请求，并继续遵守各来源在 NewsNow 注册表中的上游更新间隔。
 
 | 配置 | 默认值 | 可选范围 | 生效方式 |
 |---|---:|---:|---|
 | `NEWSNOW_ENABLED` | `1` | `0` 或 `1` | 运行时热应用 |
+| `NEWSNOW_OVERVIEW_IMPORTANT_ONLY` | `1` | `0` 或 `1`；只影响总览快讯条 | 运行时热应用 |
 | `NEWSNOW_SOURCES` | `cls-telegraph,jin10,wallstreetcn-quick` | 管理页列出的 NewsNow 实际来源；至少一项 | 运行时热应用 |
 | `NEWSNOW_REFRESH_SECONDS` | `60` | `15`～`1800` 秒 | 运行时热应用 |
 | `NEWSNOW_TIMEOUT_SECONDS` | `10` | `2`～`30` 秒 | 运行时热应用 |

@@ -1548,6 +1548,19 @@ html[data-theme="tongdaxin"]:root .overview-panel { padding:7px; background:var(
 html[data-theme="tongdaxin"]:root :where(.overview-terminal-grid,.overview-primary-grid,.overview-secondary-grid) { gap:4px; }
 html[data-theme="tongdaxin"]:root :where(.overview-panel-head,.overview-panel-head.compact) { margin-bottom:4px; min-height:22px; }
 html[data-theme="tongdaxin"]:root .overview-panel-head h3 { font-size:12px; }
+html[data-theme="tongdaxin"]:root .overview-news-mode {
+  background:var(--terminal-header);
+  border-color:var(--overview-border-strong);
+  color:#fff200;
+}
+html[data-theme="tongdaxin"]:root .overview-right-bottom > .overview-news-panel { padding:4px 7px; }
+html[data-theme="tongdaxin"]:root .overview-news-panel :where(.overview-panel-head,.overview-panel-head.compact) {
+  margin-bottom:1px;
+  min-height:18px;
+}
+html[data-theme="tongdaxin"]:root .overview-news-item { border-color:var(--overview-border); }
+html[data-theme="tongdaxin"]:root .overview-news-source { color:#ffc000; }
+html[data-theme="tongdaxin"]:root .overview-news-item.important .overview-news-title { color:#ff5555; }
 html[data-theme="tongdaxin"]:root .overview-kpi-strip { gap:1px; }
 html[data-theme="tongdaxin"]:root .overview-kpi { padding:5px 7px; }
 html[data-theme="tongdaxin"]:root .overview-index-grid { gap:2px; }
@@ -1563,6 +1576,11 @@ html[data-theme="tongdaxin"]:root :where(.overview-theme-row:nth-child(odd),.ove
   background:var(--terminal-row-alt);
 }
 html[data-theme="tongdaxin"]:root .overview-candidate-row { min-height:34px; padding-block:4px; }
+html[data-theme="tongdaxin"]:root .overview-page[data-layout="wide"] .overview-candidate-row {
+  height:100%;
+  min-height:0;
+  padding-block:2px;
+}
 html[data-theme="tongdaxin"]:root .overview-flow-row { min-height:22px; }
 
 /* Full-width market windows replace modern floating cards. */

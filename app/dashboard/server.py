@@ -560,6 +560,7 @@ NEWSNOW_SERVICE_LOCK = threading.Lock()
 NEWSNOW_SERVICE: NewsNowService | None = None
 NEWSNOW_CONFIG_NAMES = (
     "NEWSNOW_ENABLED",
+    "NEWSNOW_OVERVIEW_IMPORTANT_ONLY",
     "NEWSNOW_BASE_URL",
     "NEWSNOW_SOURCES",
     "NEWSNOW_REFRESH_SECONDS",
@@ -676,6 +677,15 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {
         "name": "NEWSNOW_ENABLED",
         "label": "启用财经快讯",
+        "group": "财经快讯",
+        "kind": "bool",
+        "default": "1",
+        "effect": "runtime",
+        "bool_no_default": "1",
+    },
+    {
+        "name": "NEWSNOW_OVERVIEW_IMPORTANT_ONLY",
+        "label": "在总览中仅显示重要信息",
         "group": "财经快讯",
         "kind": "bool",
         "default": "1",
@@ -868,6 +878,7 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "DASHBOARD_NIUONE_MAINLINE_MINUTE_REFRESH_ENABLED",
     "DASHBOARD_MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS",
     "NEWSNOW_ENABLED",
+    "NEWSNOW_OVERVIEW_IMPORTANT_ONLY",
     "NEWSNOW_SOURCES",
     "NEWSNOW_REFRESH_SECONDS",
     "NEWSNOW_TIMEOUT_SECONDS",
@@ -5838,6 +5849,18 @@ def newsnow_config(env_values: dict[str, str] | None = None) -> NewsNowConfig:
     return NewsNowConfig.from_env(values)
 
 
+def newsnow_overview_important_only(env_values: dict[str, str] | None = None) -> bool:
+    """Return whether the compact overview feed should exclude ordinary items."""
+
+    values = env_values if env_values is not None else parse_env_file()
+    raw = (
+        os.environ.get("NEWSNOW_OVERVIEW_IMPORTANT_ONLY")
+        if "NEWSNOW_OVERVIEW_IMPORTANT_ONLY" in os.environ
+        else values.get("NEWSNOW_OVERVIEW_IMPORTANT_ONLY", "1")
+    )
+    return str(raw).strip().lower() in TRUTHY_VALUES
+
+
 def realtime_news_service() -> NewsNowService:
     """Return the process-local service guarding the persistent news cache."""
 
@@ -5853,6 +5876,7 @@ def realtime_news_service() -> NewsNowService:
 def produce_realtime_news_data() -> dict[str, Any]:
     """Build the public realtime-news read model without exposing its endpoint."""
 
+    overview_important_only = newsnow_overview_important_only()
     try:
         config = newsnow_config()
     except NewsNowConfigurationError as exc:
@@ -5870,11 +5894,13 @@ def produce_realtime_news_data() -> dict[str, Any]:
             "source_ids": [],
             "sources": [],
             "items": [],
+            "overview_important_only": overview_important_only,
             "error": exc.code,
         }
     payload = realtime_news_service().get_news(config)
     public_payload = dict(payload)
     public_payload.pop("config_fingerprint", None)
+    public_payload["overview_important_only"] = overview_important_only
     return public_payload
 
 
@@ -6852,6 +6878,7 @@ def sync_business_runtime_settings(
 
     newsnow_names = {
         "NEWSNOW_ENABLED",
+        "NEWSNOW_OVERVIEW_IMPORTANT_ONLY",
         "NEWSNOW_BASE_URL",
         "NEWSNOW_SOURCES",
         "NEWSNOW_REFRESH_SECONDS",

@@ -31,7 +31,7 @@ const marketInfoOpen = ref(false)
 const marketInfoRoot = ref(null)
 const marketInfoTrigger = ref(null)
 const chartWidth = ref(720)
-const chartAvailableHeight = ref(330)
+const chartAvailableHeight = ref(props.terminal ? 168 : 330)
 const supportsHover = ref(false)
 let chartResizeObserver = null
 let finePointerMediaQuery = null
@@ -132,8 +132,8 @@ const chart = computed(() => {
   const showSentiment = showBreadth.value || showLimitState.value
   const baseHeight = showSentiment && showVolume.value ? (compact ? 280 : 330) : (compact ? 218 : 236)
   const compactMinHeight = showSentiment && showVolume.value ? 220 : 180
-  const height = props.terminal && !compact
-    ? 168
+  const height = props.terminal
+    ? Math.max(compact ? compactMinHeight : 168, chartAvailableHeight.value)
     : compact
       ? Math.max(compactMinHeight, Math.min(baseHeight, chartAvailableHeight.value))
       : Math.max(baseHeight, chartAvailableHeight.value)
@@ -371,6 +371,7 @@ function syncChartSize() {
   const bounds = chartWrapElement.value?.getBoundingClientRect()
   const availableWidth = Math.round(bounds?.width || 0)
   if (availableWidth > 0) chartWidth.value = Math.max(300, availableWidth)
+  const measuredHeight = Math.floor(bounds?.height || 0)
   const visualViewport = window.visualViewport
   const viewportBottom = Math.floor(
     visualViewport
@@ -378,7 +379,11 @@ function syncChartSize() {
       : window.innerHeight || document.documentElement.clientHeight || 0,
   )
   const bottomReserve = availableWidth < 560 ? 56 : 40
-  const availableHeight = Math.floor(viewportBottom - (bounds?.top || 0) - bottomReserve)
+  const availableHeight = Math.floor(
+    props.terminal && measuredHeight > 0
+      ? measuredHeight
+      : viewportBottom - (bounds?.top || 0) - bottomReserve,
+  )
   if (availableHeight > 0) chartAvailableHeight.value = availableHeight
 }
 

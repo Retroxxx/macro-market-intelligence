@@ -261,7 +261,7 @@ function indexPriority(item) {
     [/^(sh|sse|sh_comp)$/.test(key) || code === 'sh000001' || /上证指数/.test(name), 0],
     [/^(sz|szse|sz_comp)$/.test(key) || code === 'sz399001' || /深证成指/.test(name), 1],
     [/^(cyb|chinext)$/.test(key) || code === 'sz399006' || /创业板/.test(name), 2],
-    [/^(hs300|csi300)$/.test(key) || /沪深\s*300/i.test(name), 3],
+    [/^(kc50|star50)$/.test(key) || code === 'sh000688' || /科创(?:板|50)/.test(name), 3],
   ]
   return values.find(([match]) => match)?.[1] ?? 20
 }
@@ -302,6 +302,17 @@ export function overviewCandidatePeriod(generatedAt, tradingCalendar = {}) {
   }
 }
 
+export function overviewCandidateStrategyDisplayLabel(strategyId, strategyLabel) {
+  const id = String(strategyId || '').trim()
+  const label = String(strategyLabel || '').trim() || id || '综合策略'
+  if (!id.startsWith('niu_') && !label.startsWith('牛牛战法')) return label
+
+  const subStrategy = label
+    .replace(/^牛牛战法\s*(?:[·•｜|/—–-]\s*)?/, '')
+    .trim()
+  return subStrategy || label
+}
+
 export function overviewCandidates(
   items = [],
   payloadMeta = {},
@@ -312,13 +323,15 @@ export function overviewCandidates(
   return (Array.isArray(items) ? items : [])
     .map((item, order) => {
       const strategyId = String(item?.best_strategy || '')
+      const strategyLabel = strategyMeta[strategyId]?.label || strategyId || '综合策略'
       const tier = practiceCandidateTier(item)
       const blockers = Array.isArray(item?.hard_blockers) ? item.hard_blockers : []
       return {
         ...item,
         _order: order,
         score: candidateScore(item),
-        strategyLabel: strategyMeta[strategyId]?.label || strategyId || '综合策略',
+        strategyLabel,
+        strategyDisplayLabel: overviewCandidateStrategyDisplayLabel(strategyId, strategyLabel),
         industryLabel: practiceCandidateIndustryLabel(item),
         themeLabel: String(item?.signal_theme || ''),
         tier,

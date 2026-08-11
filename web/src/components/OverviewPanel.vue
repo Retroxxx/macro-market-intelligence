@@ -4,6 +4,7 @@ import { useIndicesData } from '../composables/useIndicesData.js'
 import { useNiuOneMainlineData } from '../composables/useNiuOneMainlineData.js'
 import { usePracticeCandidatesData } from '../composables/usePracticeCandidatesData.js'
 import { usePracticeData } from '../composables/usePracticeData.js'
+import { useRealtimeNewsData } from '../composables/useRealtimeNewsData.js'
 import {
   finiteNumber,
   formatOverviewAmount,
@@ -27,6 +28,11 @@ import {
   overviewViewportMode,
   valueTone,
 } from '../utils/homeOverviewDisplay.js'
+import {
+  filterRealtimeNews,
+  realtimeNewsClock,
+} from '../utils/realtimeNewsDisplay.js'
+import IndexSparkline from './indices/IndexSparkline.vue'
 import MarketBreadthChart from './indices/MarketBreadthChart.vue'
 
 const {
@@ -49,6 +55,11 @@ const {
   activatePractice,
   deactivatePractice,
 } = usePracticeData()
+const {
+  state: realtimeNewsState,
+  activateRealtimeNews,
+  deactivateRealtimeNews,
+} = useRealtimeNewsData()
 
 const overviewRoot = ref(null)
 const mainlinePanel = ref(null)
@@ -80,6 +91,21 @@ const candidates = computed(() => overviewCandidates(
   candidateState.items,
   candidateState.strategyMeta,
 ))
+const overviewNewsItems = computed(() => filterRealtimeNews(
+  realtimeNewsState.items,
+  'all',
+  realtimeNewsState.overviewImportantOnly,
+).slice(0, 10))
+const overviewNewsModeLabel = computed(() => (
+  realtimeNewsState.overviewImportantOnly ? '仅重要' : '全部快讯'
+))
+const overviewNewsEmptyText = computed(() => {
+  if (!realtimeNewsState.enabled) return '财经快讯已停用'
+  if (realtimeNewsState.overviewImportantOnly && realtimeNewsState.items.length) {
+    return '当前暂无重要快讯'
+  }
+  return realtimeNewsState.error ? '财经快讯暂不可用' : '暂无财经快讯'
+})
 const themeRankings = computed(() => [
   {
     key: 'today',
@@ -123,7 +149,6 @@ const marketSummary = computed(() => overviewPracticeMarketSummary(
   practiceState.marketSummary,
   practiceState.marketSummaryGenerating,
 ))
-const coverage = computed(() => finiteNumber(mainlinePayload.value.data_quality?.coverage))
 const latestUpdate = computed(() => (
   indicesState.indices?.generated_at
   || breadth.value.generatedAt
@@ -140,7 +165,6 @@ const exposureTone = computed(() => {
   return 'positive'
 })
 const mainlineAvailable = computed(() => mainlinePayload.value.available === true)
-const marketDataAvailable = computed(() => indices.value.length || breadth.value.available)
 const flowDataAvailable = computed(() => (
   sectorGains.value.length
   || sectorLosses.value.length
@@ -163,12 +187,6 @@ function themeLeader(theme) {
   const fallback = `${theme?.leaderBadge || '龙头'}待确认`
   if (!leader || typeof leader !== 'object') return fallback
   return [leader.code, leader.name].filter(Boolean).join(' ') || fallback
-}
-
-function themeMetricPosition(value) {
-  const numeric = finiteNumber(value)
-  if (numeric == null) return '0%'
-  return `${Math.max(0, Math.min(100, numeric))}%`
 }
 
 function syncThemeStockPopover() {
@@ -265,7 +283,7 @@ function syncOverviewViewport() {
 
 function syncMainlinePanelHeight() {
   const height = mainlinePanel.value?.getBoundingClientRect().height || 0
-  if (height > 0) mainlinePanelHeight.value = Math.floor(height)
+  if (height > 0) mainlinePanelHeight.value = Math.round(height * 100) / 100
 }
 
 onMounted(() => {
@@ -274,6 +292,7 @@ onMounted(() => {
   activateNiuOneMainline()
   activatePracticeCandidates()
   activatePractice()
+  activateRealtimeNews()
   window.addEventListener('resize', syncOverviewViewport, { passive: true })
   window.visualViewport?.addEventListener('resize', syncOverviewViewport, { passive: true })
   window.addEventListener('scroll', syncThemeStockPopover, true)
@@ -301,6 +320,7 @@ onBeforeUnmount(() => {
   deactivateNiuOneMainline()
   deactivatePracticeCandidates()
   deactivatePractice()
+  deactivateRealtimeNews()
   window.removeEventListener('resize', syncOverviewViewport)
   window.visualViewport?.removeEventListener('resize', syncOverviewViewport)
   window.removeEventListener('scroll', syncThemeStockPopover, true)
@@ -319,7 +339,10 @@ onBeforeUnmount(() => {
     class="overview-page"
     :data-layout="viewportMode.layout"
     :data-density="viewportMode.density"
-    :style="overviewViewportHeight ? { '--overview-viewport-height': `${overviewViewportHeight}px` } : undefined"
+    :style="{
+      '--overview-viewport-height': overviewViewportHeight ? `${overviewViewportHeight}px` : undefined,
+      '--overview-mainline-panel-height': mainlinePanelHeight ? `${mainlinePanelHeight}px` : undefined,
+    }"
   >
     <section class="overview-command-head" aria-labelledby="overviewTitle">
       <div>
@@ -392,31 +415,13 @@ onBeforeUnmount(() => {
       <section class="overview-panel overview-market-panel" aria-labelledby="overviewMarketTitle">
         <div class="overview-panel-head">
           <div>
-            <h3 id="overviewMarketTitle">指数与市场情绪</h3>
+            <h3 id="overviewMarketTitle">市场情绪</h3>
           </div>
           <div class="overview-panel-actions">
-            <span class="overview-update-time">{{ freshnessText(indicesState.indices?.generated_at || breadth.generatedAt) }}</span>
-            <RouterLink to="/indices">查看行情 <span aria-hidden="true">›</span></RouterLink>
+            <span class="overview-update-time">{{ freshnessText(breadth.generatedAt) }}</span>
+            <RouterLink to="/indices">查看详情 <span aria-hidden="true">›</span></RouterLink>
           </div>
         </div>
-
-        <div v-if="indicesState.indices?.error && marketDataAvailable && !overviewPreviousTradingDayLabel" class="overview-inline-notice warning" role="status">
-          实时更新暂时失败，继续展示最近缓存：{{ indicesState.indices.error }}
-        </div>
-        <div v-if="indices.length" class="overview-index-grid">
-          <article
-            v-for="item in indices"
-            :key="item.key || item.code || item.name"
-            class="overview-index-tile"
-            :class="valueTone(item.change_pct)"
-          >
-            <div><span>{{ item.name }}</span><time>{{ String(item.time || '').slice(11, 16) }}</time></div>
-            <strong>{{ formatOverviewNumber(item.price, 2) }}</strong>
-            <b>{{ finiteNumber(item.change_pct) > 0 ? '↑ ' : finiteNumber(item.change_pct) < 0 ? '↓ ' : '' }}{{ formatOverviewPercent(item.change_pct, 2, true) }}</b>
-          </article>
-        </div>
-        <div v-else-if="indicesState.loading" class="overview-loading">正在读取 A 股核心指数…</div>
-        <div v-else class="overview-empty">{{ indicesState.indices?.error ? `指数数据暂不可用：${indicesState.indices.error}` : '尚无 A 股指数数据' }}</div>
 
         <div class="overview-chart-wrap">
           <MarketBreadthChart v-if="indicesState.marketBreadth?.timeline?.length" :payload="indicesState.marketBreadth" terminal />
@@ -439,14 +444,14 @@ onBeforeUnmount(() => {
       <section
         ref="mainlinePanel"
         class="overview-panel overview-mainline-panel"
-        :data-mainline-layout="mainlinePanelMode"
+        :data-mainline-layout="viewportMode.layout === 'wide' && viewportMode.density === 'comfortable' ? 'full' : mainlinePanelMode"
         aria-labelledby="overviewMainlineTitle"
       >
         <div class="overview-panel-head compact">
           <div>
             <h3 id="overviewMainlineTitle">主线机会</h3>
           </div>
-          <RouterLink to="/niuone-mainline" class="overview-detail-link" aria-label="查看完整题材强度">详情 <span aria-hidden="true">›</span></RouterLink>
+          <RouterLink to="/niuone-mainline" class="overview-detail-link" aria-label="查看完整主线机会">详情 <span aria-hidden="true">›</span></RouterLink>
         </div>
 
         <div v-if="mainlineState.error && mainlineAvailable" class="overview-inline-notice warning" role="status">
@@ -475,8 +480,6 @@ onBeforeUnmount(() => {
                 <div class="overview-theme-table-head" role="row">
                   <span role="columnheader">题材 / 周期</span>
                   <span role="columnheader">核心股 / 梯队</span>
-                  <span role="columnheader">强度</span>
-                  <span role="columnheader" class="overview-theme-breadth">广度</span>
                 </div>
                 <div v-for="(theme, index) in ranking.themes" :key="`${ranking.key}-${theme.displayName}`" class="overview-theme-row" role="row">
                   <div class="overview-theme-copy" role="cell">
@@ -512,43 +515,15 @@ onBeforeUnmount(() => {
                       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
                     </button>
                   </div>
-                  <div
-                    class="overview-theme-metric overview-theme-score"
-                    :style="{ '--theme-metric-position': themeMetricPosition(theme.displayScore) }"
-                    role="cell"
-                  >
-                    <b>{{ formatOverviewNumber(theme.displayScore, 1) }}</b>
-                    <span class="overview-theme-metric-track" aria-hidden="true"><i></i></span>
-                    <small>{{ theme.comparisonLabel }} {{ formatOverviewNumber(theme.comparisonScore, 1) }}</small>
-                  </div>
-                  <div
-                    class="overview-theme-metric overview-theme-breadth"
-                    :style="{ '--theme-metric-position': themeMetricPosition(theme.breadth) }"
-                    role="cell"
-                  >
-                    <b>{{ formatOverviewPercent(theme.breadth, 0) }}</b>
-                    <span class="overview-theme-metric-track" aria-hidden="true"><i></i></span>
-                    <small>中位 {{ formatOverviewPercent(theme.medianChangePct, 1, true) }}</small>
-                  </div>
                 </div>
               </div>
               <div v-else class="overview-mini-empty">当前暂无{{ ranking.title }}数据</div>
             </section>
           </div>
           <div v-else class="overview-empty">尚无题材排名数据</div>
-          <div
-            class="overview-coverage"
-            :style="{ '--theme-metric-position': themeMetricPosition(coverage == null ? null : coverage * 100) }"
-          >
-            <div>
-              <span>题材有效覆盖</span>
-              <b>{{ coverage == null ? '--' : formatOverviewPercent(coverage * 100, 1) }}</b>
-            </div>
-            <span class="overview-theme-metric-track" aria-hidden="true"><i></i></span>
-          </div>
         </template>
         <div v-else-if="mainlineState.loading && !mainlineState.loaded" class="overview-loading">正在读取主线题材…</div>
-        <div v-else class="overview-empty">{{ mainlineState.error ? `题材数据暂不可用：${mainlineState.error}` : '尚无题材强度扫描结果' }}</div>
+        <div v-else class="overview-empty">{{ mainlineState.error ? `题材数据暂不可用：${mainlineState.error}` : '尚无主线题材扫描结果' }}</div>
       </section>
       <Teleport to="body">
         <div
@@ -587,6 +562,40 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="overview-secondary-grid">
+      <section class="overview-panel overview-indices-panel" aria-labelledby="overviewIndicesTitle">
+        <div class="overview-panel-head">
+          <div>
+            <h3 id="overviewIndicesTitle">指数</h3>
+          </div>
+          <div class="overview-panel-actions">
+            <span class="overview-update-time">{{ freshnessText(indicesState.indices?.generated_at) }}</span>
+            <RouterLink to="/indices">查看行情 <span aria-hidden="true">›</span></RouterLink>
+          </div>
+        </div>
+        <div v-if="indicesState.indices?.error && indices.length && !overviewPreviousTradingDayLabel" class="overview-inline-notice warning" role="status">
+          实时更新暂时失败，继续展示最近缓存：{{ indicesState.indices.error }}
+        </div>
+        <div v-if="indices.length" class="overview-index-grid" role="list" aria-label="A股核心指数">
+          <article
+            v-for="item in indices"
+            :key="item.key || item.code || item.name"
+            class="overview-index-tile"
+            :class="valueTone(item.change_pct)"
+            role="listitem"
+          >
+            <div class="overview-index-meta"><span>{{ item.name }}</span><time>{{ String(item.time || '').slice(11, 16) }}</time></div>
+            <div class="overview-index-quote">
+              <strong>{{ formatOverviewNumber(item.price, 2) }}</strong>
+              <b>{{ finiteNumber(item.change_pct) > 0 ? '↑ ' : finiteNumber(item.change_pct) < 0 ? '↓ ' : '' }}{{ formatOverviewPercent(item.change_pct, 2, true) }}</b>
+            </div>
+            <IndexSparkline :item="item" />
+          </article>
+        </div>
+        <div v-else-if="indicesState.loading" class="overview-loading">正在读取 A 股核心指数…</div>
+        <div v-else class="overview-empty">{{ indicesState.indices?.error ? `指数数据暂不可用：${indicesState.indices.error}` : '尚无 A 股指数数据' }}</div>
+      </section>
+
+      <div class="overview-right-bottom">
       <section class="overview-panel overview-candidate-panel" aria-labelledby="overviewCandidatesTitle">
         <div class="overview-panel-head">
           <div>
@@ -615,10 +624,8 @@ onBeforeUnmount(() => {
           <div class="overview-candidate-table-head" role="row">
             <span role="columnheader">标的</span>
             <span role="columnheader" class="overview-candidate-wide-only">涨跌幅</span>
-            <span role="columnheader">策略<span class="overview-candidate-compact-only"> / 题材</span></span>
-            <span role="columnheader" class="overview-candidate-wide-only">题材 / 行业</span>
-            <span role="columnheader">评分</span>
-            <span role="columnheader">状态</span>
+            <span role="columnheader">题材 / 行业</span>
+            <span role="columnheader">策略</span>
           </div>
           <article v-for="candidate in candidates" :key="`${candidate.code}-${candidate.best_strategy}`" class="overview-candidate-row" role="row">
             <div role="cell">
@@ -626,18 +633,50 @@ onBeforeUnmount(() => {
               <span class="overview-candidate-compact-only" :class="valueTone(candidate.change_pct)">{{ formatOverviewPercent(candidate.change_pct, 2, true) }}</span>
             </div>
             <span role="cell" class="overview-candidate-change overview-candidate-wide-only" :class="valueTone(candidate.change_pct)">{{ formatOverviewPercent(candidate.change_pct, 2, true) }}</span>
-            <div role="cell">
-              <strong>{{ candidate.strategyLabel }}</strong>
-              <span class="overview-candidate-compact-only">{{ candidate.themeLabel || candidate.industryLabel || '题材待归因' }}</span>
-            </div>
-            <span role="cell" class="overview-candidate-theme overview-candidate-wide-only">{{ candidate.themeLabel || candidate.industryLabel || '题材待归因' }}</span>
-            <b role="cell">{{ formatOverviewNumber(candidate.score, 2) }}</b>
-            <span role="cell" class="overview-tier" :class="candidate.tier">{{ candidate.tierLabel }}</span>
+            <span role="cell" class="overview-candidate-theme">{{ candidate.themeLabel || candidate.industryLabel || '题材待归因' }}</span>
+            <span role="cell" class="overview-candidate-strategy" :title="candidate.strategyLabel">{{ candidate.strategyDisplayLabel }}</span>
           </article>
         </div>
         <div v-else-if="candidateState.loading && !candidateState.loaded" class="overview-loading">正在读取候选池…</div>
         <div v-else class="overview-empty">{{ candidateState.error ? `候选池暂不可用：${candidateState.error}` : '当前没有可展示的候选标的' }}</div>
       </section>
+
+      <section class="overview-panel overview-news-panel" aria-labelledby="overviewNewsTitle">
+        <div class="overview-panel-head compact">
+          <div class="overview-news-heading">
+            <h3 id="overviewNewsTitle">财经快讯</h3>
+            <span class="overview-news-mode">{{ overviewNewsModeLabel }}</span>
+            <span v-if="realtimeNewsState.stale" class="overview-news-cache">缓存</span>
+          </div>
+          <div class="overview-panel-actions">
+            <span class="overview-update-time">{{ freshnessText(realtimeNewsState.generatedAt) }}</span>
+            <RouterLink to="/realtime-news">查看全部 <span aria-hidden="true">›</span></RouterLink>
+          </div>
+        </div>
+        <ol v-if="overviewNewsItems.length" class="overview-news-list">
+          <li
+            v-for="item in overviewNewsItems"
+            :key="item.id"
+            class="overview-news-item"
+            :class="{ important: item.important }"
+          >
+            <time :datetime="item.published_at || undefined">{{ realtimeNewsClock(item) }}</time>
+            <span class="overview-news-source" :title="item.source_name || item.source_id">{{ item.source_name || item.source_id }}</span>
+            <a
+              v-if="item.url"
+              class="overview-news-title"
+              :href="item.url"
+              :title="item.title"
+              target="_blank"
+              rel="noopener noreferrer"
+            >{{ item.title }}</a>
+            <span v-else class="overview-news-title" :title="item.title">{{ item.title }}</span>
+          </li>
+        </ol>
+        <div v-else-if="realtimeNewsState.loading && !realtimeNewsState.loaded" class="overview-news-empty">正在读取财经快讯…</div>
+        <div v-else class="overview-news-empty">{{ overviewNewsEmptyText }}</div>
+      </section>
+      </div>
 
       <section class="overview-panel overview-flow-panel" aria-labelledby="overviewFlowTitle">
         <div class="overview-panel-head">
@@ -884,6 +923,7 @@ onBeforeUnmount(() => {
 
 .overview-terminal-grid { display: grid; gap: 14px; min-width: 0; }
 .overview-panel { border-radius: 13px; min-width: 0; overflow: hidden; padding: 15px; }
+.overview-candidate-panel { container-type: inline-size; }
 
 .overview-panel-head {
   align-items: center;
@@ -902,6 +942,37 @@ onBeforeUnmount(() => {
 .overview-panel a:focus-visible { outline: 2px solid var(--overview-accent); outline-offset: 3px; border-radius: 2px; }
 .overview-detail-link { align-self: flex-start; }
 
+.overview-news-heading { align-items: center; display: flex; gap: 7px; min-width: 0; }
+.overview-news-mode,
+.overview-news-cache {
+  border: 1px solid var(--overview-border-strong);
+  border-radius: 3px;
+  color: var(--overview-muted);
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1;
+  padding: 3px 5px;
+}
+.overview-news-mode { background: var(--overview-surface-raised); }
+.overview-news-cache { background: var(--overview-warning-soft); border-color: color-mix(in srgb, var(--overview-warning) 34%, var(--overview-border)); color: var(--overview-warning); }
+.overview-news-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); list-style: none; margin: 0; min-width: 0; padding: 0; }
+.overview-news-item {
+  align-items: center;
+  border-right: 1px solid var(--overview-border);
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 36px minmax(72px, 100px) minmax(0, 1fr);
+  min-width: 0;
+  padding: 5px 10px;
+}
+.overview-news-item:last-child { border-right: 0; }
+.overview-news-item time { color: var(--overview-faint); font-size: 10px; font-weight: 800; white-space: nowrap; }
+.overview-news-source { color: var(--overview-accent); font-size: 9px; font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overview-news-item .overview-news-title { color: var(--overview-text); font-size: 10px; font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overview-news-item.important .overview-news-title { color: var(--overview-up); }
+.overview-news-empty { color: var(--overview-faint); font-size: 10px; padding: 5px 1px; }
+
 .overview-inline-notice {
   background: var(--overview-accent-soft);
   border: 1px solid color-mix(in srgb, var(--overview-accent) 24%, transparent);
@@ -917,25 +988,41 @@ onBeforeUnmount(() => {
 .overview-index-grid {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  min-height: 0;
 }
 
 .overview-index-tile {
   background: var(--overview-surface-raised);
   border: 1px solid var(--overview-border);
   border-radius: 9px;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   padding: 10px;
 }
 
 .overview-index-tile > div { align-items: center; display: flex; gap: 6px; justify-content: space-between; }
+.overview-index-tile > .overview-index-quote { align-items: baseline; margin-top: 5px; }
 .overview-index-tile span { color: var(--overview-muted); font-size: 10px; font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .overview-index-tile time { color: var(--overview-faint); font-size: 9px; }
-.overview-index-tile strong { color: var(--overview-text); display: block; font-size: 17px; margin-top: 5px; }
-.overview-index-tile b { display: block; font-size: 11px; margin-top: 2px; }
+.overview-index-tile strong { color: var(--overview-text); display: block; font-size: 17px; }
+.overview-index-tile b { display: block; font-size: 11px; margin-left: auto; text-align: right; }
 .overview-index-tile.up b { color: var(--overview-up); }
 .overview-index-tile.down b { color: var(--overview-down); }
 .overview-index-tile.flat b { color: var(--overview-muted); }
+.overview-index-tile :deep(.sparkline) {
+  display: block;
+  flex: 1 1 34px;
+  height: auto;
+  margin-top: 5px;
+  min-height: 26px;
+  width: 100%;
+}
+.overview-index-tile.up :deep(.sparkline) { color: var(--overview-up); }
+.overview-index-tile.down :deep(.sparkline) { color: var(--overview-down); }
+.overview-index-tile.flat :deep(.sparkline) { color: var(--overview-muted); }
 
 .overview-chart-wrap {
   --market-breadth-limit-down: var(--overview-down);
@@ -1033,7 +1120,7 @@ onBeforeUnmount(() => {
 .overview-theme-ranking > h4 { background: var(--overview-surface-raised); border-bottom: 1px solid var(--overview-border-strong); color: var(--overview-text); font-size: 11px; margin: 0; padding: 6px 8px; }
 .overview-theme-list { display: grid; }
 .overview-theme-table-head,
-.overview-theme-row { align-items: center; display: grid; gap: 14px; grid-template-columns: minmax(164px, 1fr) minmax(180px, 1.08fr) minmax(100px, .72fr) minmax(86px, .58fr); }
+.overview-theme-row { align-items: center; display: grid; gap: 14px; grid-template-columns: minmax(164px, 1fr) minmax(180px, 1.08fr); }
 .overview-theme-table-head { background: var(--overview-surface-raised); border-bottom: 1px solid var(--overview-border-strong); color: var(--overview-muted); font-size: 9px; padding: 0 2px 5px; }
 .overview-theme-row { border-bottom: 1px solid var(--overview-border); padding: 7px 2px; }
 .overview-theme-row:last-child { border-bottom: 0; }
@@ -1051,8 +1138,7 @@ onBeforeUnmount(() => {
   padding-left: 7px;
   white-space: nowrap;
 }
-.overview-theme-meta,
-.overview-theme-metric small {
+.overview-theme-meta {
   color: var(--overview-mainline-secondary);
   display: block;
   font-size: 9px;
@@ -1161,37 +1247,10 @@ onBeforeUnmount(() => {
   --overview-down: #559a7f;
   box-shadow: 0 16px 38px rgba(0, 0, 0, .48);
 }
-.overview-theme-metric { --theme-metric-position: 0%; display: grid; gap: 5px; min-width: 0; }
-.overview-theme-metric b { font-size: 12px; line-height: 1; }
-.overview-theme-score b { color: var(--overview-mainline-accent); }
-.overview-theme-breadth b { color: var(--overview-text); }
-.overview-theme-metric-track {
-  background: color-mix(in srgb, var(--overview-border-strong) 72%, transparent);
-  border-radius: 999px;
-  display: block;
-  height: 3px;
-  min-width: 32px;
-  overflow: hidden;
-  width: 100%;
-}
-.overview-theme-metric-track i {
-  background: color-mix(in srgb, var(--overview-text) 56%, var(--overview-border-strong));
-  border-radius: inherit;
-  display: block;
-  height: 100%;
-  width: var(--theme-metric-position);
-}
-.overview-theme-score .overview-theme-metric-track i { background: var(--overview-mainline-accent); }
-.overview-theme-breadth .overview-theme-metric-track i { background: var(--overview-mainline-secondary); }
-.overview-coverage { --theme-metric-position: 0%; color: var(--overview-muted); display: grid; font-size: 9px; gap: 5px; padding-top: 7px; }
-.overview-coverage > div { display: flex; justify-content: space-between; }
-.overview-coverage b { color: var(--overview-text); }
-.overview-coverage .overview-theme-metric-track { height: 2px; }
-
 .overview-secondary-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1.35fr) minmax(360px, .85fr); }
 .overview-candidate-table { display: grid; }
 .overview-candidate-table-head,
-.overview-candidate-row { align-items: center; display: grid; gap: 12px; grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.35fr) 60px 72px; }
+.overview-candidate-row { align-items: center; display: grid; gap: 12px; grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.35fr) minmax(100px, .7fr); }
 .overview-candidate-table-head { background: var(--overview-surface-raised); border-bottom: 1px solid var(--overview-border-strong); color: var(--overview-muted); font-size: 9px; padding: 0 8px 7px; }
 .overview-candidate-row { border-bottom: 1px solid var(--overview-border); min-height: 50px; padding: 7px 8px; }
 .overview-candidate-row:last-child { border-bottom: 0; }
@@ -1204,12 +1263,8 @@ onBeforeUnmount(() => {
 .overview-candidate-change { font-size: 10px; font-weight: 800; white-space: nowrap; }
 .overview-candidate-change.up { color: var(--overview-up); }
 .overview-candidate-change.down { color: var(--overview-down); }
+.overview-candidate-strategy { color: var(--overview-text); font-size: 10px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .overview-candidate-theme { color: var(--overview-muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.overview-candidate-row > b { color: var(--overview-accent); font-size: 13px; }
-.overview-tier { border: 1px solid var(--overview-border); border-radius: 999px; font-size: 9px; font-weight: 800; justify-self: start; padding: 3px 7px; white-space: nowrap; }
-.overview-tier.high { background: var(--overview-surface-strong); border-color: var(--overview-border-strong); color: var(--overview-text); }
-.overview-tier.mid { background: var(--overview-warning-soft); border-color: color-mix(in srgb, var(--overview-warning) 32%, transparent); color: var(--overview-warning); }
-.overview-tier.low { color: var(--overview-muted); }
 .overview-flow-columns { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .overview-flow-columns h4 { color: var(--overview-muted); font-size: 9px; letter-spacing: .04em; margin: 0 0 5px; }
 .overview-flow-row { align-items: center; border-bottom: 1px solid var(--overview-border); display: flex; font-size: 10px; gap: 8px; justify-content: space-between; min-height: 30px; }
@@ -1219,9 +1274,6 @@ onBeforeUnmount(() => {
 .overview-flow-row.down b { color: var(--overview-down); }
 .overview-flow-divider { border-top: 1px solid var(--overview-border-strong); margin: 10px 0; }
 .overview-mini-empty { color: var(--overview-faint); font-size: 9px; padding: 8px 0; }
-
-.overview-mainline-panel[data-mainline-layout="compact"] .overview-coverage,
-.overview-mainline-panel[data-mainline-layout="summary"] .overview-coverage { display: none; }
 
 .overview-mainline-panel[data-mainline-layout="compact"] .overview-theme-list {
   grid-template-rows: auto repeat(3, minmax(0, 1fr));
@@ -1257,11 +1309,14 @@ onBeforeUnmount(() => {
   .overview-page { gap: 10px; }
   .overview-terminal-grid,
   .overview-primary-grid,
-  .overview-secondary-grid { display: contents; }
+  .overview-secondary-grid,
+  .overview-right-bottom { display: contents; }
   .overview-market-panel { order: 1; }
-  .overview-flow-panel { order: 2; }
-  .overview-mainline-panel { order: 3; }
-  .overview-candidate-panel { order: 4; }
+  .overview-indices-panel { order: 2; }
+  .overview-flow-panel { order: 3; }
+  .overview-mainline-panel { order: 4; }
+  .overview-candidate-panel { order: 5; }
+  .overview-news-panel { order: 6; }
   .overview-command-head { align-items: flex-start; display: grid; padding: 14px; }
   .overview-command-meta { justify-self: start; }
   .overview-banner { align-items: start; grid-template-columns: 1fr; }
@@ -1271,20 +1326,22 @@ onBeforeUnmount(() => {
   .overview-panel { padding: 12px; }
   .overview-panel-head { align-items: flex-start; }
   .overview-panel-actions { align-items: flex-end; display: grid; justify-items: end; }
+  .overview-news-list { grid-template-columns: 1fr; }
+  .overview-news-item { border-bottom: 1px solid var(--overview-border); border-right: 0; grid-template-columns: 38px minmax(72px, 105px) minmax(0, 1fr); }
+  .overview-news-item:last-child { border-bottom: 0; }
   .overview-chart-wrap { min-height: 230px; padding: 6px; }
   .overview-theme-rankings { grid-template-columns: 1fr; }
   .overview-theme-table-head { display: none; }
-  .overview-theme-row { grid-template-columns: minmax(0, 1fr) 50px; }
-  .overview-theme-leader,
-  .overview-theme-breadth { display: none; }
+  .overview-theme-row { grid-template-columns: minmax(0, 1fr); }
+  .overview-theme-leader { display: none; }
   .overview-theme-mobile-toggle { display: inline-flex; }
   .overview-theme-stock-popover { padding: 7px; }
   .overview-candidate-table-head { display: none; }
-  .overview-candidate-row { gap: 7px; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 42px; }
-  .overview-candidate-row > .overview-tier { grid-column: 1 / -1; }
+  .overview-candidate-row { gap: 7px; grid-template-columns: minmax(96px, 1fr) minmax(0, 1fr) minmax(54px, .55fr); }
 }
 
 @media (max-width: 440px) {
+  .overview-news-item { gap: 6px; grid-template-columns: 36px 76px minmax(0, 1fr); padding-inline: 4px; }
   .overview-index-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-index-tile time { display: none; }
   .overview-flow-columns { grid-template-columns: 1fr; }
@@ -1364,23 +1421,43 @@ onBeforeUnmount(() => {
     flex: 1 1 auto;
     gap: 6px;
     grid-template-areas:
-      "market flow"
-      "mainline candidate";
+      "market side"
+      "mainline side";
     grid-template-columns: var(--overview-terminal-left) var(--overview-terminal-right);
     grid-template-rows: minmax(0, .9fr) minmax(0, 1.1fr);
     min-height: 0;
     overflow: hidden;
   }
 
-  .overview-primary-grid,
+  .overview-primary-grid { display: contents; }
   .overview-secondary-grid {
-    display: contents;
+    display: grid;
+    gap: 6px;
+    grid-area: side;
+    grid-template-areas:
+      "indices"
+      "flow"
+      "candidate";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(92px, .65fr) minmax(92px, 1fr) minmax(118px, 1.1fr);
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .overview-market-panel { grid-area: market; }
+  .overview-indices-panel { grid-area: indices; }
   .overview-flow-panel { grid-area: flow; }
   .overview-mainline-panel { grid-area: mainline; }
-  .overview-candidate-panel { grid-area: candidate; }
+  .overview-right-bottom {
+    display: grid;
+    gap: 6px;
+    grid-area: candidate;
+    grid-template-rows: minmax(0, 1fr) 118px;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
 
   .overview-panel {
     border-radius: 7px;
@@ -1395,19 +1472,46 @@ onBeforeUnmount(() => {
   .overview-panel-actions { font-size: 9px; gap: 7px; }
   .overview-panel a { font-size: 10px; }
   .overview-inline-notice { font-size: 9px; margin-bottom: 4px; padding: 3px 6px; }
+  .overview-right-bottom > .overview-news-panel { display: flex; flex-direction: column; padding: 4px 7px; }
+  .overview-right-bottom .overview-news-panel .overview-panel-head,
+  .overview-right-bottom .overview-news-panel .overview-panel-head.compact { margin-bottom: 1px; min-height: 18px; }
+  .overview-right-bottom .overview-news-mode,
+  .overview-right-bottom .overview-news-cache { padding: 2px 4px; }
+  .overview-right-bottom .overview-news-list { flex: 1 1 auto; grid-auto-rows: minmax(0, 1fr); grid-template-columns: 1fr; min-height: 0; overflow: hidden; }
+  .overview-right-bottom .overview-news-item {
+    border-bottom: 1px solid var(--overview-border);
+    border-right: 0;
+    gap: 5px;
+    grid-template-columns: 30px 100px minmax(0, 1fr);
+    min-height: 0;
+    padding: 1px 4px;
+  }
+  .overview-right-bottom .overview-news-item:last-child { border-bottom: 0; }
+  .overview-right-bottom .overview-news-item time,
+  .overview-right-bottom .overview-news-source,
+  .overview-right-bottom .overview-news-item .overview-news-title { font-size: 9px; }
+  .overview-right-bottom .overview-news-empty { padding: 2px 1px; }
 
-  .overview-market-panel {
+  .overview-market-panel,
+  .overview-indices-panel {
     display: flex;
     flex-direction: column;
     min-height: 0;
   }
 
-  .overview-index-grid { flex: 0 0 48px; gap: 4px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .overview-index-grid {
+    flex: 1 1 auto;
+    gap: 4px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
   .overview-index-tile { border-radius: 5px; padding: 4px 6px; }
   .overview-index-tile span { font-size: 9px; }
   .overview-index-tile time { font-size: 9px; }
-  .overview-index-tile strong { font-size: 13px; margin-top: 1px; }
-  .overview-index-tile b { font-size: 9px; margin-top: 0; }
+  .overview-index-tile > .overview-index-quote { margin-top: 1px; }
+  .overview-index-tile strong { font-size: 13px; }
+  .overview-index-tile b { font-size: 11px; }
+  .overview-index-tile :deep(.sparkline) { margin-top: 2px; min-height: 18px; }
 
   .overview-chart-wrap {
     display: flex;
@@ -1445,34 +1549,28 @@ onBeforeUnmount(() => {
   .overview-empty.compact { flex: 1 1 auto; min-height: 0; width: 100%; }
 
   .overview-mainline-panel,
+  .overview-indices-panel,
   .overview-candidate-panel,
   .overview-flow-panel { display: flex; flex-direction: column; min-height: 0; }
 
-  .overview-theme-rankings { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .overview-theme-rankings { align-items: start; flex: 0 0 auto; min-height: 0; overflow: hidden; }
   .overview-theme-ranking { display: flex; flex-direction: column; min-height: 0; }
   .overview-theme-ranking > h4 { flex: 0 0 auto; font-size: 10px; padding: 3px 6px; }
-  .overview-theme-list { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .overview-theme-list { align-content: start; flex: 0 0 auto; min-height: 0; overflow: hidden; }
   .overview-theme-table-head,
-  .overview-theme-row { gap: 5px; grid-template-columns: minmax(88px, 1fr) minmax(82px, 1fr) minmax(48px, .62fr) minmax(44px, .52fr); }
+  .overview-theme-row { gap: 5px; grid-template-columns: minmax(88px, 1fr) minmax(82px, 1fr); }
   .overview-theme-table-head { font-size: 9px; padding: 0 1px 3px; }
   .overview-theme-row { min-height: 25px; padding: 3px 1px; }
   .overview-theme-row strong { font-size: 10px; }
-  .overview-theme-copy,
+  .overview-theme-copy { gap: 5px; }
   .overview-theme-leader { gap: 3px; }
   .overview-theme-title { gap: 4px; }
   .overview-theme-lifecycle { font-size: 9px; padding-left: 4px; }
-  .overview-theme-leader,
-  .overview-theme-breadth { font-size: 9px; }
-  .overview-theme-meta,
-  .overview-theme-metric small { font-size: 9px; }
+  .overview-theme-leader { font-size: 9px; }
+  .overview-theme-meta { font-size: 9px; }
   .overview-theme-leader-toggle { font-size: 10px; padding: 2px 6px; }
-  .overview-theme-metric { gap: 3px; }
-  .overview-theme-metric b { font-size: 10px; }
-  .overview-theme-metric-track { height: 2px; }
-  .overview-coverage { font-size: 9px; gap: 3px; padding-top: 3px; }
-
   .overview-mainline-panel[data-mainline-layout="full"] .overview-theme-list {
-    grid-template-rows: auto repeat(5, minmax(0, 1fr));
+    grid-template-rows: auto repeat(5, 38px);
   }
 
   .overview-candidate-table {
@@ -1485,7 +1583,7 @@ onBeforeUnmount(() => {
   .overview-candidate-table-head,
   .overview-candidate-row {
     gap: 7px;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: minmax(140px, 1fr) 72px minmax(180px, 1.5fr) minmax(90px, .7fr);
   }
   .overview-candidate-wide-only { display: block; }
   .overview-candidate-compact-only { display: none !important; }
@@ -1493,8 +1591,6 @@ onBeforeUnmount(() => {
   .overview-candidate-row { min-height: 0; padding: 3px 5px; }
   .overview-candidate-row strong { font-size: 10px; }
   .overview-candidate-row div span { font-size: 9px; margin-top: 0; }
-  .overview-candidate-row > b { font-size: 11px; }
-  .overview-tier { font-size: 9px; padding: 2px 5px; }
 
   .overview-flow-columns { flex: 1 1 0; gap: 8px; min-height: 0; }
   .overview-flow-columns > div { display: flex; flex-direction: column; min-height: 0; }
@@ -1504,6 +1600,35 @@ onBeforeUnmount(() => {
   .overview-mini-empty { font-size: 9px; padding: 3px 0; }
   .overview-loading,
   .overview-empty { flex: 1 1 auto; min-height: 0; padding: 8px; }
+
+  .overview-page[data-layout="wide"] .overview-terminal-grid {
+    grid-template-areas:
+      "market market market market market indices indices indices flow flow"
+      "mainline mainline mainline mainline candidate candidate news news news news";
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+  }
+  .overview-page[data-layout="wide"] .overview-secondary-grid,
+  .overview-page[data-layout="wide"] .overview-right-bottom { display: contents; }
+  .overview-page[data-layout="wide"] .overview-indices-panel { grid-area: indices; }
+  .overview-page[data-layout="wide"] .overview-flow-panel { grid-area: flow; }
+  .overview-page[data-layout="wide"] .overview-candidate-panel { grid-area: candidate; }
+  .overview-page[data-layout="wide"] .overview-news-panel { grid-area: news; }
+  .overview-page[data-layout="wide"] .overview-news-list {
+    align-content: start;
+    flex: 1 1 auto;
+    grid-auto-rows: 25px;
+  }
+  .overview-page[data-layout="wide"] .overview-candidate-table-head,
+  .overview-page[data-layout="wide"] .overview-candidate-row {
+    gap: 4px;
+    grid-template-columns: minmax(90px, 1fr) minmax(46px, 1fr) minmax(0, 1fr) minmax(42px, 1fr);
+  }
+  .overview-page[data-layout="wide"] .overview-candidate-wide-only { display: block; }
+  .overview-page[data-layout="wide"] .overview-candidate-compact-only { display: none !important; }
+  .overview-page[data-layout="wide"] .overview-candidate-table-head .overview-candidate-wide-only,
+  .overview-page[data-layout="wide"] .overview-candidate-change { text-align: left; }
+  .overview-page[data-layout="wide"] .overview-candidate-table-head > :last-child,
+  .overview-page[data-layout="wide"] .overview-candidate-strategy { text-align: right; }
 
   .overview-page[data-layout="wide"][data-density="comfortable"] {
     --overview-terminal-left: minmax(0, 1.55fr);
@@ -1517,18 +1642,26 @@ onBeforeUnmount(() => {
   }
   .overview-page[data-layout="wide"][data-density="comfortable"] .overview-panel-head h3 { font-size: 14px; }
   .overview-page[data-layout="wide"][data-density="comfortable"] .overview-panel-actions { font-size: 9px; }
+  .overview-page[data-layout="wide"][data-density="comfortable"] .overview-mainline-panel { align-self: start; height: auto; }
+  .overview-page[data-layout="wide"][data-density="comfortable"] .overview-news-panel,
+  .overview-page[data-layout="wide"][data-density="comfortable"] .overview-candidate-panel {
+    align-self: start;
+    height: var(--overview-mainline-panel-height, auto);
+    max-height: var(--overview-mainline-panel-height, none);
+  }
+  .overview-page[data-layout="wide"][data-density="comfortable"] .overview-right-bottom { grid-template-rows: minmax(0, 1fr) 126px; }
+  .overview-page[data-layout="wide"][data-density="comfortable"] .overview-right-bottom > .overview-news-panel { padding: 4px 8px; }
+  .overview-page[data-layout="wide"][data-density="comfortable"] .overview-right-bottom .overview-news-panel .overview-panel-head,
+  .overview-page[data-layout="wide"][data-density="comfortable"] .overview-right-bottom .overview-news-panel .overview-panel-head.compact { margin-bottom: 1px; min-height: 19px; }
   .overview-page[data-layout="wide"][data-density="comfortable"] .overview-index-grid { flex-basis: 54px; gap: 5px; }
   .overview-page[data-layout="wide"][data-density="comfortable"] .overview-index-tile { padding: 5px 8px; }
   .overview-page[data-layout="wide"][data-density="comfortable"] .overview-index-tile span { font-size: 9px; }
   .overview-page[data-layout="wide"][data-density="comfortable"] .overview-index-tile strong { font-size: 14px; }
-  .overview-page[data-layout="wide"][data-density="comfortable"] .overview-index-tile b { font-size: 9px; }
+  .overview-page[data-layout="wide"][data-density="comfortable"] .overview-index-tile b { font-size: 12px; }
   .overview-page[data-layout="wide"][data-density="comfortable"] .overview-theme-row strong { font-size: 10px; }
   .overview-page[data-layout="wide"][data-density="comfortable"] .overview-theme-lifecycle { font-size: 9px; }
-  .overview-page[data-layout="wide"][data-density="comfortable"] .overview-theme-metric b { font-size: 10px; }
   .overview-page[data-layout="wide"][data-density="comfortable"] .overview-candidate-table-head { font-size: 9px; }
   .overview-page[data-layout="wide"][data-density="comfortable"] .overview-candidate-row strong { font-size: 10px; }
-  .overview-page[data-layout="wide"][data-density="comfortable"] .overview-candidate-row > b { font-size: 11px; }
-  .overview-page[data-layout="wide"][data-density="comfortable"] .overview-tier { font-size: 9px; }
   .overview-page[data-layout="wide"][data-density="comfortable"] .overview-flow-columns h4 { font-size: 9px; }
   .overview-page[data-layout="wide"][data-density="comfortable"] .overview-flow-row { font-size: 9px; min-height: 22px; }
 
@@ -1540,13 +1673,12 @@ onBeforeUnmount(() => {
   .overview-page[data-layout="compact"] .overview-index-tile time { display: none; }
   .overview-page[data-layout="compact"] .overview-theme-table-head,
   .overview-page[data-layout="compact"] .overview-theme-row {
-    grid-template-columns: minmax(88px, 1fr) minmax(82px, 1fr) minmax(48px, .62fr);
+    grid-template-columns: minmax(88px, 1fr) minmax(82px, 1fr);
   }
-  .overview-page[data-layout="compact"] .overview-theme-breadth { display: none; }
   .overview-page[data-layout="compact"] .overview-candidate-table-head,
   .overview-page[data-layout="compact"] .overview-candidate-row {
     gap: 5px;
-    grid-template-columns: minmax(92px, 1fr) minmax(104px, 1.15fr) 36px 54px;
+    grid-template-columns: minmax(92px, 1fr) minmax(104px, 1.15fr) minmax(64px, .7fr);
   }
   .overview-page[data-layout="compact"] .overview-candidate-wide-only { display: none; }
   .overview-page[data-layout="compact"] .overview-candidate-compact-only { display: block !important; }
@@ -1564,12 +1696,18 @@ onBeforeUnmount(() => {
   .overview-page[data-density="compact"] .overview-kpi strong b { font-size: 11px; }
   .overview-page[data-density="compact"] .overview-panel-head,
   .overview-page[data-density="compact"] .overview-panel-head.compact { min-height: 20px; }
+  .overview-page[data-density="compact"] .overview-right-bottom { grid-template-rows: minmax(0, 1fr) 108px; }
+  .overview-page[data-density="compact"] .overview-right-bottom > .overview-news-panel { padding: 3px 6px; }
+  .overview-page[data-density="compact"] .overview-right-bottom .overview-news-panel .overview-panel-head,
+  .overview-page[data-density="compact"] .overview-right-bottom .overview-news-panel .overview-panel-head.compact { margin-bottom: 0; min-height: 16px; }
   .overview-page[data-density="compact"] .overview-index-grid { flex-basis: 42px; }
   .overview-page[data-density="compact"] .overview-chart-wrap :deep(.market-breadth-card.terminal .market-breadth-toggle) {
     min-height: 18px;
     padding-block: 1px;
   }
   .overview-page[data-density="compact"] .overview-theme-row { min-height: 21px; padding-block: 2px; }
+  .overview-page[data-layout="wide"][data-density="compact"] .overview-news-list { grid-auto-rows: 22px; }
+  .overview-page[data-density="compact"] .overview-candidate-row:nth-child(n + 9) { display: none; }
   .overview-page[data-density="compact"] .overview-flow-row { min-height: 17px; }
 
   .overview-page[data-density="ultra-compact"] { gap: 4px; }
@@ -1601,20 +1739,45 @@ onBeforeUnmount(() => {
     min-height: 17px;
   }
   .overview-page[data-density="ultra-compact"] .overview-panel-head h3 { font-size: 10px; }
+  .overview-page[data-density="ultra-compact"] .overview-right-bottom { gap: 4px; grid-template-rows: minmax(0, 1fr) 94px; }
+  .overview-page[data-density="ultra-compact"] .overview-right-bottom > .overview-news-panel { padding: 2px 5px; }
+  .overview-page[data-density="ultra-compact"] .overview-right-bottom .overview-news-panel .overview-panel-head,
+  .overview-page[data-density="ultra-compact"] .overview-right-bottom .overview-news-panel .overview-panel-head.compact { margin-bottom: 0; min-height: 14px; }
+  .overview-page[data-density="ultra-compact"] .overview-news-mode,
+  .overview-page[data-density="ultra-compact"] .overview-news-cache { padding-block: 2px; }
+  .overview-page[data-density="ultra-compact"] .overview-news-item { padding-block: 0; }
+  .overview-page[data-layout="wide"][data-density="ultra-compact"] .overview-news-list { grid-auto-rows: 20px; }
+  .overview-page[data-layout="wide"][data-density="ultra-compact"] .overview-news-item:nth-child(n + 5) { display: none; }
   .overview-page[data-density="ultra-compact"] .overview-index-grid { flex-basis: 36px; }
   .overview-page[data-density="ultra-compact"] .overview-index-tile { padding-block: 2px; }
   .overview-page[data-density="ultra-compact"] .overview-index-tile strong { font-size: 10px; }
+  .overview-page[data-density="ultra-compact"] .overview-index-tile b { font-size: 9px; }
+  .overview-page[data-density="ultra-compact"] .overview-index-tile :deep(.sparkline) { min-height: 12px; }
   .overview-page[data-density="ultra-compact"] .overview-theme-row { min-height: 17px; padding-block: 1px; }
-  .overview-page[data-density="ultra-compact"] .overview-coverage { padding-top: 1px; }
   .overview-page[data-density="ultra-compact"] .overview-candidate-table-head { display: none; }
   .overview-page[data-density="ultra-compact"] .overview-candidate-row { padding-block: 1px; }
+  .overview-page[data-density="ultra-compact"] .overview-candidate-row:nth-child(n + 7) { display: none; }
   .overview-page[data-density="ultra-compact"] .overview-flow-row { min-height: 14px; }
   .overview-page[data-density="ultra-compact"] .overview-flow-divider { margin-block: 2px; }
+}
+
+@container (min-width: 420px) {
+  .overview-page[data-layout="wide"] .overview-candidate-table {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) max-content;
+  }
+  .overview-page[data-layout="wide"] .overview-candidate-table-head,
+  .overview-page[data-layout="wide"] .overview-candidate-row {
+    gap: 0;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+  }
 }
 
 /* 直角主题采用金融终端式边框；状态圆点和数据进度轨道保留原有几何语义。 */
 :global(html[data-corners="square"]) .overview-command-head,
 :global(html[data-corners="square"]) .overview-stale-badge,
+:global(html[data-corners="square"]) .overview-news-mode,
+:global(html[data-corners="square"]) .overview-news-cache,
 :global(html[data-corners="square"]) .overview-banner,
 :global(html[data-corners="square"]) .overview-kpi,
 :global(html[data-corners="square"]) .overview-panel,
@@ -1627,7 +1790,6 @@ onBeforeUnmount(() => {
 :global(html[data-corners="square"]) .overview-theme-mobile-toggle,
 :global(html[data-corners="square"]) .overview-theme-stock-popover,
 :global(html[data-corners="square"]) .overview-theme-stock,
-:global(html[data-corners="square"]) .overview-tier,
 :global(html[data-corners="square"]) .overview-panel a:focus-visible,
 :global(html[data-corners="square"]) .overview-theme-leader-toggle:focus-visible,
 :global(html[data-corners="square"]) .overview-theme-mobile-toggle:focus-visible,

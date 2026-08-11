@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 UTILS = ROOT / "web" / "src" / "utils" / "realtimeNewsDisplay.js"
+COMPOSABLE = ROOT / "web" / "src" / "composables" / "useRealtimeNewsData.js"
 
 
 class RealtimeNewsFrontendTests(unittest.TestCase):
@@ -121,6 +122,10 @@ console.log(JSON.stringify({{
             'html[data-theme="tongdaxin"]:root .realtime-news-table-head',
             tongdaxin_css,
         )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .overview-right-bottom > .overview-news-panel',
+            tongdaxin_css,
+        )
         self.assertIn('grid-template-columns:112px minmax(0,1fr)', tongdaxin_css)
         self.assertIn(
             '.realtime-news-item.important .realtime-news-title-row > a',
@@ -128,6 +133,14 @@ console.log(JSON.stringify({{
         )
         self.assertIn('background:var(--terminal-selection)', tongdaxin_css)
         self.assertNotIn('box-shadow:inset 2px 0 0 #fff200', tongdaxin_css)
+
+    def test_shared_feed_preserves_overview_filter_setting_in_cache(self):
+        composable = COMPOSABLE.read_text(encoding="utf-8")
+
+        self.assertIn("overviewImportantOnly: true", composable)
+        self.assertIn("overviewImportantOnly: state.overviewImportantOnly", composable)
+        self.assertIn("payload?.overview_important_only !== false", composable)
+        self.assertIn("payload?.overviewImportantOnly !== false", composable)
 
 
 if __name__ == "__main__":

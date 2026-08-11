@@ -25,7 +25,7 @@
 
 组合层的正式执行合同是直接运行 `app/entrypoints/*.py`。领域实现使用 `app.<domain>` 包路径；仍依赖历史裸模块名的组合代码由入口统一加载 `app/compat/`，外部代码不应再依赖已经移除的 `app/*.py` 路径。
 
-容器组合层在 `compose.yaml` 中额外编排官方 NewsNow sidecar。NewsNow 只加入 Compose 内网，不映射宿主机端口；Dashboard 通过内部默认地址访问，但不把 sidecar 健康作为自身启动前置条件。牛牛1号主运行数据与 NewsNow 数据分别使用 `niuone-data` 和 `newsnow-data`，上游失败只会进入财经快讯的有界降级链路，不影响 Dashboard、调度器或交易记录。
+容器组合层在 `compose.yaml` 中额外编排官方 NewsNow sidecar。NewsNow 只加入 Compose 内网，不映射宿主机端口；Dashboard 通过内部默认地址访问，但不把 sidecar 健康作为自身启动前置条件。牛牛1号主运行数据与 NewsNow 数据分别使用 `niuone-data` 和 `newsnow-data`，上游失败只会进入财经快讯的有界降级链路，不影响 Dashboard、调度器或交易记录。完整财经快讯页与总览快讯条共享同一份前端轮询状态；服务端响应同时提供只影响总览投影的 `overview_important_only` 开关，避免重复抓取或改变完整列表。
 
 ## 依赖方向
 

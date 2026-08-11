@@ -12,6 +12,7 @@ WEB_SRC = ROOT / "web" / "src"
 DISPLAY_PATH = WEB_SRC / "utils" / "homeOverviewDisplay.js"
 OVERVIEW_PATH = WEB_SRC / "components" / "OverviewPanel.vue"
 DASHBOARD_HEADER_STYLES_PATH = ROOT / "frontend" / "dashboard-header.css"
+TONGDAXIN_STYLES_PATH = ROOT / "frontend" / "tongdaxin-theme.css"
 ROUTER_PATH = WEB_SRC / "router.js"
 TABS_PATH = WEB_SRC / "composables" / "useDashboardTabs.js"
 
@@ -84,7 +85,7 @@ const industryNetFlow = module.overviewMoneyFlowNet({{
 }});
 const candidates = module.overviewCandidates([
   {{code: 'low', score: 4, entry_threshold: 8}},
-  {{code: 'mid', score: 7.5, entry_threshold: 8}},
+  {{code: 'mid', score: 7.5, entry_threshold: 8, best_strategy: 'trend_pullback'}},
   {{code: 'blocked', score: 9, entry_threshold: 8, hard_blockers: ['结构未确认']}},
   {{code: 'high', score: 8.2, entry_threshold: 8, actionable: true, best_strategy: 'niu_leader'}},
 ]);
@@ -114,6 +115,7 @@ const indices = module.overviewIndices({{
   items: [
     {{key: 'cyb', name: '创业板指', market_type: 'a_index'}},
     {{key: 'hs300', name: '沪深300', market_type: 'a_index'}},
+    {{key: 'kc50', code: 'sh000688', name: '科创50', market_type: 'a_index'}},
     {{key: 'sh', name: '上证指数', market_type: 'a_index'}},
     {{key: 'sz', name: '深证成指', market_type: 'a_index'}},
   ],
@@ -182,6 +184,7 @@ console.log(JSON.stringify({{
   industryNetFlow,
   candidateOrder: candidates.map(item => item.code),
   candidateLabels: candidates.map(item => item.tierLabel),
+  candidateStrategyLabels: candidates.map(item => item.strategyDisplayLabel),
   previousDayCandidates,
   uncappedCandidateCount: uncappedCandidates.length,
   candidatePeriods,
@@ -234,6 +237,10 @@ console.log(JSON.stringify({{
             payload["candidateLabels"],
             ["交易达标", "未达标", "待确认", "仅观察"],
         )
+        self.assertEqual(
+            payload["candidateStrategyLabels"],
+            ["领涨", "综合策略", "趋势回踩", "综合策略"],
+        )
         self.assertEqual(payload["previousDayCandidates"][0]["tier"], "high")
         self.assertEqual(payload["previousDayCandidates"][0]["tierLabel"], "交易达标")
         self.assertEqual(payload["uncappedCandidateCount"], 10)
@@ -260,7 +267,7 @@ console.log(JSON.stringify({{
                 },
             ],
         )
-        self.assertEqual(payload["indexOrder"], ["sh", "sz", "cyb", "hs300"])
+        self.assertEqual(payload["indexOrder"], ["sh", "sz", "cyb", "kc50"])
         self.assertEqual(payload["missingNumber"], "--")
         self.assertEqual(
             payload["viewportModes"],
@@ -303,6 +310,7 @@ console.log(JSON.stringify({{
     def test_overview_route_is_lazy_read_only_and_lifecycle_safe(self):
         component = OVERVIEW_PATH.read_text(encoding="utf-8")
         dashboard_header_styles = DASHBOARD_HEADER_STYLES_PATH.read_text(encoding="utf-8")
+        tongdaxin_styles = TONGDAXIN_STYLES_PATH.read_text(encoding="utf-8")
         display_model = DISPLAY_PATH.read_text(encoding="utf-8")
         breadth_component = (
             WEB_SRC / "components" / "indices" / "MarketBreadthChart.vue"
@@ -327,6 +335,7 @@ console.log(JSON.stringify({{
             "activateNiuOneMainline()",
             "activatePracticeCandidates()",
             "activatePractice()",
+            "activateRealtimeNews()",
         ):
             self.assertIn(activation, component)
         for deactivation in (
@@ -334,6 +343,7 @@ console.log(JSON.stringify({{
             "deactivateNiuOneMainline()",
             "deactivatePracticeCandidates()",
             "deactivatePractice()",
+            "deactivateRealtimeNews()",
         ):
             self.assertIn(deactivation, component)
         self.assertNotIn("triggerManualCycle", component)
@@ -341,6 +351,33 @@ console.log(JSON.stringify({{
         self.assertNotIn("refreshNiuOneMainline", component)
         self.assertIn('aria-label="核心决策指标"', component)
         self.assertIn('<h2 id="overviewTitle">盘面监测总览</h2>', component)
+        self.assertIn('class="overview-panel overview-news-panel"', component)
+        self.assertIn('class="overview-panel overview-indices-panel"', component)
+        self.assertIn('class="overview-right-bottom"', component)
+        self.assertIn('<h3 id="overviewIndicesTitle">指数</h3>', component)
+        self.assertNotIn('<h3 id="overviewIndicesTitle">A股指数</h3>', component)
+        self.assertIn('aria-label="A股核心指数"', component)
+        self.assertIn('class="overview-index-quote"', component)
+        self.assertIn('.overview-index-tile > .overview-index-quote { align-items: baseline; margin-top: 5px; }', component)
+        self.assertIn('.overview-index-tile b { display: block; font-size: 11px; margin-left: auto; text-align: right; }', component)
+        self.assertIn('.overview-page[data-layout="wide"][data-density="comfortable"] .overview-index-tile b { font-size: 12px; }', component)
+        self.assertIn('.overview-page[data-density="ultra-compact"] .overview-index-tile b { font-size: 9px; }', component)
+        self.assertIn("import IndexSparkline from './indices/IndexSparkline.vue'", component)
+        self.assertIn('<IndexSparkline :item="item" />', component)
+        self.assertIn('.overview-index-tile :deep(.sparkline) {', component)
+        self.assertIn('<h3 id="overviewNewsTitle">财经快讯</h3>', component)
+        self.assertIn("realtimeNewsState.overviewImportantOnly", component)
+        self.assertIn(".slice(0, 10)", component)
+        self.assertIn('<RouterLink to="/realtime-news">', component)
+        self.assertIn('rel="noopener noreferrer"', component)
+        self.assertEqual(component.count(':title="item.title"'), 2)
+        self.assertIn("当前暂无重要快讯", component)
+        self.assertIn(".overview-news-item.important .overview-news-title { color: var(--overview-up); }", component)
+        self.assertIn(".overview-news-list { grid-template-columns: 1fr; }", component)
+        self.assertIn("grid-area: candidate;", component)
+        self.assertIn("grid-template-rows: minmax(0, 1fr) 126px;", component)
+        self.assertIn("grid-auto-rows: minmax(0, 1fr);", component)
+        self.assertIn(".overview-candidate-row:nth-child(n + 9) { display: none; }", component)
         self.assertNotIn("今日市场作战台", component)
         self.assertNotIn("A股决策中枢", component)
         self.assertNotIn("overview-eyebrow", component)
@@ -364,7 +401,10 @@ console.log(JSON.stringify({{
         self.assertIn("max-height: 900px", component)
         self.assertIn(':data-layout="viewportMode.layout"', component)
         self.assertIn(':data-density="viewportMode.density"', component)
-        self.assertIn(':data-mainline-layout="mainlinePanelMode"', component)
+        self.assertIn(
+            ':data-mainline-layout="viewportMode.layout === \'wide\' && viewportMode.density === \'comfortable\' ? \'full\' : mainlinePanelMode"',
+            component,
+        )
         self.assertIn("mainlineResizeObserver.observe(mainlinePanel.value)", component)
         self.assertIn('[data-mainline-layout="summary"] .overview-theme-list', component)
         self.assertIn('[data-mainline-layout="compact"] .overview-theme-row:nth-child(n + 4)', component)
@@ -383,6 +423,8 @@ console.log(JSON.stringify({{
         self.assertIn("overview-theme-lifecycle", component)
         self.assertIn("overview-theme-meta", component)
         self.assertIn("核心股 / 梯队", component)
+        self.assertNotIn('<span role="columnheader">强度</span>', component)
+        self.assertNotIn('<span role="columnheader" class="overview-theme-breadth">广度</span>', component)
         self.assertNotIn("theme.followers.join(' · ')", component)
         self.assertNotIn("核心梯队待确认", component)
         self.assertIn("toggleThemeStocks(ranking.key, index, $event)", component)
@@ -406,14 +448,13 @@ console.log(JSON.stringify({{
         leader_badge_position = component.index('<b v-if="stockIndex === 0">{{ expandedTheme.leaderBadge }}</b>')
         self.assertLess(stock_name_position, leader_badge_position)
         self.assertNotIn("核心股 {{ theme.coreStocks.length }}只", component)
-        self.assertIn("{{ theme.comparisonLabel }} {{ formatOverviewNumber(theme.comparisonScore, 1) }}", component)
-        self.assertIn("中位 {{ formatOverviewPercent(theme.medianChangePct, 1, true) }}", component)
-        self.assertIn("overview-theme-metric-track", component)
-        self.assertIn("themeMetricPosition(theme.displayScore)", component)
-        self.assertIn(".overview-theme-score b { color: var(--overview-mainline-accent); }", component)
-        self.assertIn(".overview-theme-breadth b { color: var(--overview-text); }", component)
+        self.assertNotIn("overview-theme-metric-track", component)
+        self.assertNotIn("themeMetricPosition", component)
+        self.assertNotIn("overview-coverage", component)
+        self.assertNotIn("题材有效覆盖", component)
+        self.assertNotIn("overview-theme-score", component)
+        self.assertNotIn("overview-theme-breadth", component)
         self.assertIn(".overview-theme-leader-toggle svg { color: var(--overview-mainline-accent); }", component)
-        self.assertIn(".overview-theme-score .overview-theme-metric-track i { background: var(--overview-mainline-accent); }", component)
         for mainline_tone in (
             "--overview-mainline-accent: #46627c;",
             "--overview-mainline-secondary: #4f5d69;",
@@ -422,7 +463,7 @@ console.log(JSON.stringify({{
         ):
             self.assertIn(mainline_tone, component)
         self.assertIn("border-left: 1px solid var(--overview-border-strong);", component)
-        self.assertIn("{{ formatOverviewPercent(theme.breadth, 0) }}", component)
+        self.assertNotIn("{{ formatOverviewPercent(theme.breadth, 0) }}", component)
         self.assertNotIn("overview-theme-metrics", component)
         self.assertNotIn(".overview-theme-row:last-child:nth-child(odd)", component)
         self.assertNotIn("todayTheme", component)
@@ -453,16 +494,13 @@ console.log(JSON.stringify({{
         self.assertEqual(component.count("--overview-faint: #7d8995;"), 2)
         self.assertIn("--market-breadth-limit-up: var(--overview-up);", component)
         self.assertIn("--market-breadth-actual-turnover: var(--overview-accent);", component)
-        self.assertIn(
-            ".overview-tier.high { background: var(--overview-surface-strong); border-color: var(--overview-border-strong); color: var(--overview-text); }",
-            component,
-        )
+        self.assertNotIn("overview-tier", component)
         for readable_terminal_text in (
             ".overview-kpi-label { font-size: 9px; }",
             ".overview-index-tile time { font-size: 9px; }",
             ".overview-theme-table-head { font-size: 9px; padding: 0 1px 3px; }",
             ".overview-theme-lifecycle { font-size: 9px; padding-left: 4px; }",
-            ".overview-theme-metric small { font-size: 9px; }",
+            ".overview-theme-meta { font-size: 9px; }",
             ".overview-candidate-table-head { font-size: 9px; padding: 0 5px 3px; }",
             ".overview-flow-row { flex: 1 1 0; font-size: 9px; min-height: 20px; }",
         ):
@@ -498,6 +536,9 @@ console.log(JSON.stringify({{
         self.assertIn("terminal: { type: Boolean, default: false }", breadth_component)
         self.assertIn("const showVolume = ref(!props.terminal)", breadth_component)
         self.assertIn("const height = props.terminal", breadth_component)
+        self.assertIn("? Math.max(compact ? compactMinHeight : 168, chartAvailableHeight.value)", breadth_component)
+        self.assertIn("const measuredHeight = Math.floor(bounds?.height || 0)", breadth_component)
+        self.assertIn("props.terminal && measuredHeight > 0", breadth_component)
         self.assertIn("props.payload.displaying_previous_trading_day", breadth_component)
         self.assertIn("最近交易日数据", breadth_component)
         self.assertIn('previousDayLabel && !terminal', breadth_component)
@@ -506,25 +547,35 @@ console.log(JSON.stringify({{
         self.assertIn("overviewCandidatePeriod", component)
         self.assertIn("上一交易日候选", display_model)
         self.assertNotIn("历史参考", display_model)
-        for candidate_heading in ("涨跌幅", "题材 / 行业"):
+        for candidate_heading in ("涨跌幅", "策略", "题材 / 行业"):
             self.assertIn(candidate_heading, component)
+        self.assertLess(
+            component.index('<span role="columnheader">题材 / 行业</span>'),
+            component.index('<span role="columnheader">策略</span>'),
+        )
+        for removed_candidate_heading in ("评分", "状态"):
+            self.assertNotIn(f'<span role="columnheader">{removed_candidate_heading}', component)
+        self.assertIn("candidate.strategyDisplayLabel", component)
+        self.assertNotIn("candidate.score", component)
+        self.assertNotIn("candidate.tierLabel", component)
         self.assertIn("overview-candidate-wide-only", component)
         self.assertIn("overview-candidate-compact-only", component)
         self.assertIn("grid-auto-rows: minmax(0, 1fr)", component)
         self.assertIn(
-            'grid-template-areas:\n      "market flow"\n      "mainline candidate";',
+            'grid-template-areas:\n      "market side"\n      "mainline side";',
             component,
         )
         for panel_area in (
             ".overview-market-panel { grid-area: market; }",
+            ".overview-indices-panel { grid-area: indices; }",
             ".overview-flow-panel { grid-area: flow; }",
             ".overview-mainline-panel { grid-area: mainline; }",
-            ".overview-candidate-panel { grid-area: candidate; }",
+            "grid-area: candidate;",
         ):
             self.assertIn(panel_area, component)
         self.assertNotIn("candidateState.strategyMeta,\n  5,", component)
         self.assertIn(
-            "grid-template-columns: repeat(6, minmax(0, 1fr))",
+            "grid-template-columns: minmax(140px, 1fr) 72px minmax(180px, 1.5fr) minmax(90px, .7fr)",
             component,
         )
         self.assertIn("overview-update-time", component)
@@ -555,6 +606,45 @@ console.log(JSON.stringify({{
             "grid-template-columns: var(--overview-terminal-left) var(--overview-terminal-right)",
             component,
         )
+        self.assertIn(
+            '"market market market market market indices indices indices flow flow"\n'
+            '      "mainline mainline mainline mainline candidate candidate news news news news";',
+            component,
+        )
+        self.assertIn("grid-template-columns: repeat(10, minmax(0, 1fr));", component)
+        self.assertIn('.overview-page[data-layout="wide"] .overview-right-bottom { display: contents; }', component)
+        self.assertIn('.overview-page[data-layout="wide"] .overview-candidate-panel { grid-area: candidate; }', component)
+        self.assertIn('.overview-page[data-layout="wide"] .overview-news-panel { grid-area: news; }', component)
+        self.assertIn(
+            '    grid-auto-rows: 25px;',
+            component,
+        )
+        self.assertIn('data-density="compact"] .overview-news-list { grid-auto-rows: 22px; }', component)
+        self.assertIn('data-density="ultra-compact"] .overview-news-list { grid-auto-rows: 20px; }', component)
+        self.assertIn('data-density="ultra-compact"] .overview-news-item:nth-child(n + 5) { display: none; }', component)
+        self.assertIn("grid-template-columns: 30px 100px minmax(0, 1fr);", component)
+        self.assertIn(
+            "grid-template-columns: minmax(90px, 1fr) minmax(46px, 1fr) minmax(0, 1fr) minmax(42px, 1fr);",
+            component,
+        )
+        self.assertIn(".overview-candidate-panel { container-type: inline-size; }", component)
+        self.assertIn("@container (min-width: 420px)", component)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr)) max-content;", component)
+        self.assertIn("grid-template-columns: subgrid;", component)
+        self.assertIn('.overview-page[data-layout="wide"] .overview-candidate-wide-only { display: block; }', component)
+        self.assertIn('.overview-page[data-layout="wide"] .overview-candidate-compact-only { display: none !important; }', component)
+        self.assertIn('.overview-page[data-layout="wide"] .overview-candidate-change { text-align: left; }', component)
+        self.assertIn('.overview-page[data-layout="wide"] .overview-candidate-strategy { text-align: right; }', component)
+        self.assertIn(".overview-theme-copy { gap: 5px; }", component)
+        self.assertIn("grid-template-rows: auto repeat(5, 38px);", component)
+        self.assertIn(".overview-mainline-panel { align-self: start; height: auto; }", component)
+        self.assertIn("'--overview-mainline-panel-height': mainlinePanelHeight ? `${mainlinePanelHeight}px` : undefined", component)
+        self.assertIn(
+            ".overview-page[data-layout=\"wide\"][data-density=\"comfortable\"] .overview-news-panel,",
+            component,
+        )
+        self.assertIn("height: var(--overview-mainline-panel-height, auto);", component)
+        self.assertIn("max-height: var(--overview-mainline-panel-height, none);", component)
         self.assertIn("grid-template-rows: minmax(0, .9fr) minmax(0, 1.1fr)", component)
         self.assertNotIn("minmax(0, 1.16fr) minmax(0, .84fr)", component)
         for english_heading in (
@@ -573,21 +663,22 @@ console.log(JSON.stringify({{
         self.assertIn(
             ".overview-terminal-grid,\n"
             "  .overview-primary-grid,\n"
-            "  .overview-secondary-grid { display: contents; }",
+            "  .overview-secondary-grid,\n"
+            "  .overview-right-bottom { display: contents; }",
             component,
         )
         for mobile_panel_order in (
             ".overview-market-panel { order: 1; }",
-            ".overview-flow-panel { order: 2; }",
-            ".overview-mainline-panel { order: 3; }",
-            ".overview-candidate-panel { order: 4; }",
+            ".overview-indices-panel { order: 2; }",
+            ".overview-flow-panel { order: 3; }",
+            ".overview-mainline-panel { order: 4; }",
+            ".overview-candidate-panel { order: 5; }",
         ):
             self.assertIn(mobile_panel_order, component)
         self.assertIn("@media (prefers-reduced-motion: reduce)", component)
         for square_overview_surface in (
             ':global(html[data-corners="square"]) .overview-command-head,',
             ':global(html[data-corners="square"]) .overview-theme-stock-popover,',
-            ':global(html[data-corners="square"]) .overview-tier,',
             ':global(html[data-corners="square"]) .overview-chart-wrap :deep(.market-breadth-card),',
         ):
             self.assertIn(square_overview_surface, component)
@@ -608,6 +699,14 @@ console.log(JSON.stringify({{
         self.assertIn(
             'html:not([data-theme="tongdaxin"]) .dashboard-site-header :where(.settings-link,.header-link,.version-status,.refresh-pill,.theme-toggle,.category-tabs,.tab) { box-shadow:none; }',
             dashboard_header_styles,
+        )
+        self.assertIn(
+            'html[data-theme="tongdaxin"]:root .overview-page[data-layout="wide"] .overview-candidate-row {\n'
+            '  height:100%;\n'
+            '  min-height:0;\n'
+            '  padding-block:2px;\n'
+            '}',
+            tongdaxin_styles,
         )
 
 

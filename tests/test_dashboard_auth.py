@@ -7235,7 +7235,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('保存本组设置', ADMIN_FRONTEND)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 20)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('iwencai')), 8)
-        self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 6)
+        self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 7)
         self.assertEqual(
             dashboard.admin_setting_group_env_names('about'),
             {'DASHBOARD_AUTO_VERSION_CHECK_ENABLED'},
@@ -7787,6 +7787,22 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(enabled_item['kind'], 'bool')
         self.assertEqual(enabled_item['default'], '1')
         self.assertEqual(enabled_item['bool_no_default'], '1')
+        overview_item = next(
+            item
+            for item in payload['items']
+            if item['name'] == 'NEWSNOW_OVERVIEW_IMPORTANT_ONLY'
+        )
+        self.assertEqual(overview_item['kind'], 'bool')
+        self.assertEqual(overview_item['default'], '1')
+        self.assertEqual(overview_item['effect'], 'runtime')
+        self.assertEqual(overview_item['bool_no_default'], '1')
+        self.assertTrue(dashboard.newsnow_overview_important_only({}))
+        self.assertTrue(dashboard.newsnow_overview_important_only({
+            'NEWSNOW_OVERVIEW_IMPORTANT_ONLY': '1',
+        }))
+        self.assertFalse(dashboard.newsnow_overview_important_only({
+            'NEWSNOW_OVERVIEW_IMPORTANT_ONLY': '0',
+        }))
         concurrency_item = next(
             item for item in payload['items'] if item['name'] == 'NEWSNOW_MAX_CONCURRENCY'
         )
