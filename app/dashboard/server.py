@@ -675,8 +675,8 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
 
     {
         "name": "NEWSNOW_ENABLED",
-        "label": "启用实时新闻",
-        "group": "实时新闻",
+        "label": "启用财经快讯",
+        "group": "财经快讯",
         "kind": "bool",
         "default": "1",
         "effect": "runtime",
@@ -685,7 +685,7 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {
         "name": "NEWSNOW_SOURCES",
         "label": "新闻数据源",
-        "group": "实时新闻",
+        "group": "财经快讯",
         "kind": "news_sources",
         "default": ",".join(DEFAULT_NEWSNOW_SOURCE_IDS),
         "effect": "runtime",
@@ -693,10 +693,10 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
         "help_summary": "可搜索并多选 NewsNow 当前财经商业来源；至少选择一项。",
         "help_footer": "兼容跳转别名不会重复显示。来源越多，首次刷新耗时和上游请求量越大，建议按需选择。",
     },
-    {"name": "NEWSNOW_REFRESH_SECONDS", "label": "本地刷新间隔（秒）", "group": "实时新闻", "kind": "int", "default": "60", "effect": "runtime", "min": "15", "max": "1800"},
-    {"name": "NEWSNOW_TIMEOUT_SECONDS", "label": "单次请求超时（秒）", "group": "实时新闻", "kind": "int", "default": "10", "effect": "runtime", "min": "2", "max": "30"},
-    {"name": "NEWSNOW_MAX_RETRIES", "label": "失败重试次数", "group": "实时新闻", "kind": "int", "default": "1", "effect": "runtime", "min": "0", "max": "2"},
-    {"name": "NEWSNOW_MAX_CONCURRENCY", "label": "最大并发来源数", "group": "实时新闻", "kind": "int", "default": "3", "effect": "runtime", "min": "1", "max": "3"},
+    {"name": "NEWSNOW_REFRESH_SECONDS", "label": "本地刷新间隔（秒）", "group": "财经快讯", "kind": "int", "default": "60", "effect": "runtime", "min": "15", "max": "1800"},
+    {"name": "NEWSNOW_TIMEOUT_SECONDS", "label": "单次请求超时（秒）", "group": "财经快讯", "kind": "int", "default": "10", "effect": "runtime", "min": "2", "max": "30"},
+    {"name": "NEWSNOW_MAX_RETRIES", "label": "失败重试次数", "group": "财经快讯", "kind": "int", "default": "1", "effect": "runtime", "min": "0", "max": "2"},
+    {"name": "NEWSNOW_MAX_CONCURRENCY", "label": "最大并发来源数", "group": "财经快讯", "kind": "int", "default": "3", "effect": "runtime", "min": "1", "max": "3"},
 
     {"name": "DASHBOARD_B1_SCHEDULE_ENABLED", "label": "启用实战定时运行", "group": "任务调度", "kind": "bool", "default": "1", "effect": "restart"},
     {"name": PRACTICE_SCHEDULE_TIMES_ENV, "label": "实战盘面总结、选股及交易时间点", "group": "选股与买卖设置", "kind": "time_list", "default": DEFAULT_PRACTICE_SCHEDULE_TIMES, "effect": "runtime"},
@@ -1015,7 +1015,7 @@ TRADER_RUNTIME_ENV_NAMES = {
     PRESET_STRATEGY_TEXT_ENV,
 }
 ENV_GROUP_ORDER = [
-    "实时新闻",
+    "财经快讯",
     "牛牛美股",
     "消息面预检模型",
     "买卖决策模型",
@@ -6178,7 +6178,7 @@ CRON_TIME_CONFIGS = {
     "DASHBOARD_US_RATING_CRON": {"day_label": "每天"},
 }
 ADMIN_GROUP_NOTES = {
-    "实时新闻": "通过 NewsNow 聚合财联社电报、金十数据和华尔街见闻快讯。无需 API Key 或服务地址配置；Compose 部署会随牛牛1号自动启动内置实例，来源抓取失败时继续展示最近一次成功缓存并标记陈旧。",
+    "财经快讯": "通过 NewsNow 聚合财联社电报、金十数据和华尔街见闻快讯。无需 API Key 或服务地址配置；Compose 部署会随牛牛1号自动启动内置实例，来源抓取失败时继续展示最近一次成功缓存并标记陈旧。",
     "牛牛美股": "集中管理 X/推文监控、美股买入评级和隔夜美股盘面总结使用的 Grok 配置。长度默认：上下文 128000 tokens，最大输出 4096 tokens；关闭时隐藏 X/评级相关设置，隔夜美股总结仍会读取已配置的 Grok 参数。",
     "消息面预检模型": "用于 A 股候选股及龙虎榜连板/连榜股票最近 3 天消息面预检，并把雪球/X公开内容单列为市场舆情；auto 会为 Grok 4.5 和 GPT-5 系列搜索模型选择 Responses API，Grok Responses 还会使用 x_search。也可显式选择 responses 或 chat。长度默认：上下文 128000 tokens，最大输出 4096 tokens。模型和密钥留空则跳过。",
     "买卖决策模型": "推荐使用 deepseek-v4-pro；也可填写其他兼容 /chat/completions 的模型服务。长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
@@ -6206,7 +6206,7 @@ ADMIN_SETTING_GROUPS: tuple[dict[str, str], ...] = (
     },
     {
         "slug": "realtime-news",
-        "name": "实时新闻",
+        "name": "财经快讯",
         "summary": "配置财联社/金十来源、超时、重试与刷新频率；新闻服务自动管理。",
         "icon": "新闻",
     },

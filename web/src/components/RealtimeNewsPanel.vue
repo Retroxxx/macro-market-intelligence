@@ -37,13 +37,13 @@ onBeforeUnmount(() => deactivateRealtimeNews())
 </script>
 
 <template>
-  <section class="realtime-news-page" aria-label="实时新闻">
+  <section class="realtime-news-page" aria-label="财经快讯">
     <div class="realtime-news-header sector-cloud">
       <div class="realtime-news-heading">
         <div class="realtime-news-title">
           <div class="realtime-news-title-line">
-            <h2>实时新闻</h2>
-            <span class="realtime-news-eyebrow">NEWSNOW</span>
+            <h2>财经快讯</h2>
+            <span class="realtime-news-eyebrow">MARKET FLASH</span>
           </div>
           <p>聚合设置中选定的 NewsNow 来源，页面可见时每 30 秒检查一次。</p>
         </div>
@@ -87,7 +87,7 @@ onBeforeUnmount(() => deactivateRealtimeNews())
 
     <div v-if="state.loading && !state.loaded" class="loading">正在连接 NewsNow…</div>
     <div v-else-if="!state.enabled" class="empty">
-      实时新闻尚未启用，请在管理设置的“实时新闻”中开启。
+      财经快讯尚未启用，请在管理设置的“财经快讯”中开启。
     </div>
     <div v-else-if="!state.items.length" class="empty">
       {{ realtimeNewsErrorText(state.error) }}

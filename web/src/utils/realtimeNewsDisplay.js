@@ -2,20 +2,20 @@ const ERROR_LABELS = Object.freeze({
   concurrency_timeout: '请求排队超时',
   http_403: 'NewsNow 拒绝了当前请求',
   http_429: 'NewsNow 请求过于频繁',
-  invalid_configuration: '实时新闻配置无效',
+  invalid_configuration: '财经快讯配置无效',
   invalid_content_type: 'NewsNow 返回了非 JSON 内容',
   invalid_json: 'NewsNow 返回格式异常',
   invalid_response: 'NewsNow 返回字段不完整',
   network_error: '无法连接 NewsNow',
-  realtime_news_disabled: '实时新闻尚未启用',
+  realtime_news_disabled: '财经快讯尚未启用',
   request_failed: 'NewsNow 请求失败',
   response_too_large: 'NewsNow 返回内容过大',
-  unexpected_error: '实时新闻服务异常',
+  unexpected_error: '财经快讯服务异常',
 })
 
 export function realtimeNewsErrorText(value) {
   const code = String(value || '').trim()
-  return ERROR_LABELS[code] || code || '暂时无法获取实时新闻'
+  return ERROR_LABELS[code] || code || '暂时无法获取财经快讯'
 }
 
 export function realtimeNewsStatusText(status) {

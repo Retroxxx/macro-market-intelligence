@@ -7,7 +7,7 @@ const CATEGORY_LABELS = {
   niuone_mainline: '题材强度',
   indices: '指数行情',
   market_monitor: '盘面监控',
-  realtime_news: '实时新闻',
+  realtime_news: '财经快讯',
   dragon_tiger: '龙虎榜',
   x_monitor: '推特监控',
   us_ratings: '美股机构买入评级',

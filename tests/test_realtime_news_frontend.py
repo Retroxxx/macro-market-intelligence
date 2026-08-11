@@ -61,10 +61,12 @@ console.log(JSON.stringify({{
         dashboard_css = (ROOT / "frontend" / "dashboard.css").read_text(encoding="utf-8")
 
         self.assertIn("'/realtime-news'", router)
-        self.assertIn("realtime_news: '实时新闻'", tabs)
+        self.assertIn("realtime_news: '财经快讯'", tabs)
         self.assertIn("import('./RealtimeNewsPanel.vue')", page)
         self.assertIn("聚合设置中选定的 NewsNow 来源", panel)
         self.assertIn("每 30 秒检查一次", panel)
+        self.assertIn('<h2>财经快讯</h2>', panel)
+        self.assertIn('MARKET FLASH', panel)
         self.assertIn('rel="noopener noreferrer"', panel)
         self.assertIn('class="realtime-news-table-head"', panel)
         self.assertIn('class="realtime-news-meta-cell"', panel)

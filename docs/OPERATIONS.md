@@ -114,9 +114,9 @@ NiuOne 需要大模型驱动完整工作流。X 关注列表监控使用具备 `
 
 实战页面的规范地址为 `/practice`，候选查询与刷新接口分别为 `/api/practice_candidates` 和 `/api/practice_candidates/refresh`。基于 `?category=practice` 或 `?category=b1_screen` 的旧链接及 `/api/b1_screen` 接口仅作为兼容入口保留。
 
-### 3.1 实时新闻
+### 3.1 财经快讯
 
-`/realtime-news` 由 Dashboard 服务端调用 NewsNow，不需要 API Key。Compose 默认启动 `ghcr.io/ourongxing/newsnow:latest` 并通过内网 `http://newsnow:4444/api/s` 使用；该容器不映射宿主机端口，即使只启动 Dashboard 也会被自动带起。Dashboard 只等待 NewsNow 容器进入 started 状态，不等待其健康检查，因此后续抓取异常不会拖垮主服务。默认来源为财联社电报 `cls-telegraph`、金十数据 `jin10` 和华尔街见闻快讯 `wallstreetcn-quick`；管理设置的“实时新闻”页面仅提供财经商业分类下 12 个实际来源的搜索与多选。浏览器每 30 秒检查同源 API；服务端按 `NEWSNOW_REFRESH_SECONDS` 合并重复请求，并继续遵守各来源在 NewsNow 注册表中的上游更新间隔。
+`/realtime-news` 由 Dashboard 服务端调用 NewsNow，不需要 API Key。Compose 默认启动 `ghcr.io/ourongxing/newsnow:latest` 并通过内网 `http://newsnow:4444/api/s` 使用；该容器不映射宿主机端口，即使只启动 Dashboard 也会被自动带起。Dashboard 只等待 NewsNow 容器进入 started 状态，不等待其健康检查，因此后续抓取异常不会拖垮主服务。默认来源为财联社电报 `cls-telegraph`、金十数据 `jin10` 和华尔街见闻快讯 `wallstreetcn-quick`；管理设置的“财经快讯”页面仅提供财经商业分类下 12 个实际来源的搜索与多选。浏览器每 30 秒检查同源 API；服务端按 `NEWSNOW_REFRESH_SECONDS` 合并重复请求，并继续遵守各来源在 NewsNow 注册表中的上游更新间隔。
 
 | 配置 | 默认值 | 可选范围 | 生效方式 |
 |---|---:|---:|---|
