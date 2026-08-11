@@ -3511,6 +3511,34 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .index-card.index-down,
   .practice-calendar-day.has-result.down
 ) { background:#fff !important; }
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .index-card {
+  border-right-color:#808080;
+  background:#fff !important;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .index-quote {
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:8px;
+  margin-top:2px;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .index-quote .index-price {
+  margin-top:0;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .index-quote .index-change {
+  margin:0 0 0 auto;
+  font-size:16px;
+  text-align:right;
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .index-card::before {
+  border-top-color:var(--chart-grid);
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .index-card::after {
+  border-left-color:var(--chart-grid-soft);
+}
+html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .sparkline-zero {
+  stroke:var(--chart-zero);
+}
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .market-breadth-card {
   --market-breadth-limit-down:#007b7b;
   --market-breadth-limit-up:#800000;

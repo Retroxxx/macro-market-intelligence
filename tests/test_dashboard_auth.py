@@ -4574,6 +4574,63 @@ console.log(JSON.stringify([
             stylesheet,
         )
 
+    def test_tongdaxin_light_indices_use_light_quote_canvas(self):
+        stylesheet = (
+            ROOT / 'frontend' / 'tongdaxin-theme.css'
+        ).read_text(encoding='utf-8')
+        overview = (
+            ROOT / 'web' / 'src' / 'components' / 'indices' / 'IndexOverview.vue'
+        ).read_text(encoding='utf-8')
+
+        light_selector = (
+            'html[data-theme="tongdaxin"]'
+            '[data-tongdaxin-palette="light"]:root'
+        )
+        self.assertIn('<div class="index-quote">', overview)
+        self.assertIn(
+            f'{light_selector} .index-card {{\n'
+            '  border-right-color:#808080;\n'
+            '  background:#fff !important;\n'
+            '}',
+            stylesheet,
+        )
+        self.assertIn(
+            f'{light_selector} .index-quote {{\n'
+            '  display:flex;\n'
+            '  align-items:baseline;\n'
+            '  justify-content:space-between;\n'
+            '  gap:8px;\n'
+            '  margin-top:2px;\n'
+            '}',
+            stylesheet,
+        )
+        self.assertIn(
+            f'{light_selector} .index-quote .index-change {{\n'
+            '  margin:0 0 0 auto;\n'
+            '  font-size:16px;\n'
+            '  text-align:right;\n'
+            '}',
+            stylesheet,
+        )
+        self.assertIn(
+            f'{light_selector} .index-card::before {{\n'
+            '  border-top-color:var(--chart-grid);\n'
+            '}',
+            stylesheet,
+        )
+        self.assertIn(
+            f'{light_selector} .index-card::after {{\n'
+            '  border-left-color:var(--chart-grid-soft);\n'
+            '}',
+            stylesheet,
+        )
+        self.assertIn(
+            f'{light_selector} .sparkline-zero {{\n'
+            '  stroke:var(--chart-zero);\n'
+            '}',
+            stylesheet,
+        )
+
     def test_tongdaxin_uses_shared_terminal_button_chrome(self):
         stylesheet = (
             ROOT / 'frontend' / 'tongdaxin-theme.css'
