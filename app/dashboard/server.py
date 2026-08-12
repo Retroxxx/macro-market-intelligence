@@ -410,6 +410,7 @@ MARKET_BREADTH_AUTO_RECOVERY_DEADLINE_SECONDS = 900
 MARKET_BREADTH_AUTO_RECOVERY_PROCESS_TIMEOUT_SECONDS = 960
 MARKET_BREADTH_AUTO_RECOVERY_RETRY_SECONDS = 60.0
 MARKET_BREADTH_AUTO_RECOVERY_MAX_ATTEMPTS = 3
+MARKET_API_PREWARM_THREAD: threading.Thread | None = None
 MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS = _bounded_int_value(
     os.environ.get(
         "DASHBOARD_MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS",
@@ -1491,6 +1492,58 @@ def apply_hot_stocks_sort(data: dict[str, Any], sort_by: str) -> dict[str, Any]:
     else:
         payload["items"] = payload.get("amount_top", payload.get("items", []))
     return payload
+
+
+def market_indices_available(payload: dict[str, Any]) -> bool:
+    return bool(payload.get("items")) and not payload.get("error")
+
+
+def market_sectors_available(payload: dict[str, Any]) -> bool:
+    return bool(
+        payload.get("sectors")
+        or payload.get("items")
+        or payload.get("gain_top")
+        or payload.get("loss_top")
+    ) and not payload.get("error")
+
+
+def market_hot_stocks_available(payload: dict[str, Any]) -> bool:
+    return any(
+        bool(payload.get(key))
+        for key in ("items", "amount_top", "turnover_top", "volume_top", "gain_top")
+    ) and not payload.get("error")
+
+
+def produce_sectors_data() -> dict[str, Any]:
+    return run_dashboard_helper(
+        "sectors_dashboard_api.py",
+        {
+            "sectors": [],
+            "items": [],
+            "gain_top": [],
+            "loss_top": [],
+            "industry_gain_top": [],
+            "industry_loss_top": [],
+            "concept_gain_top": [],
+            "concept_loss_top": [],
+        },
+        timeout=120,
+    )
+
+
+def produce_hot_stocks_data(sort_by: str = "amount") -> dict[str, Any]:
+    payload = run_dashboard_helper(
+        "hot_stocks_dashboard_api.py",
+        {
+            "items": [],
+            "amount_top": [],
+            "turnover_top": [],
+            "volume_top": [],
+            "gain_top": [],
+        },
+        timeout=120,
+    )
+    return apply_hot_stocks_sort(payload, sort_by)
 
 
 def get_practice_payload() -> dict[str, Any]:
@@ -5495,7 +5548,152 @@ def seed_api_cache_from_json_file(
         entries_lock=API_RESPONSE_LOCK,
         transform=transform,
         cacheable=cacheable,
+        stale_while_refresh_seconds=API_STALE_WHILE_REFRESH_SECONDS,
     )
+
+
+def _api_cache_entry_is_fresh(cache_key: str, ttl: int) -> bool:
+    current_time = time.time()
+    with API_RESPONSE_LOCK:
+        cached = API_RESPONSE_CACHE.get(cache_key)
+        return bool(
+            cached
+            and current_time - float(cached.get("ts") or 0) < max(0, ttl)
+        )
+
+
+def is_global_market_prewarm_window(now: datetime | None = None) -> bool:
+    """Cover the Beijing-time global trading week without weekend polling."""
+
+    current = now or current_cn_datetime()
+    weekday = current.weekday()
+    if weekday == 0:
+        return current.hour >= 6
+    if 1 <= weekday <= 4:
+        return True
+    if weekday == 5:
+        return current.hour < 6
+    return False
+
+
+def prewarm_market_api_cache(*, now: datetime | None = None) -> bool:
+    """Keep relevant market caches warm without polling closed markets."""
+
+    current = now or current_cn_datetime()
+    indices_ttl = API_TTLS["indices"]
+    sectors_ttl = API_TTLS["sectors"]
+    hot_ttl = API_TTLS["hot_stocks"]
+    sectors_snapshot = CRON_OUTPUT_DIR / "sectors_dashboard_cache.json"
+    hot_snapshot = CRON_OUTPUT_DIR / "hot_stocks_dashboard_cache.json"
+
+    seed_api_cache_from_json_file(
+        "indices",
+        INDICES_SNAPSHOT_FILE,
+        indices_ttl,
+        cacheable=market_indices_available,
+    )
+    seed_api_cache_from_json_file(
+        "sectors",
+        sectors_snapshot,
+        sectors_ttl,
+        cacheable=market_sectors_available,
+    )
+    seed_api_cache_from_json_file(
+        "hot_stocks:amount",
+        hot_snapshot,
+        hot_ttl,
+        lambda payload: apply_hot_stocks_sort(payload, "amount"),
+        cacheable=market_hot_stocks_available,
+    )
+
+    refresh_results = []
+    if is_global_market_prewarm_window(current):
+        indices = cached_json_data(
+            "indices",
+            indices_ttl,
+            produce_indices_data,
+            {"items": []},
+            cacheable=market_indices_available,
+        )
+        refresh_results.append(
+            market_indices_available(indices)
+            and _api_cache_entry_is_fresh("indices", indices_ttl)
+        )
+
+    if is_market_breadth_sampling_window(current):
+        sectors = cached_json_data(
+            "sectors",
+            sectors_ttl,
+            produce_sectors_data,
+            {"sectors": [], "items": []},
+            cacheable=market_sectors_available,
+        )
+        refresh_results.append(
+            market_sectors_available(sectors)
+            and _api_cache_entry_is_fresh("sectors", sectors_ttl)
+        )
+        hot_stocks = cached_json_data(
+            "hot_stocks:amount",
+            hot_ttl,
+            produce_hot_stocks_data,
+            {"items": []},
+            cacheable=market_hot_stocks_available,
+        )
+        refresh_results.append(
+            market_hot_stocks_available(hot_stocks)
+            and _api_cache_entry_is_fresh("hot_stocks:amount", hot_ttl)
+        )
+
+    return all(refresh_results)
+
+
+def market_api_prewarm_loop(
+    *,
+    stop_event: threading.Event | None = None,
+    poll_seconds: float = 30.0,
+    max_backoff_seconds: float = 300.0,
+    run_once=None,
+) -> None:
+    """Refresh shared market caches periodically, independent of active pages."""
+
+    stop_event = stop_event or threading.Event()
+    active_run_once = run_once or prewarm_market_api_cache
+    base_poll_seconds = max(5.0, float(poll_seconds))
+    maximum_backoff = max(base_poll_seconds, float(max_backoff_seconds))
+    retry_seconds = base_poll_seconds
+    while not stop_event.is_set():
+        succeeded = True
+        try:
+            succeeded = active_run_once() is not False
+        except Exception as exc:
+            succeeded = False
+            print(
+                f"[WARN] 行情缓存预热失败: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+        if succeeded:
+            retry_seconds = base_poll_seconds
+        else:
+            retry_seconds = min(
+                maximum_backoff,
+                max(base_poll_seconds * 2, retry_seconds * 2),
+            )
+        if stop_event.wait(retry_seconds):
+            return
+
+
+def start_market_api_prewarm() -> None:
+    global MARKET_API_PREWARM_THREAD
+    if MARKET_API_PREWARM_THREAD and MARKET_API_PREWARM_THREAD.is_alive():
+        return
+    MARKET_API_PREWARM_THREAD = threading.Thread(
+        target=market_api_prewarm_loop,
+        name="market-api-prewarm",
+        daemon=True,
+    )
+    MARKET_API_PREWARM_THREAD.start()
+    print("Market API cache prewarm enabled: 30s", flush=True)
 
 
 def invalidate_api_cache(*cache_keys: str) -> None:
