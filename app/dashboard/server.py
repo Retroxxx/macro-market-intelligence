@@ -19,7 +19,7 @@ from collections.abc import Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 import urllib.error
 import urllib.request
 
@@ -32,8 +32,9 @@ from dashboard_json_cache import (
 from core.process_lease import FileLease
 from core.model_api import (
     build_model_request,
+    normalize_model_stream_mode,
     normalize_reasoning_effort,
-    request_model,
+    request_model_complete,
     stream_model_response,
 )
 from core.model_reasoning import (
@@ -828,6 +829,7 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
 
     {"name": "DASHBOARD_US_FEATURES_ENABLED", "label": "开启牛牛美股", "group": "牛牛美股", "kind": "bool", "default": "0", "effect": "next_run"},
     {"name": "US_RATING_MODEL", "label": "美股评级模型", "group": "牛牛美股", "kind": "text", "default": "", "effect": "next_run"},
+    {"name": "US_RATING_STREAM_MODE", "label": "美股评级流式模式", "group": "牛牛美股", "kind": "stream_mode", "default": "auto", "effect": "next_run"},
     {"name": "US_RATING_REASONING_EFFORT", "label": "美股评级思考强度", "group": "牛牛美股", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
     {"name": "US_RATING_BASE_URL", "label": "美股评级 API Base URL", "group": "牛牛美股", "kind": "text", "default": "", "effect": "next_run"},
     {"name": "US_RATING_API_KEY", "label": "美股评级 API Key", "group": "牛牛美股", "kind": "secret", "default": "", "effect": "next_run"},
@@ -836,6 +838,7 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "CROSSDESK_BASE_URL", "label": "Crossdesk Base URL", "group": "上游模型覆盖", "kind": "text", "default": "", "effect": "next_run"},
     {"name": "CROSSDESK_API_KEY", "label": "Crossdesk API Key", "group": "上游模型覆盖", "kind": "secret", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_GROK_MODEL", "label": "Grok 模型", "group": "牛牛美股", "kind": "text", "default": "grok-4.20-multi-agent-xhigh", "effect": "next_run"},
+    {"name": "DASHBOARD_GROK_STREAM_MODE", "label": "Grok 流式模式", "group": "牛牛美股", "kind": "stream_mode", "default": "auto", "effect": "next_run"},
     {"name": "DASHBOARD_GROK_REASONING_EFFORT", "label": "Grok 思考强度", "group": "牛牛美股", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_GROK_API_MODE", "label": "Grok 搜索工具接口模式", "group": "牛牛美股", "kind": "api_mode", "default": "auto", "effect": "next_run"},
     {"name": "DASHBOARD_GROK_CONTEXT_LENGTH", "label": "Grok 模型上下文长度", "group": "牛牛美股", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
@@ -843,6 +846,7 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_GROK_BASE_URL", "label": "Grok API 地址", "group": "牛牛美股", "kind": "text", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_GROK_API_KEY", "label": "Grok API 密钥", "group": "牛牛美股", "kind": "secret", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_NEWS_MODEL", "label": "消息面预检模型", "group": "消息面预检模型", "kind": "text", "default": "", "effect": "next_run"},
+    {"name": "DASHBOARD_NEWS_STREAM_MODE", "label": "消息面预检流式模式", "group": "消息面预检模型", "kind": "stream_mode", "default": "auto", "effect": "next_run"},
     {"name": "DASHBOARD_NEWS_REASONING_EFFORT", "label": "消息面预检思考强度", "group": "消息面预检模型", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_NEWS_API_MODE", "label": "消息面搜索工具接口模式", "group": "消息面预检模型", "kind": "api_mode", "default": "auto", "effect": "next_run"},
     {"name": "DASHBOARD_NEWS_CONTEXT_LENGTH", "label": "消息面预检上下文长度", "group": "消息面预检模型", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
@@ -853,6 +857,7 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_NEWS_MAX_RETRIES", "label": "消息面预检最大请求次数", "group": "消息面预检模型", "kind": "int", "default": "1", "effect": "next_run"},
     {"name": "DASHBOARD_NEWS_CONCURRENCY", "label": "消息面预检并发数", "group": "消息面预检模型", "kind": "int", "default": "5", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_MODEL", "label": "买卖决策模型", "group": "买卖决策模型", "kind": "text", "default": "deepseek-v4-pro", "effect": "next_run"},
+    {"name": "DASHBOARD_DECISION_STREAM_MODE", "label": "买卖决策流式模式", "group": "买卖决策模型", "kind": "stream_mode", "default": "auto", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_REASONING_EFFORT", "label": "买卖决策思考强度", "group": "买卖决策模型", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_CONTEXT_LENGTH", "label": "买卖决策上下文长度", "group": "买卖决策模型", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_BASE_URL", "label": "买卖决策 API 地址", "group": "买卖决策模型", "kind": "text", "default": "", "effect": "next_run"},
@@ -864,6 +869,7 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_MARKET_CLOSE_CRON", "label": "盘后监控时间", "group": "盘面监控生产时间点", "kind": "cron_time", "default": "10 15 * * 1-5", "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_ENABLED", "label": "A股盘面模型总结", "group": "盘面监控生产时间点", "kind": "bool", "default": "1", "effect": "next_run", "bool_no_default": "1"},
     {"name": "A_SHARE_MODEL_SUMMARY_MODEL", "label": "A股盘面总结模型", "group": "盘面监控生产时间点", "kind": "text", "default": "", "effect": "next_run"},
+    {"name": "A_SHARE_MODEL_SUMMARY_STREAM_MODE", "label": "A股盘面总结流式模式", "group": "盘面监控生产时间点", "kind": "stream_mode", "default": "auto", "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT", "label": "A股盘面总结思考强度", "group": "盘面监控生产时间点", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH", "label": "A股盘面总结上下文长度", "group": "盘面监控生产时间点", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_MAX_TOKENS", "label": "A股盘面总结最大输出长度", "group": "盘面监控生产时间点", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
@@ -932,10 +938,12 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "NEWSNOW_MAX_CONCURRENCY",
     "DASHBOARD_US_FEATURES_ENABLED",
     "US_RATING_MODEL",
+    "US_RATING_STREAM_MODE",
     "US_RATING_REASONING_EFFORT",
     "US_RATING_BASE_URL",
     "US_RATING_API_KEY",
     "DASHBOARD_GROK_MODEL",
+    "DASHBOARD_GROK_STREAM_MODE",
     "DASHBOARD_GROK_REASONING_EFFORT",
     "DASHBOARD_GROK_API_MODE",
     "DASHBOARD_GROK_CONTEXT_LENGTH",
@@ -948,6 +956,7 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "US_RATING_DEADLINE_SECONDS",
     "US_RATING_REQUEST_TIMEOUT_SECONDS",
     "DASHBOARD_NEWS_MODEL",
+    "DASHBOARD_NEWS_STREAM_MODE",
     "DASHBOARD_NEWS_REASONING_EFFORT",
     "DASHBOARD_NEWS_API_MODE",
     "DASHBOARD_NEWS_CONTEXT_LENGTH",
@@ -958,6 +967,7 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "DASHBOARD_NEWS_MAX_RETRIES",
     "DASHBOARD_NEWS_CONCURRENCY",
     "DASHBOARD_DECISION_MODEL",
+    "DASHBOARD_DECISION_STREAM_MODE",
     "DASHBOARD_DECISION_REASONING_EFFORT",
     "DASHBOARD_DECISION_CONTEXT_LENGTH",
     "DASHBOARD_DECISION_BASE_URL",
@@ -1016,6 +1026,7 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "DASHBOARD_MARKET_CLOSE_CRON",
     "A_SHARE_MODEL_SUMMARY_ENABLED",
     "A_SHARE_MODEL_SUMMARY_MODEL",
+    "A_SHARE_MODEL_SUMMARY_STREAM_MODE",
     "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",
     "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH",
     "A_SHARE_MODEL_SUMMARY_MAX_TOKENS",
@@ -1038,6 +1049,7 @@ ADMIN_VISIBLE_ENV_NAMES = [
 TRADER_RUNTIME_ENV_NAMES = {
     STOCK_UNIVERSE_ENV,
     "DASHBOARD_NEWS_MODEL",
+    "DASHBOARD_NEWS_STREAM_MODE",
     "DASHBOARD_NEWS_REASONING_EFFORT",
     "DASHBOARD_NEWS_API_MODE",
     "DASHBOARD_NEWS_CONTEXT_LENGTH",
@@ -1048,6 +1060,7 @@ TRADER_RUNTIME_ENV_NAMES = {
     "DASHBOARD_NEWS_MAX_RETRIES",
     "DASHBOARD_NEWS_CONCURRENCY",
     "DASHBOARD_DECISION_MODEL",
+    "DASHBOARD_DECISION_STREAM_MODE",
     "DASHBOARD_DECISION_REASONING_EFFORT",
     "DASHBOARD_DECISION_CONTEXT_LENGTH",
     "DASHBOARD_DECISION_BASE_URL",
@@ -6158,6 +6171,8 @@ def normalize_env_update(name: str, value: str, kind: str) -> str:
         return normalize_context_length_update(value)
     if kind == "reasoning_effort":
         return normalize_reasoning_effort(value)
+    if kind == "stream_mode":
+        return normalize_model_stream_mode(value)
     if kind == "api_mode":
         normalized = value.lower().replace("-", "_") or "auto"
         aliases = {
@@ -6580,12 +6595,14 @@ def removed_notification_config_names(channel_ids: set[str] | list[str] | tuple[
 
 US_FEATURE_GATED_NAMES = {
     "US_RATING_MODEL",
+    "US_RATING_STREAM_MODE",
     "US_RATING_REASONING_EFFORT",
     "US_RATING_BASE_URL",
     "US_RATING_API_KEY",
     "US_RATING_CONTEXT_LENGTH",
     "US_RATING_MAX_TOKENS",
     "DASHBOARD_GROK_MODEL",
+    "DASHBOARD_GROK_STREAM_MODE",
     "DASHBOARD_GROK_REASONING_EFFORT",
     "DASHBOARD_GROK_API_MODE",
     "DASHBOARD_GROK_CONTEXT_LENGTH",
@@ -6741,6 +6758,8 @@ def normalize_business_updates(updates: dict[str, str]) -> dict[str, str]:
             normalized[name] = normalize_trade_discipline_text_update(normalized[name])
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "api_mode":
             normalized[name] = normalize_env_update(name, normalized[name], "api_mode")
+        elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "stream_mode":
+            normalized[name] = normalize_model_stream_mode(normalized[name])
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "reasoning_effort":
             normalized[name] = normalize_reasoning_effort(normalized[name])
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "playback_speed":
@@ -6936,6 +6955,8 @@ def validate_business_updates(updates: dict[str, str]) -> None:
             normalize_context_length_update(value)
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "reasoning_effort":
             normalize_reasoning_effort(value)
+        elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "stream_mode":
+            normalize_model_stream_mode(value)
     _validate_reasoning_effort_updates(updates)
     if set(updates) & set(INDUSTRY_FLOW_WINDOW_CONFIG_NAMES):
         _industry_flow_sampling_windows_value(
@@ -7395,22 +7416,45 @@ def _stream_prompt_refinement(messages: list[dict[str, str]]) -> Iterator[str]:
     try:
         config = _prompt_refinement_config()
         try:
-            request = build_model_request(
-                config.base_url,
-                config.model,
-                messages,
-                max_tokens=7000,
-                api_mode=config.api_mode,
-                reasoning_effort=config.reasoning_effort,
-                stream=True,
-                extra_payload={"stream": True},
-            )
             yielded = False
-            for content in stream_model_response(
-                request,
-                config.api_key,
-                timeout=_prompt_refinement_timeout_seconds(),
-            ):
+            # Prompt refinement is an interactive browser flow, so ``auto``
+            # keeps the historical incremental output.  Users can still force
+            # a complete response when their gateway does not support SSE.
+            if config.stream_mode != "non_stream":
+                request = build_model_request(
+                    config.base_url,
+                    config.model,
+                    messages,
+                    max_tokens=7000,
+                    api_mode=config.api_mode,
+                    reasoning_effort=config.reasoning_effort,
+                    stream=True,
+                    extra_payload={"stream": True},
+                )
+                contents: Iterable[str] = stream_model_response(
+                    request,
+                    config.api_key,
+                    timeout=_prompt_refinement_timeout_seconds(),
+                )
+            else:
+                request = build_model_request(
+                    config.base_url,
+                    config.model,
+                    messages,
+                    max_tokens=7000,
+                    api_mode=config.api_mode,
+                    reasoning_effort=config.reasoning_effort,
+                    stream=False,
+                    extra_payload={"stream": False},
+                )
+                parsed = request_model_complete(
+                    request,
+                    config.api_key,
+                    timeout=_prompt_refinement_timeout_seconds(),
+                    stream_mode=config.stream_mode,
+                )
+                contents = (parsed.content,)
+            for content in contents:
                 text = str(content or "")
                 if not text:
                     continue
@@ -7425,7 +7469,7 @@ def _stream_prompt_refinement(messages: list[dict[str, str]]) -> Iterator[str]:
 
 
 def _complete_prompt_refinement(messages: list[dict[str, str]]) -> str:
-    """Use one complete-response request as a fallback for a broken SSE stream."""
+    """Collect one complete answer as a fallback for a broken browser stream."""
 
     if not PROMPT_REFINEMENT_SEMAPHORE.acquire(blocking=False):
         raise RuntimeError("当前有文字策略正在细化，请稍后重试")
@@ -7442,10 +7486,11 @@ def _complete_prompt_refinement(messages: list[dict[str, str]]) -> str:
                 stream=False,
                 extra_payload={"stream": False},
             )
-            parsed = request_model(
+            parsed = request_model_complete(
                 request,
                 config.api_key,
                 timeout=_prompt_refinement_timeout_seconds(),
+                stream_mode=config.stream_mode,
             )
             content = str(parsed.content or "").strip()
             if not content:

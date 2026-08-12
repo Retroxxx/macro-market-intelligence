@@ -83,18 +83,21 @@ Core configuration items:
 | Scenario | Configuration items |
 |---|---|
 | Master switch for NiuNiu U.S. Stocks | `DASHBOARD_US_FEATURES_ENABLED` |
-| Grok API | `DASHBOARD_GROK_BASE_URL`, `DASHBOARD_GROK_API_KEY`, `DASHBOARD_GROK_MODEL`, `DASHBOARD_GROK_API_MODE`, `DASHBOARD_GROK_REASONING_EFFORT`, `DASHBOARD_GROK_CONTEXT_LENGTH` |
-| Separate override for A-share market model summaries | `A_SHARE_MODEL_SUMMARY_BASE_URL`, `A_SHARE_MODEL_SUMMARY_API_KEY`, `A_SHARE_MODEL_SUMMARY_MODEL`, `A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`, `A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
-| News pre-check API | `DASHBOARD_NEWS_BASE_URL`, `DASHBOARD_NEWS_API_KEY`, `DASHBOARD_NEWS_MODEL`, `DASHBOARD_NEWS_API_MODE`, `DASHBOARD_NEWS_REASONING_EFFORT`, `DASHBOARD_NEWS_MAX_TOKENS`, `DASHBOARD_NEWS_CONCURRENCY` |
+| Grok API | `DASHBOARD_GROK_BASE_URL`, `DASHBOARD_GROK_API_KEY`, `DASHBOARD_GROK_MODEL`, `DASHBOARD_GROK_API_MODE`, `DASHBOARD_GROK_STREAM_MODE`, `DASHBOARD_GROK_REASONING_EFFORT`, `DASHBOARD_GROK_CONTEXT_LENGTH` |
+| Separate override for A-share market model summaries | `A_SHARE_MODEL_SUMMARY_BASE_URL`, `A_SHARE_MODEL_SUMMARY_API_KEY`, `A_SHARE_MODEL_SUMMARY_MODEL`, `A_SHARE_MODEL_SUMMARY_STREAM_MODE`, `A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`, `A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
+| News pre-check API | `DASHBOARD_NEWS_BASE_URL`, `DASHBOARD_NEWS_API_KEY`, `DASHBOARD_NEWS_MODEL`, `DASHBOARD_NEWS_API_MODE`, `DASHBOARD_NEWS_STREAM_MODE`, `DASHBOARD_NEWS_REASONING_EFFORT`, `DASHBOARD_NEWS_MAX_TOKENS`, `DASHBOARD_NEWS_CONCURRENCY` |
 | Built-in iWencai data source | `IWENCAI_ENABLED`, `IWENCAI_BASE_URL`, `IWENCAI_API_KEY`, `IWENCAI_TIMEOUT_SECONDS`, `IWENCAI_MAX_RETRIES`, `IWENCAI_MAX_CONCURRENCY`, `IWENCAI_CACHE_TTL_SECONDS`, `IWENCAI_DRAGON_TIGER_CRON` |
-| Trading-decision API | `DASHBOARD_DECISION_BASE_URL`, `DASHBOARD_DECISION_API_KEY`, `DASHBOARD_DECISION_MODEL`, `DASHBOARD_DECISION_REASONING_EFFORT` |
+| Trading-decision API | `DASHBOARD_DECISION_BASE_URL`, `DASHBOARD_DECISION_API_KEY`, `DASHBOARD_DECISION_MODEL`, `DASHBOARD_DECISION_STREAM_MODE`, `DASHBOARD_DECISION_REASONING_EFFORT` |
 | Trading-decision intelligence bundle | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`, `DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`, `DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 | Trading discipline for trading decisions | `DASHBOARD_TRADE_DISCIPLINE_TEXT`; when empty, the built-in default discipline is used; when populated, its content is inserted into the “Mandatory Rules” section of the model prompt |
 | Simulated-account cadence and position-sizing references | `DASHBOARD_MAX_OPEN_POSITIONS`, `DASHBOARD_MAX_NEW_BUYS_PER_DECISION`, `DASHBOARD_MAX_SINGLE_POSITION_PCT`, `DASHBOARD_MAX_TOTAL_POSITION_PCT`, `DASHBOARD_MIN_CASH_RESERVE_PCT`; these are model references by default, while suites with registered hard limits, including Z-ge and Sector Tide, enforce the stricter global or suite limit in the simulation layer |
-| Separate override for U.S. stock ratings | `US_RATING_MODEL`, `US_RATING_BASE_URL`, `US_RATING_API_KEY`, `US_RATING_REASONING_EFFORT`, `US_RATING_MAX_TOKENS` |
+| Separate override for U.S. stock ratings | `US_RATING_MODEL`, `US_RATING_BASE_URL`, `US_RATING_API_KEY`, `US_RATING_STREAM_MODE`, `US_RATING_REASONING_EFFORT`, `US_RATING_MAX_TOKENS` |
 
 After administrator authentication, preferably use the settings button on the page to open the settings page and manage these values. Every section that requires a model and API key includes a **Test Model Connection** button. The test uses the current form values without saving them; leaving the API key input empty reuses the saved secret. U.S. ratings settings are controlled by the “Enable NiuNiu U.S. Stocks” master switch. When disabled, the settings page hides these items and skips the U.S. ratings scheduled task. You can also edit `.local-data/dashboard.env` directly; after saving, restart the affected components as appropriate, or wait for the next task cycle to pick up the changes.
 Each scene-specific `*_REASONING_EFFORT` accepts a model- or gateway-defined token; leaving it empty omits the parameter. Known official models in the table below are checked locally before saving, connection tests, and runtime requests. Custom models and gateway aliases outside the table remain free-form. Connection tests use the current unsaved value. Success only confirms that the gateway accepted the request, not that the upstream enforced the effort. Unsupported parameters and invalid values receive targeted diagnostics, and runtime requests never silently remove the configured effort and retry.
+
+Each scene-specific `*_STREAM_MODE` accepts `auto`, `stream`, or `non_stream`. The default `auto` keeps the historical non-streaming request and retries with `stream=true` only when the gateway explicitly requires streaming. `stream` forces streaming and `non_stream` forces a complete response. Background jobs always assemble the complete streamed content before JSON validation, persistence, or trading decisions.
+AI prompt refinement needs to show model output live in the browser, so `auto` preserves its existing streamed display when it reuses the decision-model configuration. Select `non_stream` to return that refinement as one complete response.
 
 ### Common model reasoning-effort table
 

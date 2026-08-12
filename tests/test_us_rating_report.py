@@ -15,6 +15,48 @@ ENTRYPOINTS = SRC / 'entrypoints'
 
 
 class UsRatingReportTests(unittest.TestCase):
+    def test_call_api_can_force_stream_transport(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env['DASHBOARD_HOME'] = tmp
+            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
+            env['US_RATING_STREAM_MODE'] = 'stream'
+            code = f"""
+import importlib.util, json, sys
+sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
+spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(COMPAT / 'us_rating_report.py')!r})
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+captured = {{}}
+class Resp:
+    headers = {{'Content-Type': 'text/event-stream'}}
+    def __init__(self):
+        self.lines = iter((
+            b'data: {{"choices":[{{"delta":{{"content":"o"}}}}]}}\\n',
+            b'data: {{"choices":[{{"delta":{{"content":"k"}}}}]}}\\n',
+            b'data: [DONE]\\n',
+        ))
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc, tb):
+        return False
+    def readline(self):
+        return next(self.lines, b'')
+def fake_urlopen(req, timeout=0, context=None):
+    captured['payload'] = json.loads(req.data.decode('utf-8'))
+    captured['accept'] = req.get_header('Accept')
+    return Resp()
+m.urlopen = fake_urlopen
+result = m._call_api('https://rating.example/v1', 'secret', [{{'role':'user','content':'hello'}}])
+print(json.dumps({{'captured': captured, 'result': result}}, ensure_ascii=False))
+"""
+            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
+            data = json.loads(out)
+
+        self.assertEqual(data['result'], 'ok')
+        self.assertTrue(data['captured']['payload']['stream'])
+        self.assertIn('text/event-stream', data['captured']['accept'])
+
     def test_call_api_omits_temperature_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()

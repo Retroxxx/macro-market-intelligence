@@ -13,7 +13,8 @@ from urllib.parse import urlsplit
 from core.model_api import (
     ModelResponseParseError,
     build_model_request,
-    request_model,
+    normalize_model_stream_mode,
+    request_model_complete,
 )
 from core.model_reasoning import (
     UnsupportedReasoningEffortError,
@@ -35,6 +36,7 @@ class ModelTestTarget:
     base_url_names: tuple[str, ...]
     api_key_names: tuple[str, ...]
     api_mode_names: tuple[str, ...]
+    stream_mode_names: tuple[str, ...]
     reasoning_effort_names: tuple[str, ...]
     override_names: tuple[str, ...]
     default_model: str = ""
@@ -52,12 +54,14 @@ MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
         base_url_names=("DASHBOARD_NEWS_BASE_URL",),
         api_key_names=("DASHBOARD_NEWS_API_KEY",),
         api_mode_names=("DASHBOARD_NEWS_API_MODE",),
+        stream_mode_names=("DASHBOARD_NEWS_STREAM_MODE",),
         reasoning_effort_names=("DASHBOARD_NEWS_REASONING_EFFORT",),
         override_names=(
             "DASHBOARD_NEWS_MODEL",
             "DASHBOARD_NEWS_BASE_URL",
             "DASHBOARD_NEWS_API_KEY",
             "DASHBOARD_NEWS_API_MODE",
+            "DASHBOARD_NEWS_STREAM_MODE",
             "DASHBOARD_NEWS_REASONING_EFFORT",
         ),
         default_api_mode="auto",
@@ -72,11 +76,13 @@ MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
         base_url_names=("DASHBOARD_DECISION_BASE_URL", "CROSSDESK_BASE_URL"),
         api_key_names=("DASHBOARD_DECISION_API_KEY", "CROSSDESK_API_KEY"),
         api_mode_names=(),
+        stream_mode_names=("DASHBOARD_DECISION_STREAM_MODE",),
         reasoning_effort_names=("DASHBOARD_DECISION_REASONING_EFFORT",),
         override_names=(
             "DASHBOARD_DECISION_MODEL",
             "DASHBOARD_DECISION_BASE_URL",
             "DASHBOARD_DECISION_API_KEY",
+            "DASHBOARD_DECISION_STREAM_MODE",
             "DASHBOARD_DECISION_REASONING_EFFORT",
         ),
         default_model="deepseek-v4-pro",
@@ -91,12 +97,14 @@ MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
         base_url_names=("DASHBOARD_GROK_BASE_URL", "CROSSDESK_BASE_URL"),
         api_key_names=("DASHBOARD_GROK_API_KEY", "CROSSDESK_API_KEY"),
         api_mode_names=("DASHBOARD_GROK_API_MODE",),
+        stream_mode_names=("DASHBOARD_GROK_STREAM_MODE",),
         reasoning_effort_names=("DASHBOARD_GROK_REASONING_EFFORT",),
         override_names=(
             "DASHBOARD_GROK_MODEL",
             "DASHBOARD_GROK_BASE_URL",
             "DASHBOARD_GROK_API_KEY",
             "DASHBOARD_GROK_API_MODE",
+            "DASHBOARD_GROK_STREAM_MODE",
             "DASHBOARD_GROK_REASONING_EFFORT",
         ),
         default_model="grok-4.20-multi-agent-xhigh",
@@ -119,16 +127,19 @@ MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
             "CROSSDESK_API_KEY",
         ),
         api_mode_names=("DASHBOARD_GROK_API_MODE",),
+        stream_mode_names=("US_RATING_STREAM_MODE", "DASHBOARD_GROK_STREAM_MODE"),
         reasoning_effort_names=("US_RATING_REASONING_EFFORT",),
         override_names=(
             "US_RATING_MODEL",
             "US_RATING_BASE_URL",
             "US_RATING_API_KEY",
             "US_RATING_REASONING_EFFORT",
+            "US_RATING_STREAM_MODE",
             "DASHBOARD_GROK_MODEL",
             "DASHBOARD_GROK_BASE_URL",
             "DASHBOARD_GROK_API_KEY",
             "DASHBOARD_GROK_API_MODE",
+            "DASHBOARD_GROK_STREAM_MODE",
         ),
         default_model="grok-4.20-multi-agent-xhigh",
         default_api_mode="auto",
@@ -157,12 +168,17 @@ MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
             "CROSSDESK_API_KEY",
         ),
         api_mode_names=(),
+        stream_mode_names=(
+            "A_SHARE_MODEL_SUMMARY_STREAM_MODE",
+            "DASHBOARD_GROK_STREAM_MODE",
+        ),
         reasoning_effort_names=("A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",),
         override_names=(
             "A_SHARE_MODEL_SUMMARY_MODEL",
             "A_SHARE_MODEL_SUMMARY_BASE_URL",
             "A_SHARE_MODEL_SUMMARY_API_KEY",
             "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",
+            "A_SHARE_MODEL_SUMMARY_STREAM_MODE",
         ),
         default_model="grok-4.20-multi-agent-xhigh",
         default_api_mode="auto",
@@ -179,6 +195,7 @@ class ResolvedModelTestConfig:
     base_url: str
     api_key: str
     api_mode: str
+    stream_mode: str
     reasoning_effort: str
     effective_reasoning_effort: str
 
@@ -210,6 +227,7 @@ def model_test_setting_names() -> set[str]:
         names.update(target.base_url_names)
         names.update(target.api_key_names)
         names.update(target.api_mode_names)
+        names.update(target.stream_mode_names)
         names.update(target.reasoning_effort_names)
     return names
 
@@ -245,6 +263,9 @@ def resolve_model_test_config(
         base_url = fallback_base_url
         api_key = fallback_api_key
     api_mode = _first_value(values, target.api_mode_names) or target.default_api_mode
+    stream_mode = normalize_model_stream_mode(
+        _first_value(values, target.stream_mode_names) or "auto"
+    )
     reasoning_effort = _first_value(values, target.reasoning_effort_names)
     effort_resolution = resolve_model_reasoning_effort(model, reasoning_effort)
     return ResolvedModelTestConfig(
@@ -253,6 +274,7 @@ def resolve_model_test_config(
         base_url=base_url.rstrip("/"),
         api_key=api_key,
         api_mode=api_mode,
+        stream_mode=stream_mode,
         reasoning_effort=effort_resolution.configured_effort,
         effective_reasoning_effort=effort_resolution.effective_effort,
     )
@@ -428,10 +450,11 @@ def test_model_connection(
     )
     started = monotonic()
     try:
-        parsed = request_model(
+        parsed = request_model_complete(
             model_request,
             config.api_key,
             timeout=max(5.0, min(30.0, float(timeout))),
+            stream_mode=config.stream_mode,
             opener=opener,
         )
         if not str(parsed.content or "").strip():
@@ -477,6 +500,13 @@ def test_model_connection(
         if config.reasoning_effort
         else "，未指定思考强度"
     )
+    stream_label = {
+        "auto": "流式自动",
+        "stream": "强制流式",
+        "non_stream": "强制非流式",
+    }.get(config.stream_mode, config.stream_mode)
+    if "auto_stream_fallback=1" in parsed.detail:
+        stream_label += "（已自动切换为流式）"
     if (
         config.reasoning_effort
         and selected_effective_effort != config.reasoning_effort
@@ -488,7 +518,7 @@ def test_model_connection(
             "elapsed_ms": elapsed_ms,
             "message": (
                 f"{config.target.label}网关已接受当前配置"
-                f"（{mode_label}{effort_label}，{elapsed_ms} ms）"
+                f"（{mode_label}，{stream_label}{effort_label}，{elapsed_ms} ms）"
             ),
         }
     )

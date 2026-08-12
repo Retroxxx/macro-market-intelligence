@@ -53,6 +53,9 @@ const boolValue = computed(() => {
 const apiMode = computed(() => (
   ['auto', 'responses', 'chat'].includes(value.value) ? value.value : 'auto'
 ))
+const streamMode = computed(() => (
+  ['auto', 'stream', 'non_stream'].includes(value.value) ? value.value : 'auto'
+))
 const playbackSpeed = computed(() => (
   ['0.5', '0.75', '1', '1.5', '2', '5', '10'].includes(value.value) ? value.value : '0.5'
 ))
@@ -201,6 +204,15 @@ watch(
     </div>
     <div v-else-if="normalizedReasoningModel" class="config-meta">未匹配本地能力表，已列出常见候选值；仍可填写网关自定义强度并手动测试</div>
     <div v-else class="config-meta">填写模型名称后会列出该模型全部可选思考强度；留空不发送参数</div>
+  </template>
+
+  <template v-else-if="kind === 'stream_mode'">
+    <select :name="fieldName" :aria-label="label" :value="streamMode">
+      <option value="auto">自动（推荐）</option>
+      <option value="stream">流式</option>
+      <option value="non_stream">非流式</option>
+    </select>
+    <div class="config-meta">自动模式默认使用非流式；如果网关明确要求 stream=true，会自动切换为流式。流式内容会在后端拼接完整后再校验和使用</div>
   </template>
 
   <template v-else-if="kind === 'playback_speed'">

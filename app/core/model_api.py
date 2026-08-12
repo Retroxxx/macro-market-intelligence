@@ -58,6 +58,29 @@ def normalize_api_mode(mode: str | None) -> str:
     return "auto"
 
 
+def normalize_model_stream_mode(mode: str | None) -> str:
+    """Normalize the user-facing model transport preference."""
+
+    normalized = str(mode or "auto").strip().lower().replace("-", "_")
+    aliases = {
+        "": "auto",
+        "auto": "auto",
+        "automatic": "auto",
+        "stream": "stream",
+        "streaming": "stream",
+        "true": "stream",
+        "1": "stream",
+        "non_stream": "non_stream",
+        "nonstream": "non_stream",
+        "complete": "non_stream",
+        "false": "non_stream",
+        "0": "non_stream",
+    }
+    if normalized not in aliases:
+        raise ValueError("模型流式模式必须是 auto、stream 或 non_stream")
+    return aliases[normalized]
+
+
 def uses_responses_api(
     mode: str | None,
     model: str,
@@ -601,4 +624,122 @@ def stream_model_response(
             timeout=timeout,
             opener=opener,
             ssl_context=ssl_context,
+        )
+
+
+def _request_with_stream(request: ModelRequest, enabled: bool) -> ModelRequest:
+    payload = dict(request.payload)
+    payload["stream"] = bool(enabled)
+    return ModelRequest(request.endpoint, payload, request.api_mode)
+
+
+def _stream_required_error(error_body: str) -> bool:
+    """Return whether an upstream explicitly requires streaming requests."""
+
+    text = str(error_body or "").lower().replace("_", "-")
+    if "stream" not in text:
+        return False
+    patterns = (
+        r"stream[^\n]{0,100}(?:must|should|needs?\s+to)\s+be\s+(?:set\s+to\s+)?true",
+        r"stream[^\n]{0,100}(?:required|mandatory)",
+        r"(?:only|requires?)\s+(?:support(?:s|ed)?\s+)?stream(?:ing)?",
+        r"non[-\s]?stream(?:ing)?[^\n]{0,100}(?:unsupported|not\s+supported|unavailable)",
+        r"does\s+not\s+support[^\n]{0,100}stream\s*=\s*false",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _rebuild_http_error(
+    exc: urllib.error.HTTPError,
+    error_body: str,
+) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        exc.url,
+        exc.code,
+        exc.msg,
+        exc.hdrs,
+        io.BytesIO(error_body.encode("utf-8")),
+    )
+
+
+def _collect_streamed_model_response(
+    request: ModelRequest,
+    api_key: str,
+    *,
+    timeout: float,
+    opener: UrlOpen,
+    ssl_context: Any = None,
+    auto_fallback: bool = False,
+) -> ParsedModelResponse:
+    content = "".join(
+        stream_model_response(
+            _request_with_stream(request, True),
+            api_key,
+            timeout=timeout,
+            opener=opener,
+            ssl_context=ssl_context,
+        )
+    )
+    detail = "transport=stream"
+    if auto_fallback:
+        detail += ", auto_stream_fallback=1"
+    return ParsedModelResponse(content, detail)
+
+
+def request_model_complete(
+    request: ModelRequest,
+    api_key: str,
+    *,
+    timeout: float,
+    stream_mode: str | None = "auto",
+    opener: UrlOpen = urllib.request.urlopen,
+    ssl_context: Any = None,
+) -> ParsedModelResponse:
+    """Return a complete answer using the configured transport mode.
+
+    Streaming transport is assembled in memory before callers parse or persist
+    the answer. ``auto`` preserves the historical non-streaming request, but
+    retries once with streaming when the upstream explicitly rejects
+    ``stream=false``.
+    """
+
+    mode = normalize_model_stream_mode(stream_mode)
+    if mode == "stream":
+        return _collect_streamed_model_response(
+            request,
+            api_key,
+            timeout=timeout,
+            opener=opener,
+            ssl_context=ssl_context,
+        )
+
+    non_stream_request = _request_with_stream(request, False)
+    try:
+        parsed = request_model(
+            non_stream_request,
+            api_key,
+            timeout=timeout,
+            opener=opener,
+            ssl_context=ssl_context,
+        )
+        detail = ", ".join(part for part in (parsed.detail, "transport=non-stream") if part)
+        return ParsedModelResponse(parsed.content, detail, parsed.data)
+    except urllib.error.HTTPError as exc:
+        if mode != "auto" or exc.code not in {400, 409, 422}:
+            raise
+        try:
+            error_body = exc.read().decode("utf-8", "ignore")
+        except Exception:
+            error_body = ""
+        if not _stream_required_error(error_body):
+            exc.close()
+            raise _rebuild_http_error(exc, error_body) from exc
+        exc.close()
+        return _collect_streamed_model_response(
+            request,
+            api_key,
+            timeout=timeout,
+            opener=opener,
+            ssl_context=ssl_context,
+            auto_fallback=True,
         )

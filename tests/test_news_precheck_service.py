@@ -29,6 +29,22 @@ class NewsPrecheckServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "incomplete_news_precheck_config"):
             NewsPrecheckConfig.from_mapping({"DASHBOARD_NEWS_MODEL": "test-model"})
 
+    def test_config_reads_stream_mode_with_auto_default(self):
+        base = {
+            "DASHBOARD_NEWS_BASE_URL": "https://news.example/v1",
+            "DASHBOARD_NEWS_API_KEY": "secret",
+            "DASHBOARD_NEWS_MODEL": "test-model",
+        }
+
+        self.assertEqual(NewsPrecheckConfig.from_mapping(base).stream_mode, "auto")
+        self.assertEqual(
+            NewsPrecheckConfig.from_mapping({
+                **base,
+                "DASHBOARD_NEWS_STREAM_MODE": "stream",
+            }).stream_mode,
+            "stream",
+        )
+
     def test_parser_requires_an_explicit_sentiment_label(self):
         positive = parse_candidate_news_record(
             {"code": "600000", "name": "测试"},
@@ -172,10 +188,11 @@ class NewsPrecheckServiceTests(unittest.TestCase):
             api_key="secret",
             model="gpt-5.6-sol",
             api_mode="auto",
+            stream_mode="non_stream",
             max_requests=1,
         )
         captured = {}
-        original_request_model = news_precheck.request_model
+        original_request_model = news_precheck.request_model_complete
         try:
             def fake_request(model_request, api_key, **kwargs):
                 captured["request"] = model_request
@@ -183,16 +200,17 @@ class NewsPrecheckServiceTests(unittest.TestCase):
                 captured["kwargs"] = kwargs
                 return types.SimpleNamespace(content="- 600000 测试：订单增长（利好）")
 
-            news_precheck.request_model = fake_request
+            news_precheck.request_model_complete = fake_request
             content = request_candidate_news({"code": "600000", "name": "测试"}, config)
         finally:
-            news_precheck.request_model = original_request_model
+            news_precheck.request_model_complete = original_request_model
 
         self.assertIn("订单增长", content)
         self.assertEqual(captured["request"].api_mode, "responses")
         self.assertEqual(captured["request"].payload["tools"], [{"type": "web_search"}])
         self.assertNotIn("max_output_tokens", captured["request"].payload)
         self.assertEqual(captured["kwargs"]["timeout"], 45)
+        self.assertEqual(captured["kwargs"]["stream_mode"], "non_stream")
 
     def test_prompt_separates_verified_news_from_xueqiu_and_x_sentiment(self):
         prompt = build_candidate_news_prompt({"code": "600000", "name": "测试"})
@@ -218,10 +236,11 @@ class NewsPrecheckServiceTests(unittest.TestCase):
             api_key="secret",
             model="grok-4.5",
             api_mode="auto",
+            stream_mode="stream",
             max_requests=1,
         )
         captured = {}
-        original_request_model = news_precheck.request_model
+        original_request_model = news_precheck.request_model_complete
         try:
             def fake_request(model_request, _api_key, **_kwargs):
                 captured["request"] = model_request
@@ -229,10 +248,10 @@ class NewsPrecheckServiceTests(unittest.TestCase):
                     content="事件：订单增长；影响：提升收入；舆情：雪球偏多，X讨论有限（利好）"
                 )
 
-            news_precheck.request_model = fake_request
+            news_precheck.request_model_complete = fake_request
             request_candidate_news({"code": "600000", "name": "测试"}, config)
         finally:
-            news_precheck.request_model = original_request_model
+            news_precheck.request_model_complete = original_request_model
 
         self.assertEqual(captured["request"].api_mode, "responses")
         self.assertEqual(

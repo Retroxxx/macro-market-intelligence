@@ -11,9 +11,9 @@ from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo
 
 if __package__ and __package__.startswith("app."):
-    from ..core.model_api import build_model_request, request_model
+    from ..core.model_api import build_model_request, request_model_complete
 else:
-    from core.model_api import build_model_request, request_model
+    from core.model_api import build_model_request, request_model_complete
 
 
 CN_TZ = ZoneInfo("Asia/Shanghai")
@@ -70,6 +70,7 @@ class NewsPrecheckConfig:
     api_key: str
     model: str
     api_mode: str = "auto"
+    stream_mode: str = "auto"
     reasoning_effort: str = ""
     timeout_seconds: int = 45
     max_requests: int = 1
@@ -99,6 +100,7 @@ class NewsPrecheckConfig:
             api_key=api_key,
             model=model,
             api_mode=str(values.get("DASHBOARD_NEWS_API_MODE") or "auto").strip() or "auto",
+            stream_mode=str(values.get("DASHBOARD_NEWS_STREAM_MODE") or "auto").strip() or "auto",
             reasoning_effort=str(values.get("DASHBOARD_NEWS_REASONING_EFFORT") or "").strip(),
             timeout_seconds=_bounded_int(values, "DASHBOARD_NEWS_TIMEOUT", 45, 5, 120),
             max_requests=_bounded_int(values, "DASHBOARD_NEWS_MAX_RETRIES", 1, 1, 3),
@@ -162,10 +164,11 @@ def request_candidate_news(candidate: Mapping[str, Any], config: NewsPrecheckCon
     last_error: Exception | None = None
     for attempt in range(config.max_requests):
         try:
-            parsed = request_model(
+            parsed = request_model_complete(
                 model_request,
                 config.api_key,
                 timeout=config.timeout_seconds,
+                stream_mode=config.stream_mode,
             )
             content = str(parsed.content or "").strip()
             if not content:

@@ -19,7 +19,7 @@ from urllib.parse import quote
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from core.model_api import build_model_request, request_model
+from core.model_api import build_model_request, request_model_complete
 from niuone_paths import get_dashboard_env_file, get_dashboard_home
 
 CN_TZ = ZoneInfo("Asia/Shanghai")
@@ -170,6 +170,7 @@ US_SECTOR_PROXY_DEFS: list[dict[str, Any]] = [
 def load_dashboard_env() -> None:
     allowed = {
         "DASHBOARD_GROK_MODEL",
+        "DASHBOARD_GROK_STREAM_MODE",
         "DASHBOARD_GROK_REASONING_EFFORT",
         "DASHBOARD_GROK_CONTEXT_LENGTH",
         "DASHBOARD_GROK_BASE_URL",
@@ -232,6 +233,9 @@ US_MARKET_SUMMARY_MODEL = (
     or os.environ.get("DASHBOARD_GROK_MODEL")
     or "grok-4.20-multi-agent-xhigh"
 )
+US_MARKET_SUMMARY_STREAM_MODE = str(
+    os.environ.get("DASHBOARD_GROK_STREAM_MODE") or "auto"
+).strip()
 US_MARKET_SUMMARY_REASONING_EFFORT = str(
     os.environ.get("DASHBOARD_GROK_REASONING_EFFORT") or ""
 ).strip()
@@ -344,10 +348,11 @@ def _call_grok_api(messages: list[dict[str, str]], *, max_tokens: int = US_MARKE
             break
         try:
             timeout_seconds = min(max(10, US_MARKET_SUMMARY_REQUEST_TIMEOUT_SECONDS), max(10, remaining - 2))
-            parsed = request_model(
+            parsed = request_model_complete(
                 model_request,
                 api_key,
                 timeout=timeout_seconds,
+                stream_mode=US_MARKET_SUMMARY_STREAM_MODE,
                 opener=urlopen,
                 ssl_context=_SSL_CONTEXT,
             )

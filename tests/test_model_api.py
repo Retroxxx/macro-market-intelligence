@@ -10,8 +10,10 @@ from pathlib import Path
 from app.core.model_api import (
     ModelResponseParseError,
     build_model_request,
+    normalize_model_stream_mode,
     parse_model_response,
     request_model,
+    request_model_complete,
     stream_model_response,
     uses_responses_api,
 )
@@ -36,6 +38,13 @@ class _Response:
 
 
 class ModelApiTests(unittest.TestCase):
+    def test_stream_mode_normalization_is_strict_and_backward_friendly(self):
+        self.assertEqual(normalize_model_stream_mode(""), "auto")
+        self.assertEqual(normalize_model_stream_mode("streaming"), "stream")
+        self.assertEqual(normalize_model_stream_mode("non-stream"), "non_stream")
+        with self.assertRaisesRegex(ValueError, "流式模式"):
+            normalize_model_stream_mode("sometimes")
+
     def test_model_endpoint_construction_is_centralized(self):
         app_dir = Path(__file__).resolve().parents[1] / "app"
         helper = (app_dir / "core" / "model_api.py").resolve()
@@ -428,6 +437,104 @@ class ModelApiTests(unittest.TestCase):
         )
 
         self.assertEqual(chunks, ["complete json"])
+
+    def test_complete_request_force_stream_assembles_visible_text(self):
+        request = build_model_request(
+            "https://model.example/v1",
+            "legacy-model",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+        )
+        payloads = []
+
+        def opener(req, timeout=0):
+            payloads.append(json.loads(req.data.decode("utf-8")))
+            return _Response(
+                'data: {"choices":[{"delta":{"content":"full "}}]}\n\n'
+                'data: {"choices":[{"delta":{"content":"answer"}}]}\n\n'
+                "data: [DONE]\n\n",
+                "text/event-stream",
+            )
+
+        parsed = request_model_complete(
+            request,
+            "secret",
+            timeout=5,
+            stream_mode="stream",
+            opener=opener,
+        )
+
+        self.assertEqual(parsed.content, "full answer")
+        self.assertEqual(parsed.detail, "transport=stream")
+        self.assertEqual([payload["stream"] for payload in payloads], [True])
+
+    def test_complete_request_auto_retries_only_explicit_stream_required_error(self):
+        request = build_model_request(
+            "https://model.example/v1",
+            "legacy-model",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+        )
+        payloads = []
+
+        def opener(req, timeout=0):
+            payload = json.loads(req.data.decode("utf-8"))
+            payloads.append(payload)
+            if not payload["stream"]:
+                raise urllib.error.HTTPError(
+                    req.full_url,
+                    400,
+                    "Bad Request",
+                    {},
+                    io.BytesIO(b'{"error":"stream must be true"}'),
+                )
+            return _Response(
+                'data: {"choices":[{"delta":{"content":"fallback ok"}}]}\n\n'
+                "data: [DONE]\n\n",
+                "text/event-stream",
+            )
+
+        parsed = request_model_complete(
+            request,
+            "secret",
+            timeout=5,
+            stream_mode="auto",
+            opener=opener,
+        )
+
+        self.assertEqual(parsed.content, "fallback ok")
+        self.assertIn("auto_stream_fallback=1", parsed.detail)
+        self.assertEqual([payload["stream"] for payload in payloads], [False, True])
+
+    def test_complete_request_forced_non_stream_does_not_retry(self):
+        request = build_model_request(
+            "https://model.example/v1",
+            "legacy-model",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+        )
+        payloads = []
+
+        def opener(req, timeout=0):
+            payloads.append(json.loads(req.data.decode("utf-8")))
+            raise urllib.error.HTTPError(
+                req.full_url,
+                400,
+                "Bad Request",
+                {},
+                io.BytesIO(b'{"error":"stream=true is required"}'),
+            )
+
+        with self.assertRaises(urllib.error.HTTPError):
+            request_model_complete(
+                request,
+                "secret",
+                timeout=5,
+                stream_mode="non_stream",
+                opener=opener,
+            )
+
+        self.assertEqual([payload["stream"] for payload in payloads], [False])
 
     def test_parse_failures_use_dedicated_exception(self):
         for raw in ("", "<html>gateway error</html>", "[]"):

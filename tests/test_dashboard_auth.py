@@ -7533,7 +7533,7 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(grouped_names, set(dashboard.ADMIN_VISIBLE_ENV_NAMES))
         self.assertIn(':to="`/admin/settings/${group.slug}`"', ADMIN_FRONTEND)
         self.assertIn('保存本组设置', ADMIN_FRONTEND)
-        self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 17)
+        self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 19)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('iwencai')), 8)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 10)
         self.assertEqual(
@@ -8024,6 +8024,44 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('查看常见模型思考强度表', ADMIN_FRONTEND)
         self.assertIn(':reasoning-model="reasoningModel(item)"', ADMIN_FRONTEND)
         self.assertIn('填写模型名称后会列出该模型全部可选思考强度', ADMIN_FRONTEND)
+
+    def test_each_model_configuration_exposes_a_validated_stream_mode(self):
+        names = {
+            'DASHBOARD_DECISION_STREAM_MODE',
+            'DASHBOARD_NEWS_STREAM_MODE',
+            'DASHBOARD_GROK_STREAM_MODE',
+            'US_RATING_STREAM_MODE',
+            'A_SHARE_MODEL_SUMMARY_STREAM_MODE',
+        }
+        items = {
+            item['name']: item
+            for item in dashboard.ENV_CONFIG_SCHEMA
+            if item['name'] in names
+        }
+
+        self.assertEqual(set(items), names)
+        self.assertTrue(all(item['kind'] == 'stream_mode' for item in items.values()))
+        self.assertTrue(all(item['default'] == 'auto' for item in items.values()))
+        self.assertTrue(all(item['effect'] == 'next_run' for item in items.values()))
+        self.assertTrue(names.issubset(dashboard.ADMIN_VISIBLE_ENV_NAMES))
+        self.assertEqual(
+            dashboard.normalize_business_updates({
+                'DASHBOARD_DECISION_STREAM_MODE': ' non-stream ',
+            })['DASHBOARD_DECISION_STREAM_MODE'],
+            'non_stream',
+        )
+        with self.assertRaisesRegex(ValueError, '流式模式'):
+            dashboard.validate_business_updates({
+                'DASHBOARD_DECISION_STREAM_MODE': 'sometimes',
+            })
+
+        payload_items = {
+            item['name']: item
+            for item in dashboard.build_admin_config_payload()['items']
+        }
+        self.assertTrue(all(payload_items[name]['kind'] == 'stream_mode' for name in names))
+        self.assertIn("kind === 'stream_mode'", ADMIN_FRONTEND)
+        self.assertIn('如果网关明确要求 stream=true', ADMIN_FRONTEND)
 
     def test_niuone_forward_cohort_start_requires_iso_date(self):
         item = next(

@@ -19,7 +19,7 @@ from pathlib import Path
 from urllib.error import URLError, HTTPError
 from urllib.request import urlopen
 
-from core.model_api import build_model_request, request_model
+from core.model_api import build_model_request, request_model_complete
 from niuone_paths import get_dashboard_env_file, get_dashboard_home
 
 # Crossdesk has intermittent SSL record-layer failures with Python's
@@ -32,11 +32,13 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 def load_dashboard_env() -> None:
     allowed = {
         "DASHBOARD_GROK_MODEL",
+        "DASHBOARD_GROK_STREAM_MODE",
         "DASHBOARD_GROK_API_MODE",
         "DASHBOARD_GROK_CONTEXT_LENGTH",
         "DASHBOARD_GROK_BASE_URL",
         "DASHBOARD_GROK_API_KEY",
         "US_RATING_MODEL",
+        "US_RATING_STREAM_MODE",
         "US_RATING_REASONING_EFFORT",
         "US_RATING_CONTEXT_LENGTH",
         "US_RATING_MAX_TOKENS",
@@ -79,6 +81,11 @@ JOB_ID = "fd0b807138f4"
 JOB_NAME = "每日美股机构买入评级汇报"
 CONFIG_PATH = Path(os.environ.get("DASHBOARD_CONFIG") or str(DASHBOARD_HOME / "config.yaml")).expanduser()
 US_RATING_MODEL = os.environ.get("US_RATING_MODEL") or os.environ.get("DASHBOARD_GROK_MODEL") or "grok-4.20-multi-agent-xhigh"
+US_RATING_STREAM_MODE = (
+    os.environ.get("US_RATING_STREAM_MODE")
+    or os.environ.get("DASHBOARD_GROK_STREAM_MODE")
+    or "auto"
+)
 GROK_API_MODE = os.environ.get("DASHBOARD_GROK_API_MODE") or "auto"
 US_RATING_REASONING_EFFORT = (
     os.environ.get("US_RATING_REASONING_EFFORT")
@@ -171,10 +178,11 @@ def _call_api(base_url, api_key, messages, max_tokens=US_RATING_MAX_TOKENS):
             break
         try:
             timeout_seconds = min(max(10, US_RATING_REQUEST_TIMEOUT_SECONDS), max(10, remaining - 2))
-            parsed = request_model(
+            parsed = request_model_complete(
                 model_request,
                 api_key,
                 timeout=timeout_seconds,
+                stream_mode=US_RATING_STREAM_MODE,
                 opener=urlopen,
                 ssl_context=_SSL_CONTEXT,
             )

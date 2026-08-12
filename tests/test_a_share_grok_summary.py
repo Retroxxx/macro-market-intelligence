@@ -115,6 +115,45 @@ class AShareGrokSummaryTests(unittest.TestCase):
 
         self.assertEqual(captured["payload"]["reasoning_effort"], "high")
 
+    def test_call_grok_api_can_force_stream_transport(self):
+        mod = load_module_with_env({
+            "A_SHARE_MODEL_SUMMARY_STREAM_MODE": "stream",
+        })
+        captured = {}
+
+        class Resp:
+            headers = {"Content-Type": "text/event-stream"}
+
+            def __init__(self):
+                self.lines = iter((
+                    b'data: {"choices":[{"delta":{"content":"o"}}]}\n',
+                    b'data: {"choices":[{"delta":{"content":"k"}}]}\n',
+                    b'data: [DONE]\n',
+                ))
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def readline(self):
+                return next(self.lines, b"")
+
+        mod._get_grok_credentials = lambda: ("https://ashare.example/v1", "secret")
+
+        def fake_urlopen(req, timeout=0, context=None):
+            captured["payload"] = json.loads(req.data.decode("utf-8"))
+            captured["accept"] = req.get_header("Accept")
+            return Resp()
+
+        mod.urlopen = fake_urlopen
+        result = mod.call_grok_api([{"role": "user", "content": "hello"}])
+
+        self.assertEqual(result, "ok")
+        self.assertTrue(captured["payload"]["stream"])
+        self.assertIn("text/event-stream", captured["accept"])
+
     def test_call_grok_api_auto_selects_qwen_responses(self):
         mod = load_module_with_env({
             "A_SHARE_MODEL_SUMMARY_MODEL": "qwen3.7-plus",

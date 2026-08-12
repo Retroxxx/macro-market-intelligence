@@ -12,7 +12,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
-from core.model_api import build_model_request, request_model
+from core.model_api import build_model_request, request_model_complete
 from niuone_paths import get_dashboard_env_file, get_dashboard_home
 
 if __package__ == "app":
@@ -44,6 +44,7 @@ def load_dashboard_env() -> None:
     allowed = {
         "A_SHARE_MODEL_SUMMARY_ENABLED",
         "A_SHARE_MODEL_SUMMARY_MODEL",
+        "A_SHARE_MODEL_SUMMARY_STREAM_MODE",
         "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",
         "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH",
         "A_SHARE_MODEL_SUMMARY_MAX_TOKENS",
@@ -59,6 +60,7 @@ def load_dashboard_env() -> None:
         "A_SHARE_GROK_SUMMARY_DEADLINE_SECONDS",
         "A_SHARE_GROK_SUMMARY_REQUEST_TIMEOUT_SECONDS",
         "DASHBOARD_GROK_MODEL",
+        "DASHBOARD_GROK_STREAM_MODE",
         "DASHBOARD_GROK_CONTEXT_LENGTH",
         "DASHBOARD_GROK_BASE_URL",
         "DASHBOARD_GROK_API_KEY",
@@ -113,6 +115,11 @@ A_SHARE_MODEL_SUMMARY_MODEL = (
     or os.environ.get("A_SHARE_GROK_SUMMARY_MODEL")
     or os.environ.get("DASHBOARD_GROK_MODEL")
     or "grok-4.20-multi-agent-xhigh"
+)
+A_SHARE_MODEL_SUMMARY_STREAM_MODE = (
+    os.environ.get("A_SHARE_MODEL_SUMMARY_STREAM_MODE")
+    or os.environ.get("DASHBOARD_GROK_STREAM_MODE")
+    or "auto"
 )
 A_SHARE_MODEL_SUMMARY_REASONING_EFFORT = (
     os.environ.get("A_SHARE_MODEL_SUMMARY_REASONING_EFFORT")
@@ -217,10 +224,11 @@ def call_grok_api(messages: list[dict[str, str]], *, max_tokens: int = A_SHARE_M
             break
         try:
             timeout_seconds = min(max(10, A_SHARE_MODEL_SUMMARY_REQUEST_TIMEOUT_SECONDS), max(10, remaining - 2))
-            parsed = request_model(
+            parsed = request_model_complete(
                 model_request,
                 api_key,
                 timeout=timeout_seconds,
+                stream_mode=A_SHARE_MODEL_SUMMARY_STREAM_MODE,
                 opener=urlopen,
                 ssl_context=_SSL_CONTEXT,
             )

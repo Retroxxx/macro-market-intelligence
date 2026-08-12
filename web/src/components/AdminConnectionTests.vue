@@ -49,7 +49,7 @@ function effortMappings(capability) {
     <div class="model-test-panel-head">
       <div>
         <div class="model-test-panel-title">模型连通性测试</div>
-        <div class="model-test-panel-note">测试页面当前填写值（包括思考强度），不会自动保存；成功仅表示网关接受当前请求配置。API Key 留空时安全复用已保存密钥。</div>
+        <div class="model-test-panel-note">测试页面当前填写值（包括流式模式和思考强度），不会自动保存；成功仅表示网关接受当前请求配置。API Key 留空时安全复用已保存密钥。</div>
       </div>
     </div>
     <div class="model-test-list">

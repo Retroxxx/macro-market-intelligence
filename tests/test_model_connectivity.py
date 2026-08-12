@@ -62,6 +62,7 @@ class ModelConnectivityTests(unittest.TestCase):
         self.assertIn("US_RATING_BASE_URL", rating["field_names"])
         self.assertIn("US_RATING_API_KEY", rating["field_names"])
         self.assertIn("US_RATING_REASONING_EFFORT", rating["field_names"])
+        self.assertIn("US_RATING_STREAM_MODE", rating["field_names"])
 
     def test_successful_decision_test_sends_one_small_authenticated_request(self):
         calls = []
@@ -78,6 +79,7 @@ class ModelConnectivityTests(unittest.TestCase):
                 "DASHBOARD_DECISION_BASE_URL": "https://model.example/v1/",
                 "DASHBOARD_DECISION_API_KEY": "private-key",
                 "DASHBOARD_DECISION_REASONING_EFFORT": "MAX",
+                "DASHBOARD_DECISION_STREAM_MODE": "non_stream",
             },
             timeout=90,
             opener=opener,
@@ -97,8 +99,32 @@ class ModelConnectivityTests(unittest.TestCase):
         self.assertEqual(payload["model"], "decision-test-model")
         self.assertEqual(payload["max_tokens"], 256)
         self.assertEqual(payload["reasoning_effort"], "max")
+        self.assertFalse(payload["stream"])
         self.assertIn("网关已接受当前配置", result["message"])
         self.assertIn("思考强度 max", result["message"])
+        self.assertIn("强制非流式", result["message"])
+
+    def test_connection_test_force_stream_uses_sse_and_reports_transport(self):
+        requests = []
+
+        def opener(request, timeout=0):
+            requests.append(request)
+            return _Response()
+
+        result = run_model_connection_test(
+            "decision-model",
+            {
+                "DASHBOARD_DECISION_BASE_URL": "https://model.example/v1",
+                "DASHBOARD_DECISION_API_KEY": "private-key",
+                "DASHBOARD_DECISION_STREAM_MODE": "stream",
+            },
+            opener=opener,
+        )
+
+        self.assertTrue(result["ok"])
+        payload = json.loads(requests[0].data.decode("utf-8"))
+        self.assertTrue(payload["stream"])
+        self.assertIn("强制流式", result["message"])
 
     def test_news_test_uses_operational_responses_mode_and_search_tool(self):
         requests = []
@@ -161,6 +187,8 @@ class ModelConnectivityTests(unittest.TestCase):
         ))
         self.assertEqual(summary.reasoning_effort, "")
         self.assertEqual(rating.reasoning_effort, "")
+        self.assertEqual(summary.stream_mode, "auto")
+        self.assertEqual(rating.stream_mode, "auto")
 
     def test_rating_target_prefers_complete_dedicated_configuration(self):
         rating = resolve_model_test_config(
