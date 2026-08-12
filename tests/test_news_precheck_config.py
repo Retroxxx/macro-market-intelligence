@@ -15,6 +15,7 @@ ENTRYPOINTS = SRC / "entrypoints"
 NEWS_ENV_KEYS = {
     "DASHBOARD_ENV_FILE",
     "DASHBOARD_NEWS_MODEL",
+    "DASHBOARD_NEWS_REASONING_EFFORT",
     "DASHBOARD_NEWS_API_MODE",
     "DASHBOARD_NEWS_CONTEXT_LENGTH",
     "DASHBOARD_NEWS_MAX_TOKENS",
@@ -138,6 +139,7 @@ class NewsPrecheckConfigTests(unittest.TestCase):
             "DASHBOARD_NEWS_BASE_URL": "https://news.example/v1",
             "DASHBOARD_NEWS_API_KEY": "news-secret",
             "DASHBOARD_NEWS_MODEL": "search-model",
+            "DASHBOARD_NEWS_REASONING_EFFORT": "HIGH",
         })
         captured = {}
 
@@ -165,7 +167,7 @@ class NewsPrecheckConfigTests(unittest.TestCase):
         self.assertEqual(captured["timeout"], 45)
         self.assertEqual(captured["kwargs"]["api_mode"], "auto")
         self.assertEqual(captured["kwargs"]["tools"], [{"type": "web_search"}])
-        self.assertEqual(captured["kwargs"]["reasoning"], {"effort": "low"})
+        self.assertEqual(captured["payload"]["reasoning_effort"], "HIGH")
         self.assertIn("【消息面预检（实时搜索", result)
         self.assertNotIn("Grok", result)
 
@@ -296,6 +298,47 @@ class NewsPrecheckConfigTests(unittest.TestCase):
         self.assertEqual(captured["payload"]["model"], "decision-model")
         self.assertEqual(captured["headers"]["User-agent"], "NiuOne/1.0")
         self.assertEqual(captured["headers"]["Accept"], "application/json")
+
+    def test_decision_request_auto_selects_qwen_responses_and_preserves_effort(self):
+        module = import_trader_with_env({})
+        captured = {}
+
+        class Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"output_text":"ok","status":"completed"}'
+
+        original_urlopen = module.urllib.request.urlopen
+        try:
+            def fake_urlopen(req, timeout=0):
+                captured["url"] = req.full_url
+                captured["payload"] = json.loads(req.data.decode("utf-8"))
+                return Resp()
+
+            module.urllib.request.urlopen = fake_urlopen
+            result = module.api_call_with_retry(
+                "https://dashscope.example/compatible-mode/v1",
+                "secret",
+                {
+                    "model": "qwen3.8-max",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "reasoning_effort": "xhigh",
+                },
+                max_retries=1,
+                timeout=3,
+            )
+        finally:
+            module.urllib.request.urlopen = original_urlopen
+
+        self.assertEqual(result["output_text"], "ok")
+        self.assertEqual(captured["url"], "https://dashscope.example/compatible-mode/v1/responses")
+        self.assertEqual(captured["payload"]["reasoning"], {"effort": "xhigh"})
+        self.assertNotIn("reasoning_effort", captured["payload"])
 
     def test_news_precheck_honors_timeout_overrides(self):
         module = import_trader_with_env({

@@ -240,6 +240,12 @@ class NewsPrecheckServiceTests(unittest.TestCase):
             [{"type": "web_search"}, {"type": "x_search"}],
         )
 
+    def test_grok_43_auto_mode_adds_direct_x_search(self):
+        self.assertEqual(
+            news_precheck.news_search_tools("grok-4.3", "auto"),
+            [{"type": "web_search"}, {"type": "x_search"}],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

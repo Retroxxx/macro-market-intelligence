@@ -37,6 +37,7 @@ def load_dashboard_env() -> None:
         "DASHBOARD_GROK_BASE_URL",
         "DASHBOARD_GROK_API_KEY",
         "US_RATING_MODEL",
+        "US_RATING_REASONING_EFFORT",
         "US_RATING_CONTEXT_LENGTH",
         "US_RATING_MAX_TOKENS",
         "US_RATING_BASE_URL",
@@ -79,6 +80,10 @@ JOB_NAME = "每日美股机构买入评级汇报"
 CONFIG_PATH = Path(os.environ.get("DASHBOARD_CONFIG") or str(DASHBOARD_HOME / "config.yaml")).expanduser()
 US_RATING_MODEL = os.environ.get("US_RATING_MODEL") or os.environ.get("DASHBOARD_GROK_MODEL") or "grok-4.20-multi-agent-xhigh"
 GROK_API_MODE = os.environ.get("DASHBOARD_GROK_API_MODE") or "auto"
+US_RATING_REASONING_EFFORT = (
+    os.environ.get("US_RATING_REASONING_EFFORT")
+    or ""
+)
 
 
 def _int_env(name: str, default: int, *, min_value: int) -> int:
@@ -153,7 +158,7 @@ def _call_api(base_url, api_key, messages, max_tokens=US_RATING_MAX_TOKENS):
         max_tokens=max_tokens,
         api_mode=GROK_API_MODE,
         tools=[{"type": "web_search"}],
-        reasoning={"effort": "low"},
+        reasoning_effort=US_RATING_REASONING_EFFORT,
         stream=False,
     )
     last_err = None

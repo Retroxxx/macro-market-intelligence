@@ -7533,7 +7533,7 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(grouped_names, set(dashboard.ADMIN_VISIBLE_ENV_NAMES))
         self.assertIn(':to="`/admin/settings/${group.slug}`"', ADMIN_FRONTEND)
         self.assertIn('保存本组设置', ADMIN_FRONTEND)
-        self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 15)
+        self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 17)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('iwencai')), 8)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 10)
         self.assertEqual(
@@ -7948,6 +7948,82 @@ process.stdout.write(JSON.stringify({{
 
         self.assertEqual(dashboard.B1_SCAN_TIMEOUT_SECONDS, 480)
         self.assertEqual(item['default'], '480')
+
+    def test_reasoning_effort_settings_validate_known_models_and_keep_custom_free_form(self):
+        names = {
+            'DASHBOARD_DECISION_REASONING_EFFORT',
+            'DASHBOARD_NEWS_REASONING_EFFORT',
+            'DASHBOARD_GROK_REASONING_EFFORT',
+            'US_RATING_REASONING_EFFORT',
+            'A_SHARE_MODEL_SUMMARY_REASONING_EFFORT',
+        }
+        items = {
+            item['name']: item
+            for item in dashboard.ENV_CONFIG_SCHEMA
+            if item['name'] in names
+        }
+
+        self.assertEqual(set(items), names)
+        self.assertTrue(all(item['kind'] == 'reasoning_effort' for item in items.values()))
+        self.assertTrue(all(item['default'] == '' for item in items.values()))
+        self.assertTrue(all(item['effect'] == 'next_run' for item in items.values()))
+        self.assertTrue(names.issubset(dashboard.ADMIN_VISIBLE_ENV_NAMES))
+        self.assertEqual(
+            dashboard.normalize_business_updates({
+                'DASHBOARD_DECISION_REASONING_EFFORT': ' Provider.Custom-HIGH ',
+            })['DASHBOARD_DECISION_REASONING_EFFORT'],
+            'provider.custom-high',
+        )
+        with self.assertRaisesRegex(ValueError, '思考强度'):
+            dashboard.validate_business_updates({
+                'DASHBOARD_DECISION_REASONING_EFFORT': 'not a token',
+            })
+        with self.assertRaisesRegex(ValueError, '允许值'):
+            dashboard.validate_business_updates({
+                'DASHBOARD_DECISION_MODEL': 'deepseek-v4-pro',
+                'DASHBOARD_DECISION_REASONING_EFFORT': 'highh',
+            })
+        dashboard.validate_business_updates({
+            'DASHBOARD_DECISION_MODEL': 'custom-gateway-model',
+            'DASHBOARD_DECISION_REASONING_EFFORT': 'provider.custom-high',
+        })
+        dashboard.validate_business_updates({
+            'DASHBOARD_GROK_MODEL': 'grok-4.3',
+            'DASHBOARD_GROK_REASONING_EFFORT': 'none',
+        })
+        with self.assertRaisesRegex(ValueError, '允许值'):
+            dashboard.validate_business_updates({
+                'DASHBOARD_GROK_MODEL': 'grok-4.3',
+                'DASHBOARD_GROK_REASONING_EFFORT': 'xhigh',
+            })
+        dashboard.validate_business_updates({
+            'DASHBOARD_DECISION_MODEL': 'glm-5.2',
+            'DASHBOARD_DECISION_REASONING_EFFORT': 'max',
+        })
+        dashboard.validate_business_updates({
+            'DASHBOARD_DECISION_MODEL': 'glm-4.7',
+            'DASHBOARD_DECISION_REASONING_EFFORT': 'enabled',
+        })
+        dashboard.validate_business_updates({
+            'DASHBOARD_NEWS_MODEL': 'mimo-v2.5-pro',
+            'DASHBOARD_NEWS_REASONING_EFFORT': 'high',
+        })
+        payload = dashboard.build_admin_config_payload()
+        self.assertGreaterEqual(len(payload['reasoning_effort_capabilities']), 10)
+        payload_items = {item['name']: item for item in payload['items']}
+        self.assertEqual(
+            payload_items['DASHBOARD_DECISION_REASONING_EFFORT']['reasoning_model_names'],
+            ['DASHBOARD_DECISION_MODEL'],
+        )
+        self.assertTrue(all(
+            capability['model_pattern'].startswith('^')
+            for capability in payload['reasoning_effort_capabilities']
+        ))
+        self.assertIn("kind === 'reasoning_effort'", ADMIN_FRONTEND)
+        self.assertIn('已知常见模型会按本地能力表校验', ADMIN_FRONTEND)
+        self.assertIn('查看常见模型思考强度表', ADMIN_FRONTEND)
+        self.assertIn(':reasoning-model="reasoningModel(item)"', ADMIN_FRONTEND)
+        self.assertIn('填写模型名称后会列出该模型全部可选思考强度', ADMIN_FRONTEND)
 
     def test_niuone_forward_cohort_start_requires_iso_date(self):
         item = next(

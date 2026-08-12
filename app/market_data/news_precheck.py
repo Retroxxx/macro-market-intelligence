@@ -70,6 +70,7 @@ class NewsPrecheckConfig:
     api_key: str
     model: str
     api_mode: str = "auto"
+    reasoning_effort: str = ""
     timeout_seconds: int = 45
     max_requests: int = 1
     concurrency: int = 5
@@ -98,6 +99,7 @@ class NewsPrecheckConfig:
             api_key=api_key,
             model=model,
             api_mode=str(values.get("DASHBOARD_NEWS_API_MODE") or "auto").strip() or "auto",
+            reasoning_effort=str(values.get("DASHBOARD_NEWS_REASONING_EFFORT") or "").strip(),
             timeout_seconds=_bounded_int(values, "DASHBOARD_NEWS_TIMEOUT", 45, 5, 120),
             max_requests=_bounded_int(values, "DASHBOARD_NEWS_MAX_RETRIES", 1, 1, 3),
             concurrency=_bounded_int(values, "DASHBOARD_NEWS_CONCURRENCY", 5, 1, 5),
@@ -124,7 +126,8 @@ def news_search_tools(model: str, api_mode: str = "auto") -> list[dict[str, str]
     normalized_mode = str(api_mode or "auto").strip().lower().replace("-", "_")
     if normalized_model.startswith("grok-") and (
         normalized_mode in {"responses", "response"}
-        or normalized_model.startswith("grok-4.5")
+        or normalized_model.startswith(("grok-4.3", "grok-4.5"))
+        or normalized_model == "grok-latest"
     ):
         tools.append({"type": "x_search"})
     return tools
@@ -152,7 +155,7 @@ def request_candidate_news(candidate: Mapping[str, Any], config: NewsPrecheckCon
         max_tokens=config.max_tokens,
         api_mode=config.api_mode,
         tools=news_search_tools(config.model, config.api_mode),
-        reasoning={"effort": "low"},
+        reasoning_effort=config.reasoning_effort,
         stream=False,
         extra_payload={"stream": False},
     )

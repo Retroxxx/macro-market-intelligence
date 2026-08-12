@@ -1027,6 +1027,7 @@ def fetch_sector_tide_news_precheck(
                 "DASHBOARD_NEWS_API_KEY",
                 "DASHBOARD_NEWS_MODEL",
                 "DASHBOARD_NEWS_API_MODE",
+                "DASHBOARD_NEWS_REASONING_EFFORT",
                 "DASHBOARD_NEWS_TIMEOUT",
                 "DASHBOARD_NEWS_MAX_RETRIES",
                 "DASHBOARD_NEWS_CONCURRENCY",

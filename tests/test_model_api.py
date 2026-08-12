@@ -56,7 +56,13 @@ class ModelApiTests(unittest.TestCase):
 
     def test_auto_mode_preserves_legacy_chat_and_enables_known_search_models(self):
         self.assertFalse(uses_responses_api("auto", "legacy-search-model", web_search=True))
+        self.assertTrue(uses_responses_api("auto", "grok-4.3", web_search=True))
+        self.assertTrue(uses_responses_api("auto", "grok-latest", web_search=True))
         self.assertTrue(uses_responses_api("auto", "grok-4.5", web_search=True))
+        self.assertTrue(uses_responses_api("auto", "mimo-v2.5-pro"))
+        self.assertTrue(uses_responses_api("auto", "qwen3.8-max"))
+        self.assertTrue(uses_responses_api("auto", "qwen3.7-plus"))
+        self.assertFalse(uses_responses_api("auto", "qwen-plus-latest"))
         self.assertTrue(uses_responses_api("auto", "gpt-5.6-sol", web_search=True))
         self.assertFalse(uses_responses_api("chat-completions", "gpt-5.6-sol", web_search=True))
         self.assertTrue(uses_responses_api("responses", "legacy-model"))
@@ -87,6 +93,196 @@ class ModelApiTests(unittest.TestCase):
         self.assertEqual(request.endpoint, "https://model.example/v1/chat/completions")
         self.assertEqual(request.payload["max_tokens"], 123)
         self.assertNotIn("max_output_tokens", request.payload)
+
+    def test_reasoning_effort_maps_to_each_api_shape_and_normalizes(self):
+        chat = build_model_request(
+            "https://model.example/v1",
+            "chat-model",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+            reasoning_effort=" HIGH ",
+        )
+        responses = build_model_request(
+            "https://model.example/v1",
+            "responses-model",
+            [{"role": "user", "content": "hello"}],
+            api_mode="responses",
+            reasoning_effort="XHIGH",
+        )
+
+        self.assertEqual(chat.payload["reasoning_effort"], "high")
+        self.assertNotIn("reasoning", chat.payload)
+        self.assertEqual(responses.payload["reasoning"], {"effort": "xhigh"})
+        self.assertNotIn("reasoning_effort", responses.payload)
+
+    def test_empty_reasoning_effort_omits_parameter(self):
+        chat = build_model_request(
+            "https://model.example/v1",
+            "chat-model",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+            reasoning_effort="",
+        )
+        responses = build_model_request(
+            "https://model.example/v1",
+            "responses-model",
+            [{"role": "user", "content": "hello"}],
+            api_mode="responses",
+            reasoning_effort="",
+        )
+
+        self.assertNotIn("reasoning_effort", chat.payload)
+        self.assertNotIn("reasoning", responses.payload)
+
+    def test_unknown_model_reasoning_effort_is_free_form_but_bounded(self):
+        request = build_model_request(
+            "https://model.example/v1",
+            "chat-model",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+            reasoning_effort="provider.custom-high",
+        )
+
+        self.assertEqual(request.payload["reasoning_effort"], "provider.custom-high")
+        with self.assertRaisesRegex(ValueError, "思考强度"):
+            build_model_request(
+                "https://model.example/v1",
+                "chat-model",
+                [{"role": "user", "content": "hello"}],
+                api_mode="chat",
+                reasoning_effort="not a token",
+            )
+
+    def test_known_model_reasoning_effort_is_checked_before_request(self):
+        with self.assertRaisesRegex(ValueError, "允许值"):
+            build_model_request(
+                "https://model.example/v1",
+                "deepseek-v4-pro",
+                [{"role": "user", "content": "hello"}],
+                api_mode="chat",
+                reasoning_effort="highh",
+            )
+
+    def test_grok_43_none_uses_responses_reasoning_shape(self):
+        request = build_model_request(
+            "https://api.x.ai/v1",
+            "grok-4.3",
+            [{"role": "user", "content": "hello"}],
+            api_mode="auto",
+            reasoning_effort="none",
+        )
+
+        self.assertEqual(request.endpoint, "https://api.x.ai/v1/responses")
+        self.assertEqual(request.payload["reasoning"], {"effort": "none"})
+
+    def test_glm_52_chat_request_sends_thinking_and_reasoning_effort(self):
+        request = build_model_request(
+            "https://open.bigmodel.cn/api/paas/v4",
+            "glm-5.2",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+            reasoning_effort="low",
+        )
+
+        self.assertEqual(request.payload["thinking"], {"type": "enabled"})
+        self.assertEqual(request.payload["reasoning_effort"], "low")
+
+    def test_older_glm_chat_request_uses_thinking_switch(self):
+        request = build_model_request(
+            "https://open.bigmodel.cn/api/paas/v4",
+            "glm-4.7",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+            reasoning_effort="disabled",
+        )
+
+        self.assertEqual(request.payload["thinking"], {"type": "disabled"})
+        self.assertNotIn("reasoning_effort", request.payload)
+
+    def test_mimo_auto_responses_and_forced_chat_use_vendor_shapes(self):
+        responses = build_model_request(
+            "https://api.xiaomimimo.com/v1",
+            "mimo-v2.5-pro",
+            [{"role": "user", "content": "hello"}],
+            api_mode="auto",
+            reasoning_effort="medium",
+        )
+        chat = build_model_request(
+            "https://api.xiaomimimo.com/v1",
+            "mimo-v2.5",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+            max_tokens=1024,
+            reasoning_effort="none",
+        )
+
+        self.assertEqual(responses.payload["reasoning"], {"effort": "medium"})
+        self.assertEqual(chat.payload["thinking"], {"type": "disabled"})
+        self.assertEqual(chat.payload["max_completion_tokens"], 1024)
+        self.assertNotIn("max_tokens", chat.payload)
+
+    def test_qwen_auto_responses_preserves_levels_and_forced_chat_uses_vendor_shapes(self):
+        responses = build_model_request(
+            "https://dashscope.example/compatible-mode/v1",
+            "qwen3.7-plus",
+            [{"role": "user", "content": "hello"}],
+            api_mode="auto",
+            reasoning_effort="max",
+        )
+        forced_chat = build_model_request(
+            "https://dashscope.example/compatible-mode/v1",
+            "qwen3.7-plus",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+            reasoning_effort="high",
+        )
+        qwen_38_off = build_model_request(
+            "https://dashscope.example/compatible-mode/v1",
+            "qwen3.8-max",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+            reasoning_effort="none",
+        )
+
+        self.assertEqual(responses.api_mode, "responses")
+        self.assertEqual(responses.payload["reasoning"], {"effort": "max"})
+        self.assertEqual(forced_chat.payload["enable_thinking"], True)
+        self.assertNotIn("reasoning_effort", forced_chat.payload)
+        self.assertEqual(qwen_38_off.payload["enable_thinking"], False)
+
+    def test_minimax_chat_and_responses_preserve_official_thinking_semantics(self):
+        m3_chat = build_model_request(
+            "https://api.minimax.io/v1",
+            "MiniMax-M3",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+            max_tokens=512,
+            reasoning_effort="medium",
+        )
+        m3_responses = build_model_request(
+            "https://api.minimax.io/v1",
+            "MiniMax-M3",
+            [{"role": "user", "content": "hello"}],
+            api_mode="responses",
+            reasoning_effort="none",
+        )
+        m2_chat = build_model_request(
+            "https://api.minimax.io/v1",
+            "MiniMax-M2.7-highspeed",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+            max_tokens=1024,
+            reasoning_effort="none",
+        )
+
+        self.assertEqual(m3_chat.payload["thinking"], {"type": "adaptive"})
+        self.assertEqual(m3_chat.payload["reasoning_split"], True)
+        self.assertEqual(m3_chat.payload["max_completion_tokens"], 512)
+        self.assertEqual(m3_responses.payload["reasoning"], {"effort": "none"})
+        self.assertNotIn("thinking", m2_chat.payload)
+        self.assertNotIn("reasoning_effort", m2_chat.payload)
+        self.assertEqual(m2_chat.payload["reasoning_split"], True)
+        self.assertEqual(m2_chat.payload["max_completion_tokens"], 1024)
 
     def test_grok_responses_request_uses_max_output_tokens(self):
         request = build_model_request(
@@ -298,6 +494,33 @@ class ModelApiTests(unittest.TestCase):
         self.assertEqual(len(payloads), 1)
         self.assertIn("max_output_tokens", payloads[0])
         self.assertIn(b"Invalid parameter", raised.exception.read())
+        raised.exception.close()
+
+    def test_rejected_reasoning_effort_is_not_silently_retried_without_it(self):
+        request = build_model_request(
+            "https://model.example/v1",
+            "gateway-model",
+            [{"role": "user", "content": "hello"}],
+            api_mode="chat",
+            reasoning_effort="max",
+        )
+        payloads: list[dict] = []
+
+        def opener(req, timeout=0):
+            payloads.append(json.loads(req.data.decode("utf-8")))
+            raise urllib.error.HTTPError(
+                req.full_url,
+                400,
+                "Bad Request",
+                {},
+                io.BytesIO(b'{"error":"unsupported parameter: reasoning_effort"}'),
+            )
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            request_model(request, "secret", timeout=3, opener=opener)
+
+        self.assertEqual(len(payloads), 1)
+        self.assertEqual(payloads[0]["reasoning_effort"], "max")
         raised.exception.close()
 
 

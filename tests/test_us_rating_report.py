@@ -59,6 +59,7 @@ print(json.dumps(captured, ensure_ascii=False))
             env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
             env['DASHBOARD_GROK_MODEL'] = 'grok-4.5'
             env['DASHBOARD_GROK_API_MODE'] = 'auto'
+            env['US_RATING_REASONING_EFFORT'] = 'low'
             code = f"""
 import importlib.util, json, sys
 sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]

@@ -105,19 +105,21 @@ NiuOne 需要接入大模型后才能驱动完整工作流。没有模型配置�
 
 | 场景 | 推荐模型 | 主要配置项 |
 |---|---|---|
-| 美股机构评级日报 | 具备实时搜索能力的模型；留空时复用 Grok | `US_RATING_MODEL`、`US_RATING_BASE_URL`、`US_RATING_API_KEY`、`US_RATING_MAX_TOKENS` |
-| A 股盘面总结增强 | 兼容 `/chat/completions` 的模型 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_MAX_TOKENS`；留空时复用 `DASHBOARD_GROK_*` |
-| A 股候选股及龙虎榜连板/连榜消息面预检 | 具备实时搜索能力的模型 | `DASHBOARD_NEWS_BASE_URL`、`DASHBOARD_NEWS_API_KEY`、`DASHBOARD_NEWS_MODEL`、`DASHBOARD_NEWS_API_MODE`、`DASHBOARD_NEWS_MAX_TOKENS`、`DASHBOARD_NEWS_CONCURRENCY` |
+| 美股机构评级日报 | 具备实时搜索能力的模型；留空时复用 Grok | `US_RATING_MODEL`、`US_RATING_BASE_URL`、`US_RATING_API_KEY`、`US_RATING_REASONING_EFFORT`、`US_RATING_MAX_TOKENS` |
+| A 股盘面总结增强 | OpenAI 兼容模型 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`、`A_SHARE_MODEL_SUMMARY_MAX_TOKENS`；留空时复用 `DASHBOARD_GROK_*` |
+| A 股候选股及龙虎榜连板/连榜消息面预检 | 具备实时搜索能力的模型 | `DASHBOARD_NEWS_BASE_URL`、`DASHBOARD_NEWS_API_KEY`、`DASHBOARD_NEWS_MODEL`、`DASHBOARD_NEWS_API_MODE`、`DASHBOARD_NEWS_REASONING_EFFORT`、`DASHBOARD_NEWS_MAX_TOKENS`、`DASHBOARD_NEWS_CONCURRENCY` |
 | 问财龙虎榜研究数据 | 同花顺问财 OpenAPI | `IWENCAI_ENABLED`、`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_TIMEOUT_SECONDS`、`IWENCAI_MAX_RETRIES`、`IWENCAI_MAX_CONCURRENCY`、`IWENCAI_CACHE_TTL_SECONDS`、`IWENCAI_DRAGON_TIGER_CRON` |
-| 选股后的买卖决策 | 推荐 DeepSeek，可用其他兼容模型 | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL` |
+| 选股后的买卖决策 | 推荐 DeepSeek，可用其他兼容模型 | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL`、`DASHBOARD_DECISION_REASONING_EFFORT` |
 | 买卖决策情报包 | 本地聚合，不需要额外模型 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`、`DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`、`DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
+
+思考强度仍允许手动填写，留空则不发送。已知常见模型会按本地能力表在保存、手动测试和运行请求前校验，表外自定义模型保持自由填写；调用层会按 Qwen、MiniMax、GLM、MiMo 等官方协议自动转换字段，并在兼容值不代表真实档位时显示映射。设置页的“查看常见模型思考强度表”及[部署手册](OPERATIONS.md#常见模型思考强度表)列出当前值和兼容映射。
 
 “财经快讯”不依赖大模型、API Key 或服务地址配置。Compose 部署会随牛牛1号自动启动、停止和恢复官方 NewsNow 容器，Dashboard 通过私有容器网络读取，用户无需管理独立端口或进程；NewsNow 数据保存在独立的 `newsnow-data` volume。管理设置页仅提供财经商业分类下 12 个实际来源的搜索与多选，默认来源为财联社电报、金十数据和华尔街见闻快讯。总览页会在右下角纵向展示最近 5 条快讯，默认仅显示重要信息；关闭“在总览中仅显示重要信息”后会显示全部类型，但不改变完整财经快讯页。使用 `run.sh` / `run.bat` 的原生部署也无需配置，未运行容器 sidecar 时会自动使用公共服务兜底。Dashboard 只向浏览器暴露规范化后的同源 `/api/realtime-news`，成功刷新按 ID 合并并默认有界保留 300 条滚动历史，其中优先保留最多 50 条重要快讯；上游失败时继续使用 `.local-data/runtime/news/realtime_news_latest.json` 中的已保存历史并标记缓存状态。
 
 启动后点击页面上的设置按钮，在设置页维护模型和任务时间。所有需要模型和 API Key 的分组均可点击“测试模型连接”，测试页面当前填写值但不会自动保存；API Key 留空时复用已保存密钥。
 美股评级相关设置由“开启牛牛美股”总开关控制；关闭时这些设置会折叠隐藏并跳过美股评级定时任务。
-`DASHBOARD_GROK_API_MODE` 默认 `auto`：Grok 4.5 使用带搜索工具的 Responses API，其他模型使用 Chat Completions；也可显式填写 `responses` 或 `chat`。
-`DASHBOARD_NEWS_API_MODE` 默认 `auto`：Grok 4.5 和 GPT-5 系列搜索模型使用带 `web_search` 工具的 Responses API；Grok Responses 预检模型还会加入 `x_search`。其他模型以 `web_search` 检索可公开索引的雪球/X 页面，不会回退到 `DASHBOARD_GROK_*`。
+`DASHBOARD_GROK_API_MODE` 默认 `auto`：Grok 4.3/4.5、MiMo 2.5 和表中常用 Qwen Responses 型号使用 Responses API，其他模型使用 Chat Completions；也可显式填写 `responses` 或 `chat`。
+`DASHBOARD_NEWS_API_MODE` 默认 `auto`：Grok 4.3/4.5、MiMo 2.5、表中常用 Qwen Responses 型号和 GPT-5 系列搜索模型使用带 `web_search` 工具的 Responses API；Grok Responses 预检模型还会加入 `x_search`。其他模型以 `web_search` 检索可公开索引的雪球/X 页面，不会回退到 `DASHBOARD_GROK_*`。
 `*_CONTEXT_LENGTH` 只表示模型上下文窗口，默认 `128000`；`*_MAX_TOKENS` 表示本次请求的最大输出长度，调用层会按 Chat 或 Responses 接口映射兼容参数。JSON 与 SSE 返回均受支持。
 消息面预检默认最多并发检查 5 只候选股；若上游限流，可把 `DASHBOARD_NEWS_CONCURRENCY` 调低到 `2` 或 `1`。
 问财数据源默认关闭；“问财数据源”设置分组可通过“测试问财接口”使用页面当前地址和密钥发送一次轻量只读查询，不会保存配置或改写龙虎榜快照。启用并保存密钥后，可在 `/dragon-tiger` 按交易日实时查询龙虎榜买卖前五的机构、营业部及问财明确标注的游资/量化席位与金额，也可通过 `/api/iwencai/dragon-tiger` 查询指定日期。问财返回涨停原因时，详情卡会将涨停原因及原因类别与上榜原因分开显示。当日数据及下一次成功查询前保留的最近数据无需密码，更早日期需要输入管理员密码；当日实时回源为空时仍展示最近成功快照。Cron 默认在 A 股交易日北京时间 18:00 更新最新快照，也可通过 `IWENCAI_DRAGON_TIGER_CRON` 调整。刷新会依次原子保存主体/行业核心阶段、席位详情阶段和消息最终阶段；同日重试不会用较低阶段覆盖已有完整快照，启动追补会继续完成同日 core 快照。消息面预检以该配置对应的本次龙虎榜计划查询时间为起点，而不是上游响应的 `generated_at`，并按交易日持久化连板股票（`limit_up_streak >= 2`）或连续上榜股票（`consecutive_listed = true` 且 `consecutive_list_days >= 2`）的已检索和待检索状态。新交易日拉取优先持久化主体榜单；若查询失败或为空，仍在展示的旧快照才随后补检消息。全部完成后同日不再调用模型。最近一次非空成功查询会保留至下一次成功查询并被原子覆盖，空结果或失败继续保留上一份有效数据。下一次成功更新还会清理旧版本生成的日期归档；同日席位明细失败不会覆盖当前快照中的有效记录。密钥只保存在本机私有 `dashboard.env`，页面不会回显。

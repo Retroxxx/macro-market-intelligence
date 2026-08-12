@@ -1,10 +1,22 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
+import {
+  commonReasoningEfforts,
+  reasoningCapabilityForModel,
+} from '../utils/modelReasoning.js'
 
 const props = defineProps({
   item: {
     type: Object,
     required: true,
+  },
+  reasoningModel: {
+    type: String,
+    default: '',
+  },
+  reasoningCapabilities: {
+    type: Array,
+    default: () => [],
   },
 })
 const emit = defineEmits(['field-change'])
@@ -14,6 +26,20 @@ const label = computed(() => String(props.item.label || props.item.name || '设�
 const fieldName = computed(() => `env__${name.value}`)
 const value = computed(() => String(props.item.file_value ?? ''))
 const kind = computed(() => String(props.item.kind || 'text'))
+const reasoningValue = ref(value.value)
+const normalizedReasoningModel = computed(() => String(props.reasoningModel || '').trim().toLowerCase())
+const reasoningCapability = computed(() => reasoningCapabilityForModel(
+  normalizedReasoningModel.value,
+  props.reasoningCapabilities,
+))
+const reasoningOptions = computed(() => reasoningCapability.value?.accepted_efforts || [])
+const commonReasoningOptions = computed(() => commonReasoningEfforts(props.reasoningCapabilities))
+const reasoningListId = computed(() => `${fieldName.value}__options`)
+const reasoningValueIsUnsupported = computed(() => (
+  Boolean(reasoningValue.value)
+  && Boolean(reasoningCapability.value)
+  && !reasoningOptions.value.includes(reasoningValue.value)
+))
 const boolNoDefault = computed(() => (
   name.value === 'DASHBOARD_US_FEATURES_ENABLED' || Boolean(props.item.bool_no_default)
 ))
@@ -134,7 +160,47 @@ watch(
       <option value="responses">Responses API（搜索工具）</option>
       <option value="chat">Chat Completions（兼容模式）</option>
     </select>
-    <div class="config-meta">自动模式下，Grok 4.5 使用 Responses API，其他模型保持 Chat Completions</div>
+    <div class="config-meta">自动模式下，Grok 4.3/4.5、MiMo 2.5 和常用 Qwen Responses 型号使用 Responses API，其他模型保持 Chat Completions</div>
+  </template>
+
+  <template v-else-if="kind === 'reasoning_effort'">
+    <select
+      v-if="reasoningCapability"
+      v-model="reasoningValue"
+      :name="fieldName"
+      :aria-label="label"
+    >
+      <option value="">留空（使用模型默认）</option>
+      <option
+        v-if="reasoningValueIsUnsupported"
+        :value="reasoningValue"
+        disabled
+      >{{ reasoningValue }}（当前模型不支持）</option>
+      <option v-for="effort in reasoningOptions" :key="effort" :value="effort">
+        {{ effort }}
+      </option>
+    </select>
+    <input
+      v-else
+      v-model="reasoningValue"
+      type="text"
+      :name="fieldName"
+      :aria-label="label"
+      :list="normalizedReasoningModel ? reasoningListId : null"
+      maxlength="64"
+      placeholder="留空使用默认，例如 high、max、enabled"
+      autocomplete="off"
+      autocapitalize="none"
+      spellcheck="false"
+    >
+    <datalist v-if="normalizedReasoningModel && !reasoningCapability" :id="reasoningListId">
+      <option v-for="effort in commonReasoningOptions" :key="effort" :value="effort" />
+    </datalist>
+    <div v-if="reasoningCapability" class="config-meta">
+      已知常见模型会按本地能力表校验。已识别 {{ reasoningModel }}：{{ reasoningOptions.length ? `可选 ${reasoningOptions.join('、')}` : '固定思考模式，仅可留空' }}；留空使用模型默认
+    </div>
+    <div v-else-if="normalizedReasoningModel" class="config-meta">未匹配本地能力表，已列出常见候选值；仍可填写网关自定义强度并手动测试</div>
+    <div v-else class="config-meta">填写模型名称后会列出该模型全部可选思考强度；留空不发送参数</div>
   </template>
 
   <template v-else-if="kind === 'playback_speed'">

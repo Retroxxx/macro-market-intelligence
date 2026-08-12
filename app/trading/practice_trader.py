@@ -267,6 +267,7 @@ REALTIME_NEWS_CACHE_FILE = DASHBOARD_HOME / "news" / "realtime_news_latest.json"
 def load_dashboard_env() -> None:
     allowed = {
         "DASHBOARD_NEWS_MODEL",
+        "DASHBOARD_NEWS_REASONING_EFFORT",
         "DASHBOARD_NEWS_API_MODE",
         "DASHBOARD_NEWS_CONTEXT_LENGTH",
         "DASHBOARD_NEWS_MAX_TOKENS",
@@ -276,6 +277,7 @@ def load_dashboard_env() -> None:
         "DASHBOARD_NEWS_MAX_RETRIES",
         "DASHBOARD_NEWS_CONCURRENCY",
         "DASHBOARD_DECISION_MODEL",
+        "DASHBOARD_DECISION_REASONING_EFFORT",
         "DASHBOARD_DECISION_CONTEXT_LENGTH",
         "DASHBOARD_DECISION_BASE_URL",
         "DASHBOARD_DECISION_API_KEY",
@@ -465,6 +467,7 @@ SINA_QUOTE_URL = "https://hq.sinajs.cn/list="
 EASTMONEY_STOCK_URL = "https://push2.eastmoney.com/api/qt/stock/get"
 EASTMONEY_UT = "bd1d9ddb04089700cf9c27f6f7426281"
 MODEL = os.environ.get("DASHBOARD_DECISION_MODEL") or "deepseek-v4-pro"
+DECISION_REASONING_EFFORT = os.environ.get("DASHBOARD_DECISION_REASONING_EFFORT") or ""
 DECISION_CONTEXT_LENGTH = env_token_count("DASHBOARD_DECISION_CONTEXT_LENGTH", 128000)
 DECISION_MAX_TOKENS = env_int("DASHBOARD_DECISION_MAX_TOKENS", 4096)
 DECISION_REQUEST_TIMEOUT = env_int("DASHBOARD_DECISION_TIMEOUT", 180)
@@ -472,6 +475,7 @@ NEWS_PRECHECK_REQUEST_TIMEOUT = max(5, env_int("DASHBOARD_NEWS_TIMEOUT", 45))
 NEWS_PRECHECK_MAX_RETRIES = max(1, env_int("DASHBOARD_NEWS_MAX_RETRIES", 1))
 NEWS_PRECHECK_CONCURRENCY = max(1, min(5, env_int("DASHBOARD_NEWS_CONCURRENCY", 5)))
 NEWS_PRECHECK_API_MODE = os.environ.get("DASHBOARD_NEWS_API_MODE") or "auto"
+NEWS_PRECHECK_REASONING_EFFORT = os.environ.get("DASHBOARD_NEWS_REASONING_EFFORT") or ""
 NEWS_PRECHECK_CONTEXT_LENGTH = env_token_count("DASHBOARD_NEWS_CONTEXT_LENGTH", 128000)
 NEWS_PRECHECK_MAX_TOKENS = env_token_count("DASHBOARD_NEWS_MAX_TOKENS", 4096)
 PROVIDER_DISPLAY_NAME = "Crossdesk.ccwu.cc"
@@ -7328,7 +7332,7 @@ def request_chat_content(
     max_retries: int = 3,
     timeout: int = 60,
     *,
-    api_mode: str = "chat",
+    api_mode: str = "auto",
     tools: list[dict[str, Any]] | None = None,
     reasoning: dict[str, Any] | None = None,
 ) -> str:
@@ -7346,6 +7350,7 @@ def request_chat_content(
                 api_mode=api_mode,
                 tools=tools,
                 reasoning=reasoning,
+                reasoning_effort=str(request_payload.get("reasoning_effort") or ""),
                 stream=bool(request_payload.get("stream", False)),
                 extra_payload=request_payload,
             )
@@ -7419,7 +7424,8 @@ def api_call_with_retry(base_url: str, api_key: str, payload: dict, max_retries:
                 str(payload.get("model") or ""),
                 list(payload.get("messages") or []),
                 max_tokens=int(payload.get("max_tokens") or 0) or None,
-                api_mode="chat",
+                api_mode="auto",
+                reasoning_effort=str(payload.get("reasoning_effort") or ""),
                 stream=bool(payload.get("stream", False)),
                 extra_payload=payload,
             )
@@ -7575,6 +7581,8 @@ def request_single_candidate_news_precheck(
         "messages": [{"role": "user", "content": build_single_candidate_news_prompt(candidate)}],
         "max_tokens": NEWS_PRECHECK_MAX_TOKENS,
     }
+    if NEWS_PRECHECK_REASONING_EFFORT:
+        payload["reasoning_effort"] = NEWS_PRECHECK_REASONING_EFFORT
     return request_chat_content(
         base_url,
         api_key,
@@ -7584,7 +7592,6 @@ def request_single_candidate_news_precheck(
         timeout=NEWS_PRECHECK_REQUEST_TIMEOUT,
         api_mode=NEWS_PRECHECK_API_MODE,
         tools=news_search_tools(model, NEWS_PRECHECK_API_MODE),
-        reasoning={"effort": "low"},
     ).strip()
 
 
@@ -8318,6 +8325,8 @@ def call_model_decision(
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": DECISION_MAX_TOKENS,
     }
+    if DECISION_REASONING_EFFORT:
+        payload["reasoning_effort"] = DECISION_REASONING_EFFORT
 
     result = request_chat_json_object(
         base_url,
@@ -8503,6 +8512,8 @@ def refine_overlimit_buy_actions(
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": min(DECISION_MAX_TOKENS, 2500),
         }
+        if DECISION_REASONING_EFFORT:
+            payload["reasoning_effort"] = DECISION_REASONING_EFFORT
         content = request_chat_content(base_url, api_key, payload, MODEL, max_retries=2, timeout=DECISION_REQUEST_TIMEOUT)
         result = extract_json(content)
         if not isinstance(result, dict):

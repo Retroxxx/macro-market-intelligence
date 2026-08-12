@@ -83,19 +83,50 @@ Core configuration items:
 | Scenario | Configuration items |
 |---|---|
 | Master switch for NiuNiu U.S. Stocks | `DASHBOARD_US_FEATURES_ENABLED` |
-| Grok API | `DASHBOARD_GROK_BASE_URL`, `DASHBOARD_GROK_API_KEY`, `DASHBOARD_GROK_MODEL`, `DASHBOARD_GROK_API_MODE`, `DASHBOARD_GROK_CONTEXT_LENGTH` |
-| Separate override for A-share market model summaries | `A_SHARE_MODEL_SUMMARY_BASE_URL`, `A_SHARE_MODEL_SUMMARY_API_KEY`, `A_SHARE_MODEL_SUMMARY_MODEL`, `A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
-| News pre-check API | `DASHBOARD_NEWS_BASE_URL`, `DASHBOARD_NEWS_API_KEY`, `DASHBOARD_NEWS_MODEL`, `DASHBOARD_NEWS_API_MODE`, `DASHBOARD_NEWS_MAX_TOKENS`, `DASHBOARD_NEWS_CONCURRENCY` |
+| Grok API | `DASHBOARD_GROK_BASE_URL`, `DASHBOARD_GROK_API_KEY`, `DASHBOARD_GROK_MODEL`, `DASHBOARD_GROK_API_MODE`, `DASHBOARD_GROK_REASONING_EFFORT`, `DASHBOARD_GROK_CONTEXT_LENGTH` |
+| Separate override for A-share market model summaries | `A_SHARE_MODEL_SUMMARY_BASE_URL`, `A_SHARE_MODEL_SUMMARY_API_KEY`, `A_SHARE_MODEL_SUMMARY_MODEL`, `A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`, `A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
+| News pre-check API | `DASHBOARD_NEWS_BASE_URL`, `DASHBOARD_NEWS_API_KEY`, `DASHBOARD_NEWS_MODEL`, `DASHBOARD_NEWS_API_MODE`, `DASHBOARD_NEWS_REASONING_EFFORT`, `DASHBOARD_NEWS_MAX_TOKENS`, `DASHBOARD_NEWS_CONCURRENCY` |
 | Built-in iWencai data source | `IWENCAI_ENABLED`, `IWENCAI_BASE_URL`, `IWENCAI_API_KEY`, `IWENCAI_TIMEOUT_SECONDS`, `IWENCAI_MAX_RETRIES`, `IWENCAI_MAX_CONCURRENCY`, `IWENCAI_CACHE_TTL_SECONDS`, `IWENCAI_DRAGON_TIGER_CRON` |
-| Trading-decision API | `DASHBOARD_DECISION_BASE_URL`, `DASHBOARD_DECISION_API_KEY`, `DASHBOARD_DECISION_MODEL` |
+| Trading-decision API | `DASHBOARD_DECISION_BASE_URL`, `DASHBOARD_DECISION_API_KEY`, `DASHBOARD_DECISION_MODEL`, `DASHBOARD_DECISION_REASONING_EFFORT` |
 | Trading-decision intelligence bundle | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`, `DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`, `DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 | Trading discipline for trading decisions | `DASHBOARD_TRADE_DISCIPLINE_TEXT`; when empty, the built-in default discipline is used; when populated, its content is inserted into the “Mandatory Rules” section of the model prompt |
 | Simulated-account cadence and position-sizing references | `DASHBOARD_MAX_OPEN_POSITIONS`, `DASHBOARD_MAX_NEW_BUYS_PER_DECISION`, `DASHBOARD_MAX_SINGLE_POSITION_PCT`, `DASHBOARD_MAX_TOTAL_POSITION_PCT`, `DASHBOARD_MIN_CASH_RESERVE_PCT`; these are model references by default, while suites with registered hard limits, including Z-ge and Sector Tide, enforce the stricter global or suite limit in the simulation layer |
-| Separate override for U.S. stock ratings | `US_RATING_MODEL`, `US_RATING_BASE_URL`, `US_RATING_API_KEY`, `US_RATING_MAX_TOKENS` |
+| Separate override for U.S. stock ratings | `US_RATING_MODEL`, `US_RATING_BASE_URL`, `US_RATING_API_KEY`, `US_RATING_REASONING_EFFORT`, `US_RATING_MAX_TOKENS` |
 
 After administrator authentication, preferably use the settings button on the page to open the settings page and manage these values. Every section that requires a model and API key includes a **Test Model Connection** button. The test uses the current form values without saving them; leaving the API key input empty reuses the saved secret. U.S. ratings settings are controlled by the “Enable NiuNiu U.S. Stocks” master switch. When disabled, the settings page hides these items and skips the U.S. ratings scheduled task. You can also edit `.local-data/dashboard.env` directly; after saving, restart the affected components as appropriate, or wait for the next task cycle to pick up the changes.
-`DASHBOARD_GROK_API_MODE` accepts `auto`, `responses`, or `chat`. The default `auto` mode uses the Responses API with `web_search`/`x_search` tools for Grok 4.5 and keeps Chat Completions for other models; compatible gateways can force either mode.
-`DASHBOARD_NEWS_API_MODE` also accepts `auto`, `responses`, or `chat`. The default `auto` mode uses the Responses API with `web_search` for Grok 4.5 and GPT-5 search models. A Grok Responses news model also receives `x_search`; other models use `web_search` for publicly indexed Xueqiu/X pages and never switch to `DASHBOARD_GROK_*`.
+Each scene-specific `*_REASONING_EFFORT` accepts a model- or gateway-defined token; leaving it empty omits the parameter. Known official models in the table below are checked locally before saving, connection tests, and runtime requests. Custom models and gateway aliases outside the table remain free-form. Connection tests use the current unsaved value. Success only confirms that the gateway accepted the request, not that the upstream enforced the effort. Unsupported parameters and invalid values receive targeted diagnostics, and runtime requests never silently remove the configured effort and retry.
+
+### Common model reasoning-effort table
+
+These capabilities were verified on **2026-08-13**. “Accepted input” means values accepted by the official API; mappings show where a compatibility value does not take effect literally.
+
+| Model | Accepted input | Effective levels / compatibility mappings | Default |
+|---|---|---|---|
+| Qwen `qwen3.8-max` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` | Responses has seven native levels; Chat natively has `low/medium/xhigh` and maps `minimal → low`, `high/max → xhigh`, and `none → off` | `xhigh` |
+| Common Qwen 3.5–3.7, Qwen3 Max, and Qwen Plus/Flash/Coder Responses models | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` | `auto` preserves all seven levels through Responses; forced Chat maps `none` to off and all other values to on; `xhigh/max` are limited to Beijing and Singapore | `xhigh` |
+| Other hybrid-thinking Qwen Chat models | `disabled`, `enabled` | Converted to the top-level `enable_thinking` switch; no multi-level effort | Off or on, depending on model |
+| Qwen3.7 Max Preview, Qwen3 Thinking, and QwQ Plus | Leave empty only | Always-thinking models; reasoning cannot be disabled or tuned | Always on |
+| MiniMax `MiniMax-M3` | `none`, `minimal`, `low`, `medium`, `high` | `none` disables thinking; every other value enables `adaptive` and does not tune reasoning depth | Chat: `adaptive`; Responses: `none` |
+| MiniMax `MiniMax-M2` / M2.1 / M2.5 / M2.7, including highspeed | `none`, `minimal`, `low`, `medium`, `high` | Always reasons; Responses accepts compatibility values but cannot disable reasoning, and Chat sends no control field | Always on |
+| DeepSeek `deepseek-v4-pro` | `low`, `medium`, `high`, `xhigh`, `max` | Effective: `high`, `max`; `low → high`, `medium → high`, `xhigh → max` | `high` |
+| DeepSeek `deepseek-v4-flash` | `low`, `medium`, `high`, `xhigh`, `max` | Effective: `low`, `high`, `max`; `medium → high`, `xhigh → high` | `high` |
+| Zhipu `glm-5.2` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` | Effective: off, `high`, `max`; `minimal → none`, `low/medium → high`, `xhigh → max` | `max` |
+| Common Zhipu GLM 4.5–5.1 text/vision models | `disabled`, `enabled` | Native `thinking.type` switch; no multi-level effort | `enabled` |
+| Xiaomi `mimo-v2.5` / `mimo-v2.5-pro` | `none`, `low`, `medium`, `high` | `none` disables thinking; `low/medium/high` currently have the same enabled behavior | Thinking enabled |
+| xAI `grok-4.3` / `grok-4.3-latest` / `grok-latest` | `none`, `low`, `medium`, `high` | Same as input; `none` disables reasoning | Not stated on the official model page |
+| xAI `grok-4.5` | `low`, `medium`, `high` | Same as input; reasoning cannot be disabled with this parameter | `high` |
+| OpenAI `gpt-5.6` / `sol` / `terra` / `luna` | `none`, `low`, `medium`, `high`, `xhigh`, `max` | Same as input | `medium` |
+| OpenAI `gpt-5.4-pro` | `medium`, `high`, `xhigh` | Same as input | `medium` |
+| OpenAI `gpt-5.4` / `mini` / `nano` | `none`, `low`, `medium`, `high`, `xhigh` | Same as input | `none` |
+| OpenAI `gpt-5.2-pro` | `medium`, `high`, `xhigh` | Same as input | `medium` |
+| OpenAI `gpt-5.2` | `none`, `low`, `medium`, `high`, `xhigh` | Same as input | `none` |
+| OpenAI `gpt-5.1` | `none`, `low`, `medium`, `high` | Same as input | `none` |
+| OpenAI `gpt-5-pro` | `high` | Same as input | `high` |
+| OpenAI `gpt-5` | `minimal`, `low`, `medium`, `high` | Same as input | Not stated on the official model page |
+
+Sources: [Qwen Responses](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses), [Qwen Chat](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions), [Qwen deep thinking](https://help.aliyun.com/zh/model-studio/deep-thinking), [MiniMax Responses](https://platform.minimax.io/docs/api-reference/responses-create), [MiniMax Chat](https://platform.minimax.io/docs/api-reference/text-chat-openai), [DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/), [Zhipu Thinking](https://docs.bigmodel.cn/cn/guide/capabilities/thinking), [Xiaomi MiMo Responses](https://mimo.mi.com/docs/en-US/api/chat/responses), [xAI Grok 4.3](https://docs.x.ai/developers/models/grok-4.3), [xAI Reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning), [OpenAI GPT-5.6](https://developers.openai.com/api/docs/models/gpt-5.6-sol), and the corresponding official model pages. Native Claude and Gemini APIs use different thinking-control fields and are therefore outside this compatibility table; compatible gateway values for those models remain custom inputs.
+`DASHBOARD_GROK_API_MODE` accepts `auto`, `responses`, or `chat`. The default `auto` mode selects Responses for Grok 4.3/4.5, MiMo 2.5, and the common Qwen Responses models in the table, while keeping Chat Completions for other models; compatible gateways can force either mode.
+`DASHBOARD_NEWS_API_MODE` also accepts `auto`, `responses`, or `chat`. The default `auto` mode uses Responses with `web_search` for Grok 4.3/4.5, MiMo 2.5, common Qwen Responses models, and GPT-5 search models. A Grok Responses news model also receives `x_search`; other models use `web_search` for publicly indexed Xueqiu/X pages and never switch to `DASHBOARD_GROK_*`.
 `*_CONTEXT_LENGTH` represents only the model context window and defaults to `128000`; `*_MAX_TOKENS` is the desired maximum output length and is mapped to `max_tokens` or `max_output_tokens` for the selected API. Known GPT-5.6 gateway aliases that reject the Responses output-limit parameter omit it, and other gateways receive one guarded retry without it when they explicitly report the parameter as unsupported. Both JSON and SSE responses are accepted, including gateways that force SSE when `stream=false`.
 The news pre-check examines at most five candidate stocks concurrently by default. If the upstream service returns rate limits or 403/429 responses, reduce `DASHBOARD_NEWS_CONCURRENCY` to `2` or `1`. When a legacy snapshot has an `unclassified_response` whose saved summary implies one unambiguous positive, negative, or neutral conclusion, backfill repairs the label locally while retaining the original fetch time and making no model request; ambiguous records remain unclassified.
 

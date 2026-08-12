@@ -16,6 +16,13 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Iterator
 
+from .model_reasoning import (
+    chat_reasoning_request_settings,
+    normalize_reasoning_effort,
+    reasoning_effort_capability,
+    resolve_model_reasoning_effort,
+)
+
 
 UrlOpen = Callable[..., Any]
 
@@ -66,7 +73,13 @@ def uses_responses_api(
         return False
 
     model_name = str(model or "").strip().lower()
-    if model_name.startswith("grok-4.5"):
+    capability = reasoning_effort_capability(model_name)
+    if (
+        model_name.startswith(("grok-4.3", "grok-4.5"))
+        or model_name == "grok-latest"
+        or model_name in {"mimo-v2.5", "mimo-v2.5-pro"}
+        or (capability is not None and capability.key in {"qwen-3.8-max", "qwen-responses"})
+    ):
         return True
     # OpenAI-compatible GPT-5 search tools are exposed through Responses.  Do
     # not switch unknown legacy aliases automatically because some gateways
@@ -85,6 +98,17 @@ def _supports_responses_output_limit(model: str) -> bool:
     return not str(model or "").strip().lower().startswith("gpt-5.6")
 
 
+def _uses_chat_completion_output_limit(model: str) -> bool:
+    """Return whether Chat uses ``max_completion_tokens`` for this model."""
+
+    model_name = str(model or "").strip().lower()
+    return (
+        model_name in {"mimo-v2.5", "mimo-v2.5-pro"}
+        or re.fullmatch(r"minimax-m(?:3|2(?:\.(?:1|5|7)(?:-highspeed)?)?)", model_name)
+        is not None
+    )
+
+
 def build_model_request(
     base_url: str,
     model: str,
@@ -94,6 +118,7 @@ def build_model_request(
     api_mode: str | None = "auto",
     tools: Iterable[dict[str, Any]] | None = None,
     reasoning: dict[str, Any] | None = None,
+    reasoning_effort: str | None = None,
     stream: bool = False,
     extra_payload: dict[str, Any] | None = None,
 ) -> ModelRequest:
@@ -120,8 +145,32 @@ def build_model_request(
             payload["tools"] = tool_list
         else:
             payload.pop("tools", None)
+        payload.pop("reasoning_effort", None)
+        reasoning_payload = (
+            dict(payload.get("reasoning"))
+            if isinstance(payload.get("reasoning"), dict)
+            else {}
+        )
         if reasoning:
-            payload["reasoning"] = dict(reasoning)
+            reasoning_payload.update(reasoning)
+        if reasoning_effort is not None:
+            normalized_effort = resolve_model_reasoning_effort(
+                model,
+                reasoning_effort,
+            ).configured_effort
+            if normalized_effort:
+                reasoning_payload["effort"] = normalized_effort
+            else:
+                reasoning_payload.pop("effort", None)
+        elif "effort" in reasoning_payload:
+            reasoning_payload["effort"] = resolve_model_reasoning_effort(
+                model,
+                reasoning_payload["effort"],
+            ).configured_effort
+        if reasoning_payload:
+            payload["reasoning"] = reasoning_payload
+        else:
+            payload.pop("reasoning", None)
         if max_tokens and max_tokens > 0 and _supports_responses_output_limit(model):
             payload["max_output_tokens"] = int(max_tokens)
         else:
@@ -133,13 +182,37 @@ def build_model_request(
             api_mode="responses",
         )
 
+    raw_reasoning_effort = (
+        reasoning_effort
+        if reasoning_effort is not None
+        else payload.get("reasoning_effort")
+    )
+    effort_resolution = resolve_model_reasoning_effort(
+        model,
+        raw_reasoning_effort,
+    )
+    normalized_effort = effort_resolution.configured_effort
     for responses_key in ("input", "max_output_tokens", "reasoning"):
         payload.pop(responses_key, None)
     payload["messages"] = messages
     if max_tokens and max_tokens > 0:
-        payload["max_tokens"] = int(max_tokens)
+        if _uses_chat_completion_output_limit(model):
+            payload.pop("max_tokens", None)
+            payload["max_completion_tokens"] = int(max_tokens)
+        else:
+            payload["max_tokens"] = int(max_tokens)
+            payload.pop("max_completion_tokens", None)
     else:
         payload.pop("max_tokens", None)
+        payload.pop("max_completion_tokens", None)
+    payload.pop("reasoning_effort", None)
+    if normalized_effort:
+        payload.update(chat_reasoning_request_settings(model, normalized_effort))
+    capability = reasoning_effort_capability(model)
+    if capability is not None and capability.key in {"minimax-m3", "minimax-m2"}:
+        # MiniMax Chat otherwise embeds <think> content in the visible answer.
+        # This flag only separates output fields; it does not alter reasoning.
+        payload.setdefault("reasoning_split", True)
     if stream or "stream" in payload:
         payload["stream"] = bool(stream)
     return ModelRequest(

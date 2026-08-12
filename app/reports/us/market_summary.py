@@ -170,6 +170,7 @@ US_SECTOR_PROXY_DEFS: list[dict[str, Any]] = [
 def load_dashboard_env() -> None:
     allowed = {
         "DASHBOARD_GROK_MODEL",
+        "DASHBOARD_GROK_REASONING_EFFORT",
         "DASHBOARD_GROK_CONTEXT_LENGTH",
         "DASHBOARD_GROK_BASE_URL",
         "DASHBOARD_GROK_API_KEY",
@@ -231,6 +232,9 @@ US_MARKET_SUMMARY_MODEL = (
     or os.environ.get("DASHBOARD_GROK_MODEL")
     or "grok-4.20-multi-agent-xhigh"
 )
+US_MARKET_SUMMARY_REASONING_EFFORT = str(
+    os.environ.get("DASHBOARD_GROK_REASONING_EFFORT") or ""
+).strip()
 US_MARKET_SUMMARY_DEADLINE_SECONDS = _int_env("US_MARKET_SUMMARY_DEADLINE_SECONDS", 150, min_value=30)
 US_MARKET_SUMMARY_REQUEST_TIMEOUT_SECONDS = _int_env("US_MARKET_SUMMARY_REQUEST_TIMEOUT_SECONDS", 90, min_value=10)
 US_MARKET_SUMMARY_CONTEXT_LENGTH = _token_count_env(
@@ -327,7 +331,8 @@ def _call_grok_api(messages: list[dict[str, str]], *, max_tokens: int = US_MARKE
         US_MARKET_SUMMARY_MODEL,
         messages,
         max_tokens=max_tokens,
-        api_mode="chat",
+        api_mode="auto",
+        reasoning_effort=US_MARKET_SUMMARY_REASONING_EFFORT,
         stream=False,
         extra_payload={"stream": False},
     )

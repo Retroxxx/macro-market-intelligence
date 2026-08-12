@@ -30,7 +30,16 @@ from dashboard_json_cache import (
     write_json_cache,
 )
 from core.process_lease import FileLease
-from core.model_api import build_model_request, request_model, stream_model_response
+from core.model_api import (
+    build_model_request,
+    normalize_reasoning_effort,
+    request_model,
+    stream_model_response,
+)
+from core.model_reasoning import (
+    reasoning_effort_capability_catalog,
+    resolve_model_reasoning_effort,
+)
 from dashboard import practice_payload as practice_payload_impl
 from dashboard import practice_market_summary as practice_market_summary_impl
 from dashboard.niuone_mainline import build_niuone_mainline_view
@@ -819,6 +828,7 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
 
     {"name": "DASHBOARD_US_FEATURES_ENABLED", "label": "开启牛牛美股", "group": "牛牛美股", "kind": "bool", "default": "0", "effect": "next_run"},
     {"name": "US_RATING_MODEL", "label": "美股评级模型", "group": "牛牛美股", "kind": "text", "default": "", "effect": "next_run"},
+    {"name": "US_RATING_REASONING_EFFORT", "label": "美股评级思考强度", "group": "牛牛美股", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
     {"name": "US_RATING_BASE_URL", "label": "美股评级 API Base URL", "group": "牛牛美股", "kind": "text", "default": "", "effect": "next_run"},
     {"name": "US_RATING_API_KEY", "label": "美股评级 API Key", "group": "牛牛美股", "kind": "secret", "default": "", "effect": "next_run"},
     {"name": "US_RATING_CONTEXT_LENGTH", "label": "美股评级上下文长度", "group": "牛牛美股", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
@@ -826,12 +836,14 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "CROSSDESK_BASE_URL", "label": "Crossdesk Base URL", "group": "上游模型覆盖", "kind": "text", "default": "", "effect": "next_run"},
     {"name": "CROSSDESK_API_KEY", "label": "Crossdesk API Key", "group": "上游模型覆盖", "kind": "secret", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_GROK_MODEL", "label": "Grok 模型", "group": "牛牛美股", "kind": "text", "default": "grok-4.20-multi-agent-xhigh", "effect": "next_run"},
+    {"name": "DASHBOARD_GROK_REASONING_EFFORT", "label": "Grok 思考强度", "group": "牛牛美股", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_GROK_API_MODE", "label": "Grok 搜索工具接口模式", "group": "牛牛美股", "kind": "api_mode", "default": "auto", "effect": "next_run"},
     {"name": "DASHBOARD_GROK_CONTEXT_LENGTH", "label": "Grok 模型上下文长度", "group": "牛牛美股", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
     {"name": "DASHBOARD_GROK_MAX_TOKENS", "label": "Grok 最大输出长度", "group": "牛牛美股", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
     {"name": "DASHBOARD_GROK_BASE_URL", "label": "Grok API 地址", "group": "牛牛美股", "kind": "text", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_GROK_API_KEY", "label": "Grok API 密钥", "group": "牛牛美股", "kind": "secret", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_NEWS_MODEL", "label": "消息面预检模型", "group": "消息面预检模型", "kind": "text", "default": "", "effect": "next_run"},
+    {"name": "DASHBOARD_NEWS_REASONING_EFFORT", "label": "消息面预检思考强度", "group": "消息面预检模型", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_NEWS_API_MODE", "label": "消息面搜索工具接口模式", "group": "消息面预检模型", "kind": "api_mode", "default": "auto", "effect": "next_run"},
     {"name": "DASHBOARD_NEWS_CONTEXT_LENGTH", "label": "消息面预检上下文长度", "group": "消息面预检模型", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
     {"name": "DASHBOARD_NEWS_MAX_TOKENS", "label": "消息面预检最大输出长度", "group": "消息面预检模型", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
@@ -841,6 +853,7 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_NEWS_MAX_RETRIES", "label": "消息面预检最大请求次数", "group": "消息面预检模型", "kind": "int", "default": "1", "effect": "next_run"},
     {"name": "DASHBOARD_NEWS_CONCURRENCY", "label": "消息面预检并发数", "group": "消息面预检模型", "kind": "int", "default": "5", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_MODEL", "label": "买卖决策模型", "group": "买卖决策模型", "kind": "text", "default": "deepseek-v4-pro", "effect": "next_run"},
+    {"name": "DASHBOARD_DECISION_REASONING_EFFORT", "label": "买卖决策思考强度", "group": "买卖决策模型", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_CONTEXT_LENGTH", "label": "买卖决策上下文长度", "group": "买卖决策模型", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_BASE_URL", "label": "买卖决策 API 地址", "group": "买卖决策模型", "kind": "text", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_API_KEY", "label": "买卖决策 API 密钥", "group": "买卖决策模型", "kind": "secret", "default": "", "effect": "next_run"},
@@ -851,6 +864,7 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_MARKET_CLOSE_CRON", "label": "盘后监控时间", "group": "盘面监控生产时间点", "kind": "cron_time", "default": "10 15 * * 1-5", "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_ENABLED", "label": "A股盘面模型总结", "group": "盘面监控生产时间点", "kind": "bool", "default": "1", "effect": "next_run", "bool_no_default": "1"},
     {"name": "A_SHARE_MODEL_SUMMARY_MODEL", "label": "A股盘面总结模型", "group": "盘面监控生产时间点", "kind": "text", "default": "", "effect": "next_run"},
+    {"name": "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT", "label": "A股盘面总结思考强度", "group": "盘面监控生产时间点", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH", "label": "A股盘面总结上下文长度", "group": "盘面监控生产时间点", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_MAX_TOKENS", "label": "A股盘面总结最大输出长度", "group": "盘面监控生产时间点", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_BASE_URL", "label": "A股盘面总结 API地址", "group": "盘面监控生产时间点", "kind": "text", "default": "", "effect": "next_run"},
@@ -872,6 +886,22 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_AUTO_VERSION_CHECK_ENABLED", "label": "开启自动检测新版本", "group": "关于", "kind": "bool", "default": "1", "effect": "runtime"},
 ]
 ENV_CONFIG_BY_NAME = {item["name"]: item for item in ENV_CONFIG_SCHEMA}
+
+REASONING_EFFORT_MODEL_NAMES: dict[str, tuple[str, ...]] = {
+    "DASHBOARD_DECISION_REASONING_EFFORT": ("DASHBOARD_DECISION_MODEL",),
+    "DASHBOARD_NEWS_REASONING_EFFORT": ("DASHBOARD_NEWS_MODEL",),
+    "DASHBOARD_GROK_REASONING_EFFORT": ("DASHBOARD_GROK_MODEL",),
+    "US_RATING_REASONING_EFFORT": (
+        "US_RATING_MODEL",
+        "DASHBOARD_GROK_MODEL",
+    ),
+    "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT": (
+        "A_SHARE_MODEL_SUMMARY_MODEL",
+        "A_SHARE_GROK_SUMMARY_MODEL",
+        "DASHBOARD_GROK_MODEL",
+    ),
+}
+
 ADMIN_VISIBLE_ENV_NAMES = [
     "DASHBOARD_ADMIN_PASSWORD",
     "DASHBOARD_PUBLIC_REFRESH_SECONDS",
@@ -902,9 +932,11 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "NEWSNOW_MAX_CONCURRENCY",
     "DASHBOARD_US_FEATURES_ENABLED",
     "US_RATING_MODEL",
+    "US_RATING_REASONING_EFFORT",
     "US_RATING_BASE_URL",
     "US_RATING_API_KEY",
     "DASHBOARD_GROK_MODEL",
+    "DASHBOARD_GROK_REASONING_EFFORT",
     "DASHBOARD_GROK_API_MODE",
     "DASHBOARD_GROK_CONTEXT_LENGTH",
     "DASHBOARD_GROK_MAX_TOKENS",
@@ -916,6 +948,7 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "US_RATING_DEADLINE_SECONDS",
     "US_RATING_REQUEST_TIMEOUT_SECONDS",
     "DASHBOARD_NEWS_MODEL",
+    "DASHBOARD_NEWS_REASONING_EFFORT",
     "DASHBOARD_NEWS_API_MODE",
     "DASHBOARD_NEWS_CONTEXT_LENGTH",
     "DASHBOARD_NEWS_MAX_TOKENS",
@@ -925,6 +958,7 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "DASHBOARD_NEWS_MAX_RETRIES",
     "DASHBOARD_NEWS_CONCURRENCY",
     "DASHBOARD_DECISION_MODEL",
+    "DASHBOARD_DECISION_REASONING_EFFORT",
     "DASHBOARD_DECISION_CONTEXT_LENGTH",
     "DASHBOARD_DECISION_BASE_URL",
     "DASHBOARD_DECISION_API_KEY",
@@ -982,6 +1016,7 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "DASHBOARD_MARKET_CLOSE_CRON",
     "A_SHARE_MODEL_SUMMARY_ENABLED",
     "A_SHARE_MODEL_SUMMARY_MODEL",
+    "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",
     "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH",
     "A_SHARE_MODEL_SUMMARY_MAX_TOKENS",
     "A_SHARE_MODEL_SUMMARY_BASE_URL",
@@ -1003,6 +1038,7 @@ ADMIN_VISIBLE_ENV_NAMES = [
 TRADER_RUNTIME_ENV_NAMES = {
     STOCK_UNIVERSE_ENV,
     "DASHBOARD_NEWS_MODEL",
+    "DASHBOARD_NEWS_REASONING_EFFORT",
     "DASHBOARD_NEWS_API_MODE",
     "DASHBOARD_NEWS_CONTEXT_LENGTH",
     "DASHBOARD_NEWS_MAX_TOKENS",
@@ -1012,6 +1048,7 @@ TRADER_RUNTIME_ENV_NAMES = {
     "DASHBOARD_NEWS_MAX_RETRIES",
     "DASHBOARD_NEWS_CONCURRENCY",
     "DASHBOARD_DECISION_MODEL",
+    "DASHBOARD_DECISION_REASONING_EFFORT",
     "DASHBOARD_DECISION_CONTEXT_LENGTH",
     "DASHBOARD_DECISION_BASE_URL",
     "DASHBOARD_DECISION_API_KEY",
@@ -6119,6 +6156,8 @@ def normalize_env_update(name: str, value: str, kind: str) -> str:
         return f"{speed:g}"
     if kind in {"max_tokens", "context_length"}:
         return normalize_context_length_update(value)
+    if kind == "reasoning_effort":
+        return normalize_reasoning_effort(value)
     if kind == "api_mode":
         normalized = value.lower().replace("-", "_") or "auto"
         aliases = {
@@ -6373,8 +6412,8 @@ CRON_TIME_CONFIGS = {
 ADMIN_GROUP_NOTES = {
     "财经快讯": "通过 NewsNow 聚合财联社电报、金十数据和华尔街见闻快讯。可选择是否将重要快讯写入买卖决策证据；交易日 15:00 后及休市日信息归入下一交易日。无需 API Key 或服务地址配置；Compose 部署会随牛牛1号自动启动内置实例，来源抓取失败时继续展示最近一次成功缓存并标记陈旧。",
     "牛牛美股": "集中管理美股买入评级和隔夜美股盘面总结使用的 Grok 配置。长度默认：上下文 128000 tokens，最大输出 4096 tokens；关闭时隐藏评级相关设置，隔夜美股总结仍会读取已配置的 Grok 参数。",
-    "消息面预检模型": "用于 A 股候选股及龙虎榜连板/连榜股票最近 3 天消息面预检，并把雪球/X公开内容单列为市场舆情；auto 会为 Grok 4.5 和 GPT-5 系列搜索模型选择 Responses API，Grok Responses 还会使用 x_search。也可显式选择 responses 或 chat。长度默认：上下文 128000 tokens，最大输出 4096 tokens。模型和密钥留空则跳过。",
-    "买卖决策模型": "推荐使用 deepseek-v4-pro；也可填写其他兼容 /chat/completions 的模型服务。长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
+    "消息面预检模型": "用于 A 股候选股及龙虎榜连板/连榜股票最近 3 天消息面预检，并把雪球/X公开内容单列为市场舆情；auto 会为已知 Grok、MiMo、Qwen 和 GPT-5 搜索模型选择 Responses API，Grok Responses 还会使用 x_search。也可显式选择 responses 或 chat。长度默认：上下文 128000 tokens，最大输出 4096 tokens。模型和密钥留空则跳过。",
+    "买卖决策模型": "推荐使用 deepseek-v4-pro；也可填写其他 OpenAI 兼容模型服务，已知 Qwen Responses 型号会在 auto 逻辑下自动选择 Responses API。长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
     "交易规则与风控": "约束买卖决策必须遵守的交易纪律、持仓数量、仓位比例、现金缓冲与盘面控仓规则。交易纪律 Prompt 会直接写入决策模型的必须遵守段。",
     "交易通知": "模拟买入或卖出成交落盘后推送。从下拉框按需添加渠道并分块配置；每个渠道可独立启用或关闭，关闭会保留配置，移除并保存后才会清除配置。Webhook、Bot Token 和签名密钥只保存、不回显。",
     "选股与买卖设置": "配置选股范围、候选数量和北京时间交易时点；板块分类固定使用东方财富概念与行业。",
@@ -6541,11 +6580,13 @@ def removed_notification_config_names(channel_ids: set[str] | list[str] | tuple[
 
 US_FEATURE_GATED_NAMES = {
     "US_RATING_MODEL",
+    "US_RATING_REASONING_EFFORT",
     "US_RATING_BASE_URL",
     "US_RATING_API_KEY",
     "US_RATING_CONTEXT_LENGTH",
     "US_RATING_MAX_TOKENS",
     "DASHBOARD_GROK_MODEL",
+    "DASHBOARD_GROK_REASONING_EFFORT",
     "DASHBOARD_GROK_API_MODE",
     "DASHBOARD_GROK_CONTEXT_LENGTH",
     "DASHBOARD_GROK_MAX_TOKENS",
@@ -6700,6 +6741,8 @@ def normalize_business_updates(updates: dict[str, str]) -> dict[str, str]:
             normalized[name] = normalize_trade_discipline_text_update(normalized[name])
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "api_mode":
             normalized[name] = normalize_env_update(name, normalized[name], "api_mode")
+        elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "reasoning_effort":
+            normalized[name] = normalize_reasoning_effort(normalized[name])
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "playback_speed":
             normalized[name] = normalize_env_update(name, normalized[name], "playback_speed")
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") in {"max_tokens", "context_length"}:
@@ -6891,6 +6934,9 @@ def validate_business_updates(updates: dict[str, str]) -> None:
                 raise ValueError(f"{name} 必须大于 0")
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") in {"max_tokens", "context_length"}:
             normalize_context_length_update(value)
+        elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "reasoning_effort":
+            normalize_reasoning_effort(value)
+    _validate_reasoning_effort_updates(updates)
     if set(updates) & set(INDUSTRY_FLOW_WINDOW_CONFIG_NAMES):
         _industry_flow_sampling_windows_value(
             updates,
@@ -6912,6 +6958,38 @@ def validate_business_updates(updates: dict[str, str]) -> None:
         )
         if max_important_items > max_items:
             raise ValueError("NEWSNOW_MAX_IMPORTANT_ITEMS 不能大于 NEWSNOW_MAX_ITEMS")
+
+
+def _validate_reasoning_effort_updates(updates: dict[str, str]) -> None:
+    """Validate known model/effort combinations without restricting aliases."""
+
+    touched_names = set(updates)
+    relevant = [
+        (effort_name, model_names)
+        for effort_name, model_names in REASONING_EFFORT_MODEL_NAMES.items()
+        if touched_names & {effort_name, *model_names}
+    ]
+    if not relevant:
+        return
+
+    saved = parse_env_file()
+
+    def configured_value(name: str) -> str:
+        if name in updates:
+            return str(updates[name] or "").strip()
+        if name in os.environ:
+            return str(os.environ.get(name) or "").strip()
+        if name in saved:
+            return str(saved.get(name) or "").strip()
+        return str(ENV_CONFIG_BY_NAME.get(name, {}).get("default") or "").strip()
+
+    for effort_name, model_names in relevant:
+        effort = configured_value(effort_name)
+        model = next(
+            (value for name in model_names if (value := configured_value(name))),
+            "",
+        )
+        resolve_model_reasoning_effort(model, effort)
 
 
 def sync_business_runtime_settings(
@@ -7323,7 +7401,7 @@ def _stream_prompt_refinement(messages: list[dict[str, str]]) -> Iterator[str]:
                 messages,
                 max_tokens=7000,
                 api_mode=config.api_mode,
-                reasoning={"effort": "low"},
+                reasoning_effort=config.reasoning_effort,
                 stream=True,
                 extra_payload={"stream": True},
             )
@@ -7360,7 +7438,7 @@ def _complete_prompt_refinement(messages: list[dict[str, str]]) -> str:
                 messages,
                 max_tokens=7000,
                 api_mode=config.api_mode,
-                reasoning={"effort": "low"},
+                reasoning_effort=config.reasoning_effort,
                 stream=False,
                 extra_payload={"stream": False},
             )
@@ -7790,6 +7868,10 @@ def build_admin_config_payload() -> dict[str, Any]:
             "file_state": display_secret(env_values.get(name) or fallback_value or default_value) if secret else file_value,
             "source": source,
         }
+        if schema.get("kind") == "reasoning_effort":
+            item["reasoning_model_names"] = list(
+                REASONING_EFFORT_MODEL_NAMES.get(name, ())
+            )
         if name in CRON_TIME_CONFIGS and not secret:
             stored_file_value = str(file_value or "")
             item.update({
@@ -7920,6 +8002,7 @@ def build_admin_config_payload() -> dict[str, Any]:
         ],
         "notification_general_names": list(NOTIFICATION_GENERAL_CONFIG_NAMES),
         "model_tests": model_test_metadata(),
+        "reasoning_effort_capabilities": reasoning_effort_capability_catalog(),
         "iwencai_test": iwencai_test_metadata(),
         "ui": {
             "us_feature_toggle_name": "DASHBOARD_US_FEATURES_ENABLED",

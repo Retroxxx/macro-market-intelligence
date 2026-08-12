@@ -44,6 +44,7 @@ def load_dashboard_env() -> None:
     allowed = {
         "A_SHARE_MODEL_SUMMARY_ENABLED",
         "A_SHARE_MODEL_SUMMARY_MODEL",
+        "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",
         "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH",
         "A_SHARE_MODEL_SUMMARY_MAX_TOKENS",
         "A_SHARE_MODEL_SUMMARY_BASE_URL",
@@ -112,6 +113,10 @@ A_SHARE_MODEL_SUMMARY_MODEL = (
     or os.environ.get("A_SHARE_GROK_SUMMARY_MODEL")
     or os.environ.get("DASHBOARD_GROK_MODEL")
     or "grok-4.20-multi-agent-xhigh"
+)
+A_SHARE_MODEL_SUMMARY_REASONING_EFFORT = (
+    os.environ.get("A_SHARE_MODEL_SUMMARY_REASONING_EFFORT")
+    or ""
 )
 A_SHARE_MODEL_SUMMARY_DEADLINE_SECONDS = _int_env(
     "A_SHARE_MODEL_SUMMARY_DEADLINE_SECONDS",
@@ -199,7 +204,8 @@ def call_grok_api(messages: list[dict[str, str]], *, max_tokens: int = A_SHARE_M
         A_SHARE_MODEL_SUMMARY_MODEL,
         messages,
         max_tokens=max_tokens,
-        api_mode="chat",
+        api_mode="auto",
+        reasoning_effort=A_SHARE_MODEL_SUMMARY_REASONING_EFFORT,
         stream=False,
         extra_payload={"stream": False},
     )

@@ -128,6 +128,20 @@ function handleFormMutation(event) {
   }
 }
 
+function reasoningModel(item) {
+  editRevision.value
+  for (const name of (item?.reasoning_model_names || [])) {
+    const formValue = formFieldValue(name)
+    if (formValue) return formValue
+    const modelItem = (props.config.items || []).find(entry => entry.name === name)
+    const configured = String(
+      modelItem?.file_value || modelItem?.effective || modelItem?.default || '',
+    ).trim()
+    if (configured) return configured
+  }
+  return ''
+}
+
 function rowHidden(item) {
   if (gatedNames.value.has(item.name) && !runtimeUsEnabled.value) return true
   if (item.name === strategyPreset.value && runtimeStrategySource.value !== 'preset_text') return true
@@ -505,7 +519,12 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="setting-editor">
-              <AdminEnvInput :item="item" @field-change="handleFormMutation" />
+              <AdminEnvInput
+                :item="item"
+                :reasoning-model="reasoningModel(item)"
+                :reasoning-capabilities="config.reasoning_effort_capabilities || []"
+                @field-change="handleFormMutation"
+              />
             </div>
             <div class="setting-state">
               <div class="setting-state-item">

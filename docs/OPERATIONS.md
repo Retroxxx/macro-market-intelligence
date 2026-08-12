@@ -83,19 +83,50 @@ NiuOne 需要大模型驱动完整工作流。美股机构评级日报可使用�
 | 场景 | 配置项 |
 |---|---|
 | 牛牛美股总开关 | `DASHBOARD_US_FEATURES_ENABLED` |
-| Grok API | `DASHBOARD_GROK_BASE_URL`、`DASHBOARD_GROK_API_KEY`、`DASHBOARD_GROK_MODEL`、`DASHBOARD_GROK_API_MODE`、`DASHBOARD_GROK_CONTEXT_LENGTH` |
-| A 股盘面模型总结单独覆盖 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
-| 消息面预检 API | `DASHBOARD_NEWS_BASE_URL`、`DASHBOARD_NEWS_API_KEY`、`DASHBOARD_NEWS_MODEL`、`DASHBOARD_NEWS_API_MODE`、`DASHBOARD_NEWS_MAX_TOKENS`、`DASHBOARD_NEWS_CONCURRENCY` |
+| Grok API | `DASHBOARD_GROK_BASE_URL`、`DASHBOARD_GROK_API_KEY`、`DASHBOARD_GROK_MODEL`、`DASHBOARD_GROK_API_MODE`、`DASHBOARD_GROK_REASONING_EFFORT`、`DASHBOARD_GROK_CONTEXT_LENGTH` |
+| A 股盘面模型总结单独覆盖 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`、`A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
+| 消息面预检 API | `DASHBOARD_NEWS_BASE_URL`、`DASHBOARD_NEWS_API_KEY`、`DASHBOARD_NEWS_MODEL`、`DASHBOARD_NEWS_API_MODE`、`DASHBOARD_NEWS_REASONING_EFFORT`、`DASHBOARD_NEWS_MAX_TOKENS`、`DASHBOARD_NEWS_CONCURRENCY` |
 | 问财内置数据源 | `IWENCAI_ENABLED`、`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_TIMEOUT_SECONDS`、`IWENCAI_MAX_RETRIES`、`IWENCAI_MAX_CONCURRENCY`、`IWENCAI_CACHE_TTL_SECONDS`、`IWENCAI_DRAGON_TIGER_CRON` |
-| 买卖决策 API | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL` |
+| 买卖决策 API | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL`、`DASHBOARD_DECISION_REASONING_EFFORT` |
 | 买卖决策情报包 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`、`DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`、`DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 | 买卖决策交易纪律 | `DASHBOARD_TRADE_DISCIPLINE_TEXT`；为空时使用内置默认纪律，填写后进入模型 prompt 的“必须遵守”段 |
 | 模拟账户节奏与仓位参考 | `DASHBOARD_MAX_OPEN_POSITIONS`、`DASHBOARD_MAX_NEW_BUYS_PER_DECISION`、`DASHBOARD_MAX_SINGLE_POSITION_PCT`、`DASHBOARD_MAX_TOTAL_POSITION_PCT`、`DASHBOARD_MIN_CASH_RESERVE_PCT`；默认作为模型参考，Z 哥和板块潮汐等注册硬限制策略会在模拟执行层取全局与策略限制的更严格值 |
-| 美股评级单独覆盖 | `US_RATING_MODEL`、`US_RATING_BASE_URL`、`US_RATING_API_KEY`、`US_RATING_MAX_TOKENS` |
+| 美股评级单独覆盖 | `US_RATING_MODEL`、`US_RATING_BASE_URL`、`US_RATING_API_KEY`、`US_RATING_REASONING_EFFORT`、`US_RATING_MAX_TOKENS` |
 
 完成管理员认证后，优先通过页面上的设置按钮进入设置页维护。所有需要模型和 API Key 的分组都提供“测试模型连接”按钮；测试使用页面当前填写值但不会自动保存，API Key 输入框留空时会复用已保存密钥。美股评级相关设置由“开启牛牛美股”总开关控制；关闭时设置页会隐藏这些项并跳过美股评级定时任务。也可以直接编辑 `.local-data/dashboard.env`，保存后按配置影响范围重启或等待下一轮任务读取。
-`DASHBOARD_GROK_API_MODE` 可设为 `auto`、`responses` 或 `chat`。默认 `auto` 会为 Grok 4.5 使用带 `web_search`/`x_search` 工具的 Responses API，其他模型保持 Chat Completions；兼容网关可显式选择对应模式。
-`DASHBOARD_NEWS_API_MODE` 同样可设为 `auto`、`responses` 或 `chat`。默认 `auto` 会为 Grok 4.5 和 GPT-5 系列搜索模型使用带 `web_search` 工具的 Responses API；Grok Responses 预检模型还会加入 `x_search`，其他模型通过 `web_search` 检索可公开索引的雪球/X 页面，不会改用 `DASHBOARD_GROK_*`。
+各场景的 `*_REASONING_EFFORT` 可填写模型或网关支持的枚举值，留空时不发送思考强度参数。下表中的已知官方模型会在保存、连接测试和运行请求前执行本地校验；表外自定义模型或网关别名仍可自由填写。连接测试使用当前未保存值；成功只表示网关接受当前请求，不代表上游一定执行了对应强度。不支持参数或值非法时会给出针对性提示，并且运行时不会静默删除参数重试。
+
+### 常见模型思考强度表
+
+以下能力核对于 **2026-08-13**。其中“允许填写”表示官方接口接受的输入，“实际级别/映射”用于说明兼容值不一定按字面生效。
+
+| 模型 | 允许填写 | 实际级别/兼容映射 | 默认值 |
+|---|---|---|---|
+| Qwen `qwen3.8-max` | `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` | Responses 原生 7 档；Chat 原生 `low/medium/xhigh`，并映射 `minimal → low`、`high/max → xhigh`、`none → 关闭` | `xhigh` |
+| Qwen 3.5–3.7、Qwen3 Max、Qwen Plus/Flash/Coder 常用 Responses 型号 | `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` | `auto` 使用 Responses 保留 7 档；强制 Chat 时 `none` 关闭、其他值均为开启；`xhigh/max` 仅北京和新加坡地域支持 | `xhigh` |
+| Qwen 其他混合思考 Chat 型号 | `disabled`、`enabled` | 自动转换为顶层 `enable_thinking` 开关，不支持多档强度 | 依型号为关闭或开启 |
+| Qwen3.7 Max Preview、Qwen3 Thinking、QwQ Plus | 仅可留空 | 固定始终思考，不能关闭或调节强度 | 始终思考 |
+| MiniMax `MiniMax-M3` | `none`、`minimal`、`low`、`medium`、`high` | `none` 关闭；其余值均开启 `adaptive`，不会改变思考深度 | Chat 为 `adaptive`；Responses 为 `none` |
+| MiniMax `MiniMax-M2` / M2.1 / M2.5 / M2.7（含 highspeed） | `none`、`minimal`、`low`、`medium`、`high` | 始终思考；Responses 接受兼容值但不能关闭，Chat 不发送控制字段 | 始终思考 |
+| DeepSeek `deepseek-v4-pro` | `low`、`medium`、`high`、`xhigh`、`max` | 实际为 `high`、`max`；`low → high`、`medium → high`、`xhigh → max` | `high` |
+| DeepSeek `deepseek-v4-flash` | `low`、`medium`、`high`、`xhigh`、`max` | 实际为 `low`、`high`、`max`；`medium → high`、`xhigh → high` | `high` |
+| 智谱 `glm-5.2` | `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` | 实际为关闭、`high`、`max`；`minimal → none`、`low/medium → high`、`xhigh → max` | `max` |
+| 智谱 GLM 4.5–5.1 常用文本/视觉型号 | `disabled`、`enabled` | 原生 `thinking.type` 开关，不支持多档强度 | `enabled` |
+| 小米 `mimo-v2.5` / `mimo-v2.5-pro` | `none`、`low`、`medium`、`high` | `none` 关闭；目前 `low/medium/high` 均为相同的开启思考效果 | 开启思考 |
+| xAI `grok-4.3` / `grok-4.3-latest` / `grok-latest` | `none`、`low`、`medium`、`high` | 同填写值；`none` 关闭推理 | 官方型号页未注明 |
+| xAI `grok-4.5` | `low`、`medium`、`high` | 同填写值；不能用该参数关闭推理 | `high` |
+| OpenAI `gpt-5.6` / `sol` / `terra` / `luna` | `none`、`low`、`medium`、`high`、`xhigh`、`max` | 同填写值 | `medium` |
+| OpenAI `gpt-5.4-pro` | `medium`、`high`、`xhigh` | 同填写值 | `medium` |
+| OpenAI `gpt-5.4` / `mini` / `nano` | `none`、`low`、`medium`、`high`、`xhigh` | 同填写值 | `none` |
+| OpenAI `gpt-5.2-pro` | `medium`、`high`、`xhigh` | 同填写值 | `medium` |
+| OpenAI `gpt-5.2` | `none`、`low`、`medium`、`high`、`xhigh` | 同填写值 | `none` |
+| OpenAI `gpt-5.1` | `none`、`low`、`medium`、`high` | 同填写值 | `none` |
+| OpenAI `gpt-5-pro` | `high` | 同填写值 | `high` |
+| OpenAI `gpt-5` | `minimal`、`low`、`medium`、`high` | 同填写值 | 官方模型页未注明 |
+
+来源：[Qwen Responses](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)、[Qwen Chat](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)、[Qwen 深度思考](https://help.aliyun.com/zh/model-studio/deep-thinking)、[MiniMax Responses](https://platform.minimax.io/docs/api-reference/responses-create)、[MiniMax Chat](https://platform.minimax.io/docs/api-reference/text-chat-openai)、[DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)、[智谱深度思考](https://docs.bigmodel.cn/cn/guide/capabilities/thinking)、[小米 MiMo Responses](https://mimo.mi.com/docs/zh-CN/api/chat/responses)、[xAI Grok 4.3](https://docs.x.ai/developers/models/grok-4.3)、[xAI Reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning)、[OpenAI GPT-5.6](https://developers.openai.com/api/docs/models/gpt-5.6-sol) 及各型号官方模型页。Claude、Gemini 等原生 API 使用不同的思考控制字段，不在这个 OpenAI 兼容表中；如果兼容网关提供同名字段，作为表外自定义值处理。
+`DASHBOARD_GROK_API_MODE` 可设为 `auto`、`responses` 或 `chat`。默认 `auto` 会为 Grok 4.3/4.5、MiMo 2.5 和表中常用 Qwen Responses 型号选择 Responses API，其他模型保持 Chat Completions；兼容网关可显式选择对应模式。
+`DASHBOARD_NEWS_API_MODE` 同样可设为 `auto`、`responses` 或 `chat`。默认 `auto` 会为 Grok 4.3/4.5、MiMo 2.5、表中常用 Qwen Responses 型号和 GPT-5 系列搜索模型使用带 `web_search` 工具的 Responses API；Grok Responses 预检模型还会加入 `x_search`，其他模型通过 `web_search` 检索可公开索引的雪球/X 页面，不会改用 `DASHBOARD_GROK_*`。
 `*_CONTEXT_LENGTH` 仅表示模型上下文窗口，默认 `128000`；`*_MAX_TOKENS` 表示期望的最大输出长度，调用层会按接口映射为 `max_tokens` 或 `max_output_tokens`。已知不接受 Responses 输出长度参数的 GPT-5.6 网关别名会省略该参数，其他网关若明确返回不支持也会自动去参重试一次。模型响应同时兼容 JSON 和 SSE，即使网关在 `stream=false` 时仍强制返回 SSE。
 消息面预检默认最多并发检查 5 只候选股；如果上游出现限流或 403/429，可将 `DASHBOARD_NEWS_CONCURRENCY` 降为 `2` 或 `1`。旧快照中的 `unclassified_response` 若能从已保存摘要唯一判断“利好/利空/中性”，补检流程会在本地修复标签并保留原查询时间，不新增模型请求；仍有歧义时保持未识别。
 

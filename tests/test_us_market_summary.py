@@ -304,6 +304,65 @@ class UsMarketSummaryTests(unittest.TestCase):
         self.assertEqual(captured["headers"]["User-agent"], "NiuOne/1.0")
         self.assertEqual(captured["headers"]["Accept"], "application/json")
 
+    def test_grok_api_sends_configured_reasoning_effort(self):
+        mod = load_module_with_env({
+            "DASHBOARD_GROK_REASONING_EFFORT": "max",
+        })
+        captured = {}
+
+        class Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+        mod._get_grok_credentials = lambda: ("https://summary.example/v1", "secret")
+
+        def fake_urlopen(req, timeout=0, context=None):
+            captured["payload"] = json.loads(req.data.decode("utf-8"))
+            return Resp()
+
+        mod.urlopen = fake_urlopen
+        mod._call_grok_api([{"role": "user", "content": "hello"}], max_tokens=123)
+
+        self.assertEqual(captured["payload"]["reasoning_effort"], "max")
+
+    def test_grok_api_auto_selects_qwen_responses(self):
+        mod = load_module_with_env({
+            "US_MARKET_SUMMARY_MODEL": "qwen3.8-max",
+            "DASHBOARD_GROK_MODEL": "qwen3.8-max",
+            "DASHBOARD_GROK_REASONING_EFFORT": "xhigh",
+        })
+        captured = {}
+
+        class Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"output_text":"ok","status":"completed"}'
+
+        mod._get_grok_credentials = lambda: ("https://dashscope.example/v1", "secret")
+
+        def fake_urlopen(req, timeout=0, context=None):
+            captured["url"] = req.full_url
+            captured["payload"] = json.loads(req.data.decode("utf-8"))
+            return Resp()
+
+        mod.urlopen = fake_urlopen
+        result = mod._call_grok_api([{"role": "user", "content": "hello"}], max_tokens=123)
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(captured["url"], "https://dashscope.example/v1/responses")
+        self.assertEqual(captured["payload"]["reasoning"], {"effort": "xhigh"})
+
     def test_previous_us_session_date_uses_friday_on_monday(self):
         mod = load_module()
 

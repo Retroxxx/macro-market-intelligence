@@ -10,7 +10,16 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
-from core.model_api import ModelResponseParseError, build_model_request, request_model
+from core.model_api import (
+    ModelResponseParseError,
+    build_model_request,
+    request_model,
+)
+from core.model_reasoning import (
+    UnsupportedReasoningEffortError,
+    effective_reasoning_effort,
+    resolve_model_reasoning_effort,
+)
 
 
 MODEL_TEST_PROMPT = "这是一次模型连通性测试。无需解释，请只回复：连接成功"
@@ -26,6 +35,7 @@ class ModelTestTarget:
     base_url_names: tuple[str, ...]
     api_key_names: tuple[str, ...]
     api_mode_names: tuple[str, ...]
+    reasoning_effort_names: tuple[str, ...]
     override_names: tuple[str, ...]
     default_model: str = ""
     default_api_mode: str = "chat"
@@ -42,11 +52,13 @@ MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
         base_url_names=("DASHBOARD_NEWS_BASE_URL",),
         api_key_names=("DASHBOARD_NEWS_API_KEY",),
         api_mode_names=("DASHBOARD_NEWS_API_MODE",),
+        reasoning_effort_names=("DASHBOARD_NEWS_REASONING_EFFORT",),
         override_names=(
             "DASHBOARD_NEWS_MODEL",
             "DASHBOARD_NEWS_BASE_URL",
             "DASHBOARD_NEWS_API_KEY",
             "DASHBOARD_NEWS_API_MODE",
+            "DASHBOARD_NEWS_REASONING_EFFORT",
         ),
         default_api_mode="auto",
         tool_type="web_search",
@@ -55,17 +67,20 @@ MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
         id="decision-model",
         group_slug="decision-model",
         label="买卖决策模型",
-        description="验证交易决策使用的 Chat Completions 接口。",
+        description="按模型能力验证交易决策使用的 OpenAI 兼容接口。",
         model_names=("DASHBOARD_DECISION_MODEL",),
         base_url_names=("DASHBOARD_DECISION_BASE_URL", "CROSSDESK_BASE_URL"),
         api_key_names=("DASHBOARD_DECISION_API_KEY", "CROSSDESK_API_KEY"),
         api_mode_names=(),
+        reasoning_effort_names=("DASHBOARD_DECISION_REASONING_EFFORT",),
         override_names=(
             "DASHBOARD_DECISION_MODEL",
             "DASHBOARD_DECISION_BASE_URL",
             "DASHBOARD_DECISION_API_KEY",
+            "DASHBOARD_DECISION_REASONING_EFFORT",
         ),
         default_model="deepseek-v4-pro",
+        default_api_mode="auto",
     ),
     ModelTestTarget(
         id="grok-model",
@@ -76,11 +91,13 @@ MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
         base_url_names=("DASHBOARD_GROK_BASE_URL", "CROSSDESK_BASE_URL"),
         api_key_names=("DASHBOARD_GROK_API_KEY", "CROSSDESK_API_KEY"),
         api_mode_names=("DASHBOARD_GROK_API_MODE",),
+        reasoning_effort_names=("DASHBOARD_GROK_REASONING_EFFORT",),
         override_names=(
             "DASHBOARD_GROK_MODEL",
             "DASHBOARD_GROK_BASE_URL",
             "DASHBOARD_GROK_API_KEY",
             "DASHBOARD_GROK_API_MODE",
+            "DASHBOARD_GROK_REASONING_EFFORT",
         ),
         default_model="grok-4.20-multi-agent-xhigh",
         default_api_mode="auto",
@@ -102,10 +119,12 @@ MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
             "CROSSDESK_API_KEY",
         ),
         api_mode_names=("DASHBOARD_GROK_API_MODE",),
+        reasoning_effort_names=("US_RATING_REASONING_EFFORT",),
         override_names=(
             "US_RATING_MODEL",
             "US_RATING_BASE_URL",
             "US_RATING_API_KEY",
+            "US_RATING_REASONING_EFFORT",
             "DASHBOARD_GROK_MODEL",
             "DASHBOARD_GROK_BASE_URL",
             "DASHBOARD_GROK_API_KEY",
@@ -138,12 +157,15 @@ MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
             "CROSSDESK_API_KEY",
         ),
         api_mode_names=(),
+        reasoning_effort_names=("A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",),
         override_names=(
             "A_SHARE_MODEL_SUMMARY_MODEL",
             "A_SHARE_MODEL_SUMMARY_BASE_URL",
             "A_SHARE_MODEL_SUMMARY_API_KEY",
+            "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",
         ),
         default_model="grok-4.20-multi-agent-xhigh",
+        default_api_mode="auto",
     ),
 )
 
@@ -157,6 +179,8 @@ class ResolvedModelTestConfig:
     base_url: str
     api_key: str
     api_mode: str
+    reasoning_effort: str
+    effective_reasoning_effort: str
 
 
 def model_test_metadata() -> list[dict[str, Any]]:
@@ -186,6 +210,7 @@ def model_test_setting_names() -> set[str]:
         names.update(target.base_url_names)
         names.update(target.api_key_names)
         names.update(target.api_mode_names)
+        names.update(target.reasoning_effort_names)
     return names
 
 
@@ -220,12 +245,16 @@ def resolve_model_test_config(
         base_url = fallback_base_url
         api_key = fallback_api_key
     api_mode = _first_value(values, target.api_mode_names) or target.default_api_mode
+    reasoning_effort = _first_value(values, target.reasoning_effort_names)
+    effort_resolution = resolve_model_reasoning_effort(model, reasoning_effort)
     return ResolvedModelTestConfig(
         target=target,
         model=model,
         base_url=base_url.rstrip("/"),
         api_key=api_key,
         api_mode=api_mode,
+        reasoning_effort=effort_resolution.configured_effort,
+        effective_reasoning_effort=effort_resolution.effective_effort,
     )
 
 
@@ -263,6 +292,83 @@ def _http_error_message(code: int) -> str:
     return f"模型服务返回错误（HTTP {code}）"
 
 
+def _classified_http_error(
+    exc: urllib.error.HTTPError,
+    config: ResolvedModelTestConfig,
+) -> tuple[str, str]:
+    code = int(exc.code)
+    try:
+        body = exc.read(8192).decode("utf-8", errors="ignore").lower()
+    except Exception:
+        body = ""
+    finally:
+        try:
+            exc.close()
+        except Exception:
+            pass
+
+    if config.reasoning_effort and code in {400, 422}:
+        mentions_reasoning = any(
+            marker in body
+            for marker in (
+                "reasoning_effort",
+                "reasoning.effort",
+                '"reasoning"',
+                "'reasoning'",
+                "reasoning effort",
+                "enable_thinking",
+                "thinking.type",
+                '"thinking"',
+                "thinking mode",
+            )
+        )
+        mentions_effort_value = any(
+            marker in body
+            for marker in (
+                f"'{config.reasoning_effort}'",
+                f'"{config.reasoning_effort}"',
+            )
+        )
+        invalid_value = any(
+            marker in body
+            for marker in (
+                "invalid value",
+                "unsupported value",
+                "not an allowed value",
+                "must be one",
+                "one of",
+                "valid values",
+                "allowed values",
+                "enum",
+                "does not exist",
+                "not supported",
+            )
+        )
+        unsupported_parameter = any(
+            marker in body
+            for marker in (
+                "unknown parameter",
+                "unrecognized parameter",
+                "unsupported parameter",
+                "not support",
+                "not allowed",
+                "extra inputs",
+                "additional properties",
+            )
+        )
+        if (mentions_reasoning or mentions_effort_value) and invalid_value:
+            return (
+                f"当前模型或网关不接受思考强度“{config.reasoning_effort}”，请修改或留空使用模型默认值（HTTP {code}）",
+                "invalid_reasoning_effort",
+            )
+        if mentions_reasoning and unsupported_parameter:
+            return (
+                f"当前模型或网关不支持思考强度参数，请留空后重试（HTTP {code}）",
+                "unsupported_reasoning_effort",
+            )
+    return _http_error_message(code), f"http_{code}"
+
+
 def test_model_connection(
     target_id: str,
     values: Mapping[str, Any],
@@ -280,6 +386,14 @@ def test_model_connection(
             values,
             provider_fallback=provider_fallback,
         )
+    except UnsupportedReasoningEffortError as exc:
+        return {
+            "ok": False,
+            "target": str(target_id or ""),
+            "model": exc.model,
+            "error": str(exc),
+            "error_code": "invalid_reasoning_effort",
+        }
     except ValueError as exc:
         return {"ok": False, "target": str(target_id or ""), "error": str(exc)}
 
@@ -302,11 +416,16 @@ def test_model_connection(
         max_tokens=256,
         api_mode=config.api_mode,
         tools=tools,
-        reasoning={"effort": "low"},
+        reasoning_effort=config.reasoning_effort,
         stream=False,
         extra_payload={"stream": False},
     )
     result["api_mode"] = model_request.api_mode
+    selected_effective_effort = effective_reasoning_effort(
+        config.model,
+        config.reasoning_effort,
+        api_mode=model_request.api_mode,
+    )
     started = monotonic()
     try:
         parsed = request_model(
@@ -324,15 +443,19 @@ def test_model_connection(
             )
             return result
     except urllib.error.HTTPError as exc:
+        error, error_code = _classified_http_error(exc, config)
         result.update(
             {
-                "error": _http_error_message(int(exc.code)),
-                "error_code": f"http_{int(exc.code)}",
+                "error": error,
+                "error_code": error_code,
             }
         )
         return result
     except (TimeoutError, socket.timeout):
-        result.update({"error": "模型连接超时", "error_code": "timeout"})
+        error = "模型连接超时"
+        if config.reasoning_effort:
+            error += "；较高思考强度可能需要更长时间，暂时无法判断该值是否受支持"
+        result.update({"error": error, "error_code": "timeout"})
         return result
     except urllib.error.URLError:
         result.update({"error": "无法连接模型服务，请检查地址和网络", "error_code": "connection_failed"})
@@ -349,11 +472,24 @@ def test_model_connection(
 
     elapsed_ms = max(0, int(round((monotonic() - started) * 1000)))
     mode_label = "Responses API" if model_request.api_mode == "responses" else "Chat Completions"
+    effort_label = (
+        f"，思考强度 {config.reasoning_effort}"
+        if config.reasoning_effort
+        else "，未指定思考强度"
+    )
+    if (
+        config.reasoning_effort
+        and selected_effective_effort != config.reasoning_effort
+    ):
+        effort_label += f"（按官方规则映射为 {selected_effective_effort}）"
     result.update(
         {
             "ok": True,
             "elapsed_ms": elapsed_ms,
-            "message": f"{config.target.label}已接通（{mode_label}，{elapsed_ms} ms）",
+            "message": (
+                f"{config.target.label}网关已接受当前配置"
+                f"（{mode_label}{effort_label}，{elapsed_ms} ms）"
+            ),
         }
     )
     return result
