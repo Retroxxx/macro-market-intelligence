@@ -39,6 +39,11 @@ from core.model_api import (
     request_model,
     request_model_complete,
 )
+from core.shared_model_config import (
+    LEGACY_SUMMARY_MODEL_ENV_NAMES,
+    SHARED_MODEL_ENV_NAMES,
+    resolve_shared_model_config,
+)
 from market_data.news_precheck import (
     NewsPrecheckConfig,
     cached_news_record_matches_source,
@@ -236,6 +241,18 @@ def env_token_count(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
+def token_count_value(raw: Any, default: int) -> int:
+    compact = str(raw or "").replace(",", "").replace("_", "").strip()
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)([kKmM]?)", compact)
+    if not match:
+        return default
+    number = float(match.group(1))
+    unit = match.group(2).lower()
+    multiplier = 1_000_000 if unit == "m" else 1_000 if unit == "k" else 1
+    value = int(number * multiplier)
+    return value if value > 0 else default
+
+
 def env_float(name: str, default: float) -> float:
     try:
         value = os.environ.get(name)
@@ -280,13 +297,6 @@ def load_dashboard_env() -> None:
         "IWENCAI_TIMEOUT_SECONDS",
         "IWENCAI_MAX_RETRIES",
         "IWENCAI_MAX_CONCURRENCY",
-        "DASHBOARD_DECISION_MODEL",
-        "DASHBOARD_DECISION_STREAM_MODE",
-        "DASHBOARD_DECISION_REASONING_EFFORT",
-        "DASHBOARD_DECISION_CONTEXT_LENGTH",
-        "DASHBOARD_DECISION_BASE_URL",
-        "DASHBOARD_DECISION_API_KEY",
-        "DASHBOARD_DECISION_MAX_TOKENS",
         "DASHBOARD_DECISION_TIMEOUT",
         "DASHBOARD_DECISION_INTELLIGENCE_ENABLED",
         "DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS",
@@ -323,7 +333,7 @@ def load_dashboard_env() -> None:
         TRADE_DISCIPLINE_TEXT_ENV,
         "CROSSDESK_BASE_URL",
         "CROSSDESK_API_KEY",
-    }
+    } | set(SHARED_MODEL_ENV_NAMES) | set(LEGACY_SUMMARY_MODEL_ENV_NAMES)
     path = get_dashboard_env_file(PROJECT_ROOT)
     if not path.exists():
         return
@@ -471,11 +481,12 @@ TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
 SINA_QUOTE_URL = "https://hq.sinajs.cn/list="
 EASTMONEY_STOCK_URL = "https://push2.eastmoney.com/api/qt/stock/get"
 EASTMONEY_UT = "bd1d9ddb04089700cf9c27f6f7426281"
-MODEL = os.environ.get("DASHBOARD_DECISION_MODEL") or "deepseek-v4-pro"
-DECISION_STREAM_MODE = os.environ.get("DASHBOARD_DECISION_STREAM_MODE") or "auto"
-DECISION_REASONING_EFFORT = os.environ.get("DASHBOARD_DECISION_REASONING_EFFORT") or ""
-DECISION_CONTEXT_LENGTH = env_token_count("DASHBOARD_DECISION_CONTEXT_LENGTH", 128000)
-DECISION_MAX_TOKENS = env_int("DASHBOARD_DECISION_MAX_TOKENS", 4096)
+_SHARED_MODEL = resolve_shared_model_config(os.environ)
+MODEL = _SHARED_MODEL.model
+DECISION_STREAM_MODE = _SHARED_MODEL.stream_mode
+DECISION_REASONING_EFFORT = _SHARED_MODEL.reasoning_effort
+DECISION_CONTEXT_LENGTH = token_count_value(_SHARED_MODEL.context_length, 128000)
+DECISION_MAX_TOKENS = token_count_value(_SHARED_MODEL.max_tokens, 4096)
 DECISION_REQUEST_TIMEOUT = env_int("DASHBOARD_DECISION_TIMEOUT", 180)
 PROVIDER_DISPLAY_NAME = "Crossdesk.ccwu.cc"
 CROSSDESK_PROVIDER_NAME = "Crossdesk.ccwu.cc"
@@ -7248,8 +7259,11 @@ def maybe_record_session_equity_heartbeat(min_interval_seconds: int = EQUITY_HEA
 
 
 def load_crossdesk_config(base_url_env: str = "", api_key_env: str = "") -> tuple[str, str]:
-    env_base_url = os.environ.get(base_url_env) if base_url_env else ""
-    env_api_key = os.environ.get(api_key_env) if api_key_env else ""
+    shared = resolve_shared_model_config(os.environ)
+    env_base_url = shared.base_url if base_url_env == "DASHBOARD_DECISION_BASE_URL" else ""
+    env_api_key = shared.api_key if api_key_env == "DASHBOARD_DECISION_API_KEY" else ""
+    env_base_url = env_base_url or (os.environ.get(base_url_env) if base_url_env else "")
+    env_api_key = env_api_key or (os.environ.get(api_key_env) if api_key_env else "")
     env_base_url = env_base_url or os.environ.get("CROSSDESK_BASE_URL")
     env_api_key = env_api_key or os.environ.get("CROSSDESK_API_KEY")
     if env_base_url and env_api_key:

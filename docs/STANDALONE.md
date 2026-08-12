@@ -106,20 +106,19 @@ NiuOne 的盘面总结和买卖决策需要接入大模型。美股机构评级�
 | 场景 | 推荐模型或数据源 | 主要配置项 |
 |---|---|---|
 | 美股机构评级日报 | Financial Modeling Prep（FMP） | `FMP_API_BASE_URL`、`FMP_API_KEY`、`FMP_RATING_MAX_RESULTS`、`DASHBOARD_US_RATING_CRON`、`US_RATING_DEADLINE_SECONDS`、`US_RATING_REQUEST_TIMEOUT_SECONDS` |
-| A 股与隔夜美股盘面总结 | OpenAI 兼容模型 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_STREAM_MODE`、`A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`、`A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
+| 买卖决策、文字策略细化、消息判断及 A 股/隔夜美股盘面总结 | 共享的 OpenAI 兼容模型 | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL`、`DASHBOARD_DECISION_STREAM_MODE`、`DASHBOARD_DECISION_REASONING_EFFORT`、`DASHBOARD_DECISION_CONTEXT_LENGTH`、`DASHBOARD_DECISION_MAX_TOKENS` |
 | 问财龙虎榜研究数据与消息面预检 | 同花顺问财 OpenAPI | `IWENCAI_ENABLED`、`IWENCAI_NEWS_PRECHECK_ENABLED`、`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_TIMEOUT_SECONDS`、`IWENCAI_MAX_RETRIES`、`IWENCAI_MAX_CONCURRENCY`、`IWENCAI_CACHE_TTL_SECONDS`、`IWENCAI_DRAGON_TIGER_CRON` |
-| 选股后的买卖决策 | 推荐 DeepSeek，可用其他兼容模型 | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL`、`DASHBOARD_DECISION_STREAM_MODE`、`DASHBOARD_DECISION_REASONING_EFFORT` |
 | 买卖决策情报包 | 本地聚合，不需要额外模型 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`、`DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`、`DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 
 思考强度仍允许手动填写，留空则不发送。已知常见模型会按本地能力表在保存、手动测试和运行请求前校验，表外自定义模型保持自由填写；调用层会按 Qwen、MiniMax、GLM、MiMo 等官方协议自动转换字段，并在兼容值不代表真实档位时显示映射。设置页的“查看常见模型思考强度表”及[部署手册](OPERATIONS.md#常见模型思考强度表)列出当前值和兼容映射。
 
 “财经快讯”不依赖大模型、API Key 或服务地址配置。Compose 部署会随牛牛1号自动启动、停止和恢复官方 NewsNow 容器，Dashboard 通过私有容器网络读取，用户无需管理独立端口或进程；NewsNow 数据保存在独立的 `newsnow-data` volume。管理设置页仅提供财经商业分类下 12 个实际来源的搜索与多选，默认来源为财联社电报、金十数据和华尔街见闻快讯。总览页会在右下角纵向展示最近 5 条快讯，默认仅显示重要信息；关闭“在总览中仅显示重要信息”后会显示全部类型，但不改变完整财经快讯页。使用 `run.sh` / `run.bat` 的原生部署也无需配置，未运行容器 sidecar 时会自动使用公共服务兜底。Dashboard 只向浏览器暴露规范化后的同源 `/api/realtime-news`，成功刷新按 ID 合并并默认有界保留 300 条滚动历史，其中优先保留最多 50 条重要快讯；上游失败时继续使用 `.local-data/runtime/news/realtime_news_latest.json` 中的已保存历史并标记缓存状态。
 
-启动后点击页面上的设置按钮，在设置页维护模型、数据源和任务时间。模型分组可点击“测试模型连接”；“美股机构评级”分组可点击“测试数据源连接”。测试使用页面当前填写值但不会自动保存，API Key 留空时复用已保存密钥。FMP Key 通过请求头发送，不写入 URL 或日志。
+启动后点击页面上的设置按钮，在独立的“模型配置”栏目维护共享模型；买卖决策和盘面监控不再分别配置模型。该栏目可点击“测试模型连接”；“美股机构评级”分组可点击“测试数据源连接”。测试使用页面当前填写值但不会自动保存，API Key 留空时复用已保存密钥。FMP Key 通过请求头发送，不写入 URL 或日志。
 美股评级相关设置由“开启美股机构评级”总开关控制；关闭时这些设置会折叠隐藏并跳过美股评级定时任务。主评级数据请求失败时任务失败并交给调度器重试；目标价或行情补充失败时仅降级相应字段，不覆盖已有报告。
-每套模型的 `*_STREAM_MODE` 默认 `auto`：通常使用非流式，只有网关明确要求 `stream=true` 时自动切换；也可设置 `stream` 或 `non_stream` 强制传输方式。流式内容会先完整拼接再校验和使用。
-文字策略的 AI 细化复用买卖决策配置；为了在浏览器实时展示输出，该交互流程在 `auto` 下保持流式，选择 `non_stream` 后改为整段返回。
-`*_CONTEXT_LENGTH` 只表示模型上下文窗口，默认 `128000`；`*_MAX_TOKENS` 表示本次请求的最大输出长度，调用层会按 Chat 或 Responses 接口映射兼容参数。JSON 与 SSE 返回均受支持。
+共享模型的 `DASHBOARD_DECISION_STREAM_MODE` 默认 `auto`：通常使用非流式，只有网关明确要求 `stream=true` 时自动切换；也可设置 `stream` 或 `non_stream` 强制传输方式。流式内容会先完整拼接再校验和使用。
+文字策略的 AI 细化复用共享模型；为了在浏览器实时展示输出，该交互流程在 `auto` 下保持流式，选择 `non_stream` 后改为整段返回。
+`DASHBOARD_DECISION_CONTEXT_LENGTH` 只表示模型上下文窗口，默认 `128000`；`DASHBOARD_DECISION_MAX_TOKENS` 表示本次请求的最大输出长度，调用层会按 Chat 或 Responses 接口映射兼容参数。JSON 与 SSE 返回均受支持。
 `IWENCAI_NEWS_PRECHECK_ENABLED` 默认关闭，可在“问财数据源”设置分组开启。开启后复用已保存的 `IWENCAI_*` 检索配置和 `DASHBOARD_DECISION_*` 买卖决策模型配置。问财公告、新闻和事件技能返回的最近 3 天证据经过身份校验和去重后，由买卖决策模型判断利好、利空或中性；没有证据时直接记为中性。模型失败时标记判断不可用，绝不回退关键词规则，也不拿价格或资金流替代消息。旧 `DASHBOARD_NEWS_*` 配置不再读取。
 问财数据源默认关闭；“问财数据源”设置分组可通过“测试问财接口”验证行情及三个消息面技能，不保存配置或改写快照。额外开启消息面预检后，符合条件的股票会组合查询问财证据并由买卖决策模型判断；关闭时完全跳过。检索或判断失败不会影响龙虎榜主体快照。密钥只保存在本机私有 `dashboard.env`，页面不会回显。
 

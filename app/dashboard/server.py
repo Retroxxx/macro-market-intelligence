@@ -41,6 +41,13 @@ from core.model_reasoning import (
     reasoning_effort_capability_catalog,
     resolve_model_reasoning_effort,
 )
+from core.shared_model_config import (
+    LEGACY_SUMMARY_MODEL_ENV_NAMES,
+    SHARED_MODEL_ENV_NAMES,
+    SHARED_MODEL_NAMES,
+    legacy_summary_migration_values,
+    resolve_shared_model_config,
+)
 from dashboard import practice_payload as practice_payload_impl
 from dashboard import practice_market_summary as practice_market_summary_impl
 from dashboard.niuone_mainline import build_niuone_mainline_view
@@ -800,9 +807,9 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_CRON_RETRY_DELAY_SECONDS", "label": "Cron 失败重试间隔秒数", "group": "任务调度", "kind": "int", "default": "300", "effect": "next_run"},
     {"name": "DASHBOARD_PENDING_DECISION_POLL_SECONDS", "label": "延迟成交检查秒数", "group": "任务调度", "kind": "int", "default": "5", "effect": "restart"},
 
-    {"name": "DASHBOARD_DECISION_MAX_TOKENS", "label": "决策最大输出长度", "group": "买卖决策模型", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
-    {"name": "DASHBOARD_DECISION_TIMEOUT", "label": "决策请求超时", "group": "买卖决策模型", "kind": "int", "default": "180", "effect": "next_run"},
-    {"name": "DASHBOARD_PROMPT_REFINEMENT_MAX_CONCURRENCY", "label": "文字策略细化并发数", "group": "买卖决策模型", "kind": "int", "default": "1", "effect": "restart", "min": "1", "max": "2"},
+    {"name": "DASHBOARD_DECISION_MAX_TOKENS", "label": "模型最大输出长度", "group": "模型配置", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
+    {"name": "DASHBOARD_DECISION_TIMEOUT", "label": "买卖决策请求超时", "group": "任务调度", "kind": "int", "default": "180", "effect": "next_run"},
+    {"name": "DASHBOARD_PROMPT_REFINEMENT_MAX_CONCURRENCY", "label": "文字策略细化并发数", "group": "任务调度", "kind": "int", "default": "1", "effect": "restart", "min": "1", "max": "2"},
     {"name": "DASHBOARD_DECISION_INTELLIGENCE_ENABLED", "label": "启用综合决策参考", "group": "综合决策参考", "kind": "bool", "default": "1", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS", "label": "决策参考缓存秒数", "group": "综合决策参考", "kind": "int", "default": "75", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS", "label": "单类参考数据上限", "group": "综合决策参考", "kind": "int", "default": "5", "effect": "next_run"},
@@ -846,12 +853,12 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "FMP_RATING_MAX_RESULTS", "label": "每日报告最多股票数", "group": "美股机构评级", "kind": "int", "default": "10", "effect": "next_run", "min": "1", "max": "50"},
     {"name": "CROSSDESK_BASE_URL", "label": "Crossdesk Base URL", "group": "上游模型覆盖", "kind": "text", "default": "", "effect": "next_run"},
     {"name": "CROSSDESK_API_KEY", "label": "Crossdesk API Key", "group": "上游模型覆盖", "kind": "secret", "default": "", "effect": "next_run"},
-    {"name": "DASHBOARD_DECISION_MODEL", "label": "买卖决策模型", "group": "买卖决策模型", "kind": "text", "default": "deepseek-v4-pro", "effect": "next_run"},
-    {"name": "DASHBOARD_DECISION_STREAM_MODE", "label": "买卖决策流式模式", "group": "买卖决策模型", "kind": "stream_mode", "default": "auto", "effect": "next_run"},
-    {"name": "DASHBOARD_DECISION_REASONING_EFFORT", "label": "买卖决策思考强度", "group": "买卖决策模型", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
-    {"name": "DASHBOARD_DECISION_CONTEXT_LENGTH", "label": "买卖决策上下文长度", "group": "买卖决策模型", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
-    {"name": "DASHBOARD_DECISION_BASE_URL", "label": "买卖决策 API 地址", "group": "买卖决策模型", "kind": "text", "default": "", "effect": "next_run"},
-    {"name": "DASHBOARD_DECISION_API_KEY", "label": "买卖决策 API 密钥", "group": "买卖决策模型", "kind": "secret", "default": "", "effect": "next_run"},
+    {"name": "DASHBOARD_DECISION_MODEL", "label": "模型名称", "group": "模型配置", "kind": "text", "default": "deepseek-v4-pro", "effect": "next_run"},
+    {"name": "DASHBOARD_DECISION_STREAM_MODE", "label": "流式模式", "group": "模型配置", "kind": "stream_mode", "default": "auto", "effect": "next_run"},
+    {"name": "DASHBOARD_DECISION_REASONING_EFFORT", "label": "思考强度", "group": "模型配置", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
+    {"name": "DASHBOARD_DECISION_CONTEXT_LENGTH", "label": "上下文长度", "group": "模型配置", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
+    {"name": "DASHBOARD_DECISION_BASE_URL", "label": "API 地址", "group": "模型配置", "kind": "text", "default": "", "effect": "next_run"},
+    {"name": "DASHBOARD_DECISION_API_KEY", "label": "API 密钥", "group": "模型配置", "kind": "secret", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_US_MARKET_SUMMARY_CRON", "label": "隔夜美股盘面总结时间", "group": "盘面监控生产时间点", "kind": "cron_time", "default": "0 8 * * 1-5", "effect": "next_run"},
     {"name": "US_MARKET_SUMMARY_MAX_TOKENS", "label": "隔夜美股总结最大输出长度", "group": "盘面监控生产时间点", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
     {"name": "DASHBOARD_MARKET_AUCTION_CRON", "label": "盘前竞价监控时间", "group": "盘面监控生产时间点", "kind": "cron_time", "default": "25 9 * * 1-5", "effect": "next_run"},
@@ -885,7 +892,6 @@ ENV_CONFIG_BY_NAME = {item["name"]: item for item in ENV_CONFIG_SCHEMA}
 
 REASONING_EFFORT_MODEL_NAMES: dict[str, tuple[str, ...]] = {
     "DASHBOARD_DECISION_REASONING_EFFORT": ("DASHBOARD_DECISION_MODEL",),
-    "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT": ("A_SHARE_MODEL_SUMMARY_MODEL",),
 }
 
 ADMIN_VISIBLE_ENV_NAMES = [
@@ -978,18 +984,10 @@ ADMIN_VISIBLE_ENV_NAMES = [
     ACTIVE_STRATEGY_ENV,
     PRESET_STRATEGY_TEXT_ENV,
     "DASHBOARD_US_MARKET_SUMMARY_CRON",
-    "US_MARKET_SUMMARY_MAX_TOKENS",
     "DASHBOARD_MARKET_AUCTION_CRON",
     "DASHBOARD_MARKET_MIDDAY_CRON",
     "DASHBOARD_MARKET_CLOSE_CRON",
     "A_SHARE_MODEL_SUMMARY_ENABLED",
-    "A_SHARE_MODEL_SUMMARY_MODEL",
-    "A_SHARE_MODEL_SUMMARY_STREAM_MODE",
-    "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",
-    "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH",
-    "A_SHARE_MODEL_SUMMARY_MAX_TOKENS",
-    "A_SHARE_MODEL_SUMMARY_BASE_URL",
-    "A_SHARE_MODEL_SUMMARY_API_KEY",
     "A_SHARE_MODEL_SUMMARY_DEADLINE_SECONDS",
     "A_SHARE_MODEL_SUMMARY_REQUEST_TIMEOUT_SECONDS",
     "DASHBOARD_CRON_MAX_ATTEMPTS",
@@ -1038,7 +1036,7 @@ TRADER_RUNTIME_ENV_NAMES = {
 ENV_GROUP_ORDER = [
     "财经快讯",
     "美股机构评级",
-    "买卖决策模型",
+    "模型配置",
     "交易规则与风控",
     "交易通知",
     "选股与买卖设置",
@@ -6373,15 +6371,15 @@ CRON_TIME_CONFIGS = {
 }
 ADMIN_GROUP_NOTES = {
     "财经快讯": "通过 NewsNow 聚合财联社电报、金十数据和华尔街见闻快讯。可选择是否将重要快讯写入买卖决策证据；交易日 15:00 后及休市日信息归入下一交易日。无需 API Key 或服务地址配置；Compose 部署会随牛牛1号自动启动内置实例，来源抓取失败时继续展示最近一次成功缓存并标记陈旧。",
-    "美股机构评级": "通过 Financial Modeling Prep（FMP）结构化数据生成机构买入评级日报，不调用大模型。关闭时隐藏评级相关设置并跳过评级任务；隔夜美股总结仍使用“盘面监控生产时间点”中的盘面总结模型。",
+    "美股机构评级": "通过 Financial Modeling Prep（FMP）结构化数据生成机构买入评级日报，不调用大模型。关闭时隐藏评级相关设置并跳过评级任务；隔夜美股总结使用独立“模型配置”栏目中的共享模型。",
     "问财数据源": "统一管理龙虎榜与可选消息面预检。问财官方公告、新闻和事件技能负责检索；最近 3 天证据经身份校验和去重后，由“买卖决策模型”判断利好、利空或中性。无有效证据直接记为中性；模型失败时标记判断不可用，不回退关键词规则。",
-    "买卖决策模型": "推荐使用 deepseek-v4-pro；也可填写其他 OpenAI 兼容模型服务，已知 Qwen Responses 型号会在 auto 逻辑下自动选择 Responses API。长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
+    "模型配置": "买卖决策、文字策略 AI 细化、问财消息判断、A 股盘面总结和隔夜美股总结共用这一套 OpenAI 兼容模型。推荐使用 deepseek-v4-pro；已知 Qwen Responses 型号会在 auto 逻辑下自动选择 Responses API。长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
     "交易规则与风控": "约束买卖决策必须遵守的交易纪律、持仓数量、仓位比例、现金缓冲与盘面控仓规则。交易纪律 Prompt 会直接写入决策模型的必须遵守段。",
     "交易通知": "模拟买入或卖出成交落盘后推送。从下拉框按需添加渠道并分块配置；每个渠道可独立启用或关闭，关闭会保留配置，移除并保存后才会清除配置。Webhook、Bot Token 和签名密钥只保存、不回显。",
     "选股与买卖设置": "配置选股范围、候选数量和北京时间交易时点；板块分类固定使用东方财富概念与行业。",
     "综合决策参考": "为买卖决策汇总指数、板块、资金流向、热门股票等参考数据。缓存秒数控制数据复用周期，单类参考数据上限可设置为 1～8。",
     "选股与交易策略": "选择一套独立策略；基础策略、Z哥、李大霄、板块潮汐、牛牛战法和预设文字策略的候选、买入、卖出、仓位与 Prompt 规则互不混用。",
-    "盘面监控生产时间点": "直接填写北京时间 HH:MM；隔夜美股总结默认交易日 08:00 生成，并与 A 股竞价、午盘、盘后总结共用本组模型、地址和密钥，不再读取旧 Grok 配置。长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
+    "盘面监控生产时间点": "直接填写北京时间 HH:MM；隔夜美股总结默认交易日 08:00 生成，并与 A 股竞价、午盘、盘后总结共用“模型配置”栏目中的模型、地址和密钥。",
     "行情与资金流设置": "统一管理公开快照、指数刷新和行业资金流动画。播放速度、每侧行业数量、采样间隔及上午/下午采样窗口均支持运行时保存后生效；时间使用北京时间 HH:MM，默认 09:25～11:31、13:00～15:01。",
     "关于": "查看项目作者、源代码仓库、开源许可和版本信息，并控制首页是否在打开或重新加载时自动检测新版本。",
 }
@@ -6405,10 +6403,10 @@ ADMIN_SETTING_GROUPS: tuple[dict[str, str], ...] = (
         "icon": "新闻",
     },
     {
-        "slug": "decision-model",
-        "name": "买卖决策模型",
-        "summary": "配置交易决策模型、API 接入与输出限制。",
-        "icon": "决策",
+        "slug": "model-config",
+        "name": "模型配置",
+        "summary": "配置买卖决策与盘面总结共用的模型和 API。",
+        "icon": "模型",
     },
     {
         "slug": "trading-risk",
@@ -6972,7 +6970,8 @@ def sync_business_runtime_settings(
     runtime_names = set(sync_names) if sync_names is not None else set(changed_names)
     env_values = parse_env_file()
     visible_names = admin_visible_env_names(env_values)
-    for name in visible_names:
+    syncable_names = set(visible_names) | set(LEGACY_SUMMARY_MODEL_ENV_NAMES)
+    for name in syncable_names:
         if name not in runtime_names:
             continue
         if name in env_values:
@@ -7103,15 +7102,32 @@ def persist_and_sync_business_updates(
 ) -> dict[str, Any]:
     """Persist and hot-apply one validated update set as a single operation."""
 
+    migrated_updates = dict(updates)
     migrated_clear_names = set(clear_names or set())
     if PRACTICE_SCHEDULE_TIMES_ENV in updates:
         migrated_clear_names.add(LEGACY_B1_SCHEDULE_TIMES_ENV)
     with ENV_FILE_WRITE_LOCK:
+        existing = parse_env_file(include_container_overrides=False)
+        if set(migrated_updates) & set(SHARED_MODEL_ENV_NAMES):
+            for name, value in legacy_summary_migration_values(existing).items():
+                if not str(migrated_updates.get(name) or existing.get(name) or "").strip():
+                    migrated_updates[name] = value
+            prospective = dict(existing)
+            prospective.update(
+                (name, value)
+                for name, value in migrated_updates.items()
+                if str(value or "").strip()
+            )
+            if (
+                str(prospective.get(SHARED_MODEL_NAMES["base_url"]) or "").strip()
+                and str(prospective.get(SHARED_MODEL_NAMES["api_key"]) or "").strip()
+            ):
+                migrated_clear_names.update(LEGACY_SUMMARY_MODEL_ENV_NAMES)
         result = _write_env_file_values_unlocked(
-            updates,
+            migrated_updates,
             clear_names=migrated_clear_names,
         )
-        sync_names = set(updates) | migrated_clear_names
+        sync_names = set(migrated_updates) | migrated_clear_names
         result["runtime"] = sync_business_runtime_settings(
             result.get("changed_names") or [],
             sync_names=sync_names,
@@ -7166,8 +7182,9 @@ def model_test_provider_fallbacks() -> dict[str, dict[str, str]]:
             crossdesk = provider
 
     return {
+        "shared-model": crossdesk,
         "decision-model": crossdesk,
-        "a-share-summary-model": {},
+        "a-share-summary-model": crossdesk,
     }
 
 
@@ -7306,9 +7323,9 @@ def create_prompt_strategy_draft(raw_prompt: str) -> dict[str, Any]:
 
 
 def _prompt_refinement_config() -> ResolvedModelTestConfig:
-    settings, fallback = model_test_settings_snapshot("decision-model")
+    settings, fallback = model_test_settings_snapshot("shared-model")
     config = resolve_model_test_config(
-        "decision-model",
+        "shared-model",
         settings,
         provider_fallback=fallback,
     )
@@ -7320,7 +7337,7 @@ def _prompt_refinement_config() -> ResolvedModelTestConfig:
     if not config.api_key:
         missing.append("API Key")
     if missing:
-        raise ValueError("请先配置买卖决策" + "、".join(missing))
+        raise ValueError("请先配置共享模型的" + "、".join(missing))
     return config
 
 
@@ -7506,7 +7523,7 @@ def _request_prompt_refinement(messages: list[dict[str, str]]) -> str:
 def _prompt_refinement_identity(*, injected: bool) -> tuple[str, str]:
     if injected:
         return "injected-requester", "test"
-    return _prompt_refinement_config().model, "decision-model"
+    return _prompt_refinement_config().model, "shared-model"
 
 
 def _prompt_refinement_stream_event(event: str, payload: Mapping[str, Any]) -> str:
@@ -7822,7 +7839,18 @@ def business_config_fallback_value(
     name: str,
     *,
     crossdesk_provider: dict[str, str] | None = None,
+    shared_model: Any | None = None,
 ) -> tuple[str, str]:
+    if name in SHARED_MODEL_ENV_NAMES and shared_model is not None:
+        field = next(
+            (key for key, configured_name in SHARED_MODEL_NAMES.items() if configured_name == name),
+            "",
+        )
+        value = str(getattr(shared_model, field, "") or "")
+        if getattr(shared_model, "source", "") == "legacy_summary":
+            return value, "legacy summary settings"
+        if getattr(shared_model, "source", "") == "provider" and field in {"base_url", "api_key"}:
+            return value, "config.yaml"
     if name == "DASHBOARD_DECISION_BASE_URL":
         provider = crossdesk_provider if crossdesk_provider is not None else crossdesk_provider_values()
         return provider.get("base_url", ""), "config.yaml" if provider.get("base_url") else "default"
@@ -7835,6 +7863,14 @@ def business_config_fallback_value(
 def build_admin_config_payload() -> dict[str, Any]:
     env_values = parse_env_file()
     crossdesk_provider = crossdesk_provider_values()
+    shared_values = dict(env_values)
+    for name in set(SHARED_MODEL_ENV_NAMES) | set(LEGACY_SUMMARY_MODEL_ENV_NAMES):
+        if name in os.environ:
+            shared_values[name] = str(os.environ[name])
+    shared_model = resolve_shared_model_config(
+        shared_values,
+        provider_fallback=crossdesk_provider,
+    )
     visible_names = admin_visible_env_names(env_values)
     names = set(visible_names)
     items = []
@@ -7844,6 +7880,7 @@ def build_admin_config_payload() -> dict[str, Any]:
         fallback_value, fallback_source = business_config_fallback_value(
             name,
             crossdesk_provider=crossdesk_provider,
+            shared_model=shared_model,
         )
         if name == ACTIVE_STRATEGY_ENV and name not in env_values and name not in os.environ:
             fallback_value = active_strategy_suite(
@@ -7883,7 +7920,13 @@ def build_admin_config_payload() -> dict[str, Any]:
                 effective = fallback_value or default_value
             file_value = env_values.get(name)
             if file_value is None:
-                file_value = "" if schema.get("kind") == "secret" else default_value
+                file_value = (
+                    ""
+                    if schema.get("kind") == "secret"
+                    else fallback_value
+                    if fallback_source == "legacy summary settings"
+                    else default_value
+                )
             source = "process env" if name in os.environ else ("dashboard.env" if name in env_values else fallback_source)
         secret = schema.get("kind") == "secret" or is_secret_config_key(name)
         item = {

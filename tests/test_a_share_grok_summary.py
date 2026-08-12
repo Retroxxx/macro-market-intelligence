@@ -37,7 +37,7 @@ def load_module_with_env(updates: dict[str, str]):
 
 class AShareGrokSummaryTests(unittest.TestCase):
     def test_context_length_does_not_set_model_summary_max_tokens_default(self):
-        mod = load_module_with_env({"A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH": "256K"})
+        mod = load_module_with_env({"DASHBOARD_DECISION_CONTEXT_LENGTH": "256K"})
 
         self.assertEqual(mod.A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH, 256000)
         self.assertEqual(mod.A_SHARE_MODEL_SUMMARY_MAX_TOKENS, 4096)
@@ -45,8 +45,8 @@ class AShareGrokSummaryTests(unittest.TestCase):
 
     def test_max_tokens_env_sets_model_summary_output_tokens(self):
         mod = load_module_with_env({
-            "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH": "256K",
-            "A_SHARE_MODEL_SUMMARY_MAX_TOKENS": "4096",
+            "DASHBOARD_DECISION_CONTEXT_LENGTH": "256K",
+            "DASHBOARD_DECISION_MAX_TOKENS": "4096",
         })
 
         self.assertEqual(mod.A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH, 256000)
@@ -54,7 +54,7 @@ class AShareGrokSummaryTests(unittest.TestCase):
         self.assertEqual(mod.call_grok_api.__kwdefaults__["max_tokens"], 4096)
 
     def test_call_grok_api_omits_temperature_by_default(self):
-        mod = load_module_with_env({"A_SHARE_MODEL_SUMMARY_MODEL": "summary-test"})
+        mod = load_module_with_env({"DASHBOARD_DECISION_MODEL": "summary-test"})
         captured = {}
 
         class Resp:
@@ -90,8 +90,8 @@ class AShareGrokSummaryTests(unittest.TestCase):
 
     def test_call_grok_api_sends_configured_reasoning_effort(self):
         mod = load_module_with_env({
-            "A_SHARE_MODEL_SUMMARY_MODEL": "summary-test",
-            "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT": "high",
+            "DASHBOARD_DECISION_MODEL": "summary-test",
+            "DASHBOARD_DECISION_REASONING_EFFORT": "high",
         })
         captured = {}
 
@@ -118,8 +118,8 @@ class AShareGrokSummaryTests(unittest.TestCase):
 
     def test_call_grok_api_can_force_stream_transport(self):
         mod = load_module_with_env({
-            "A_SHARE_MODEL_SUMMARY_MODEL": "summary-test",
-            "A_SHARE_MODEL_SUMMARY_STREAM_MODE": "stream",
+            "DASHBOARD_DECISION_MODEL": "summary-test",
+            "DASHBOARD_DECISION_STREAM_MODE": "stream",
         })
         captured = {}
 
@@ -158,8 +158,8 @@ class AShareGrokSummaryTests(unittest.TestCase):
 
     def test_call_grok_api_auto_selects_qwen_responses(self):
         mod = load_module_with_env({
-            "A_SHARE_MODEL_SUMMARY_MODEL": "qwen3.7-plus",
-            "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT": "max",
+            "DASHBOARD_DECISION_MODEL": "qwen3.7-plus",
+            "DASHBOARD_DECISION_REASONING_EFFORT": "max",
         })
         captured = {}
 
@@ -189,16 +189,20 @@ class AShareGrokSummaryTests(unittest.TestCase):
 
     def test_model_summary_does_not_fall_back_to_legacy_grok_settings(self):
         mod = load_module_with_env({
+            "DASHBOARD_DECISION_MODEL": "",
+            "DASHBOARD_DECISION_BASE_URL": "",
+            "DASHBOARD_DECISION_API_KEY": "",
             "A_SHARE_MODEL_SUMMARY_MODEL": "",
             "A_SHARE_MODEL_SUMMARY_BASE_URL": "",
             "A_SHARE_MODEL_SUMMARY_API_KEY": "",
+            "DASHBOARD_CONFIG": "/tmp/niuone-missing-model-config.yaml",
             "A_SHARE_GROK_SUMMARY_MODEL": "legacy-summary",
             "DASHBOARD_GROK_MODEL": "legacy-grok",
             "DASHBOARD_GROK_BASE_URL": "https://legacy.example/v1",
             "DASHBOARD_GROK_API_KEY": "legacy-key",
         })
 
-        self.assertEqual(mod.A_SHARE_MODEL_SUMMARY_MODEL, "")
+        self.assertEqual(mod.A_SHARE_MODEL_SUMMARY_MODEL, "deepseek-v4-pro")
         self.assertEqual(mod._get_grok_credentials(), ("", ""))
 
     def test_parse_accepts_json_fence(self):

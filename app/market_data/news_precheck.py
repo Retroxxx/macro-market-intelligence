@@ -20,9 +20,11 @@ except ImportError:  # pragma: no cover - dependency is present in supported ins
 
 if __package__ and __package__.startswith("app."):
     from ..core.model_api import build_model_request, request_model_complete
+    from ..core.shared_model_config import resolve_shared_model_config
     from .iwencai_client import IwencaiClient, IwencaiConfig, IwencaiConfigurationError
 else:
     from core.model_api import build_model_request, request_model_complete
+    from core.shared_model_config import resolve_shared_model_config
     from market_data.iwencai_client import IwencaiClient, IwencaiConfig, IwencaiConfigurationError
 
 
@@ -94,6 +96,11 @@ class NewsPrecheckConfig:
             or values.get("CROSSDESK_API_KEY")
             or ""
         ).strip()
+        if explicit_decision_base_url and explicit_decision_api_key:
+            provider = {
+                "base_url": explicit_decision_base_url,
+                "api_key": explicit_decision_api_key,
+            }
         config_path = str(values.get("DASHBOARD_CONFIG") or os.environ.get("DASHBOARD_CONFIG") or "").strip()
         if not (explicit_decision_base_url and explicit_decision_api_key) and config_path and yaml is not None:
             try:
@@ -113,17 +120,10 @@ class NewsPrecheckConfig:
                         "api_key": str(raw_provider.get("api_key") or "").strip(),
                     }
                     break
-        model = str(values.get("DASHBOARD_DECISION_MODEL") or "deepseek-v4-pro").strip()
-        decision_base_url = str(
-            explicit_decision_base_url
-            or provider.get("base_url")
-            or ""
-        ).strip().rstrip("/")
-        decision_api_key = str(
-            explicit_decision_api_key
-            or provider.get("api_key")
-            or ""
-        ).strip()
+        shared_model = resolve_shared_model_config(values, provider_fallback=provider)
+        model = shared_model.model
+        decision_base_url = shared_model.base_url
+        decision_api_key = shared_model.api_key
         missing = [
             name
             for name, value in (
@@ -148,23 +148,27 @@ class NewsPrecheckConfig:
                 raise ValueError(f"iwencai_news_precheck_invalid:{name}")
             return value
 
+        def bounded_token_count(raw: str, default: int, minimum: int, maximum: int) -> int:
+            compact = str(raw or "").replace(",", "").replace("_", "").strip()
+            match = re.fullmatch(r"(\d+(?:\.\d+)?)([kKmM]?)", compact)
+            if not match:
+                return default
+            multiplier = {"": 1, "k": 1_000, "m": 1_000_000}[match.group(2).lower()]
+            return max(minimum, min(maximum, int(float(match.group(1)) * multiplier)))
+
         return cls(
             base_url=iwencai.base_url,
             api_key=iwencai.api_key,
             model=model,
             decision_base_url=decision_base_url,
             decision_api_key=decision_api_key,
-            decision_stream_mode=str(
-                values.get("DASHBOARD_DECISION_STREAM_MODE") or "auto"
-            ).strip(),
-            decision_reasoning_effort=str(
-                values.get("DASHBOARD_DECISION_REASONING_EFFORT") or ""
-            ).strip(),
+            decision_stream_mode=shared_model.stream_mode,
+            decision_reasoning_effort=shared_model.reasoning_effort,
             decision_timeout_seconds=bounded_int(
                 "DASHBOARD_DECISION_TIMEOUT", 180, 10, 1800
             ),
             decision_max_tokens=min(
-                bounded_int("DASHBOARD_DECISION_MAX_TOKENS", 4096, 256, 131072),
+                bounded_token_count(shared_model.max_tokens, 4096, 256, 131072),
                 1200,
             ),
             timeout_seconds=iwencai.timeout_seconds,

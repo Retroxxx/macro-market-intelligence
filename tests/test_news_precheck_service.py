@@ -78,6 +78,7 @@ class NewsPrecheckServiceTests(unittest.TestCase):
                 "IWENCAI_NEWS_PRECHECK_ENABLED": "1",
                 "IWENCAI_ENABLED": "1",
                 "IWENCAI_API_KEY": "iwencai-secret",
+                "DASHBOARD_CONFIG": "/tmp/niuone-missing-model-config.yaml",
             })
 
     def test_fetch_uses_iwencai_and_decision_model_judgment(self):

@@ -7575,8 +7575,18 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('<AdminEnvInput', ADMIN_FRONTEND)
         self.assertEqual(
             [item['id'] for item in payload['model_tests']],
-            ['decision-model', 'a-share-summary-model'],
+            ['shared-model'],
         )
+        model_group = next(group for group in payload['groups'] if group['slug'] == 'model-config')
+        self.assertEqual(model_group['name'], '模型配置')
+        self.assertFalse(any(
+            name.startswith('A_SHARE_MODEL_SUMMARY_') and name not in {
+                'A_SHARE_MODEL_SUMMARY_ENABLED',
+                'A_SHARE_MODEL_SUMMARY_DEADLINE_SECONDS',
+                'A_SHARE_MODEL_SUMMARY_REQUEST_TIMEOUT_SECONDS',
+            }
+            for name in item_names
+        ))
         self.assertEqual(
             [item['id'] for item in payload['data_source_tests']],
             ['fmp-ratings'],
@@ -7963,7 +7973,6 @@ process.stdout.write(JSON.stringify({{
         by_name = {item['name']: item for item in payload['items']}
         self.assertEqual(by_name['DASHBOARD_DECISION_BASE_URL']['effective'], 'https://crossdesk.example/v1')
         self.assertEqual(by_name['DASHBOARD_DECISION_API_KEY']['current_state'], '已设置')
-        self.assertEqual(by_name['A_SHARE_MODEL_SUMMARY_BASE_URL']['effective'], '')
         self.assertEqual(
             by_name['FMP_API_BASE_URL']['effective'],
             'https://financialmodelingprep.com/stable',
@@ -8007,19 +8016,12 @@ process.stdout.write(JSON.stringify({{
         payload = dashboard.build_admin_config_payload()
         by_name = {item['name']: item for item in payload['items']}
 
-        for name in [
-            'DASHBOARD_DECISION_CONTEXT_LENGTH',
-            'A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH',
-        ]:
+        for name in ['DASHBOARD_DECISION_CONTEXT_LENGTH']:
             item = by_name[name]
             self.assertEqual(item['default'], '128000')
             self.assertEqual(item['file_value'], '128000')
 
-        for name in [
-            'DASHBOARD_DECISION_MAX_TOKENS',
-            'US_MARKET_SUMMARY_MAX_TOKENS',
-            'A_SHARE_MODEL_SUMMARY_MAX_TOKENS',
-        ]:
+        for name in ['DASHBOARD_DECISION_MAX_TOKENS']:
             item = by_name[name]
             self.assertEqual(item['default'], '4096')
             self.assertEqual(item['file_value'], '4096')
@@ -8061,10 +8063,7 @@ process.stdout.write(JSON.stringify({{
                 dashboard.validate_business_updates({name: value})
 
     def test_reasoning_effort_settings_validate_known_models_and_keep_custom_free_form(self):
-        names = {
-            'DASHBOARD_DECISION_REASONING_EFFORT',
-            'A_SHARE_MODEL_SUMMARY_REASONING_EFFORT',
-        }
+        names = {'DASHBOARD_DECISION_REASONING_EFFORT'}
         items = {
             item['name']: item
             for item in dashboard.ENV_CONFIG_SCHEMA
@@ -8121,10 +8120,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('填写模型名称后会列出该模型全部可选思考强度', ADMIN_FRONTEND)
 
     def test_each_model_configuration_exposes_a_validated_stream_mode(self):
-        names = {
-            'DASHBOARD_DECISION_STREAM_MODE',
-            'A_SHARE_MODEL_SUMMARY_STREAM_MODE',
-        }
+        names = {'DASHBOARD_DECISION_STREAM_MODE'}
         items = {
             item['name']: item
             for item in dashboard.ENV_CONFIG_SCHEMA
@@ -8393,8 +8389,8 @@ process.stdout.write(JSON.stringify({{
             dashboard.B1_SCHEDULE_ENABLED = False
             updates = {
                 'DASHBOARD_US_FEATURES_ENABLED': '1',
-                'A_SHARE_MODEL_SUMMARY_MODEL': 'summary-new',
-                'A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH': '1M',
+                'DASHBOARD_DECISION_MODEL': 'summary-new',
+                'DASHBOARD_DECISION_CONTEXT_LENGTH': '1M',
                 'IWENCAI_NEWS_PRECHECK_ENABLED': '1',
                 'DASHBOARD_PRACTICE_SCHEDULE_TIMES': '09:25, 10:00, 14:50',
                 'DASHBOARD_US_MARKET_SUMMARY_CRON': '08:01',
@@ -8419,8 +8415,8 @@ process.stdout.write(JSON.stringify({{
                     dashboard.os.environ[name] = value
 
         self.assertEqual(parsed['DASHBOARD_US_FEATURES_ENABLED'], '1')
-        self.assertEqual(parsed['A_SHARE_MODEL_SUMMARY_MODEL'], 'summary-new')
-        self.assertEqual(parsed['A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH'], '1000000')
+        self.assertEqual(parsed['DASHBOARD_DECISION_MODEL'], 'summary-new')
+        self.assertEqual(parsed['DASHBOARD_DECISION_CONTEXT_LENGTH'], '1000000')
         self.assertEqual(parsed['IWENCAI_NEWS_PRECHECK_ENABLED'], '1')
         self.assertEqual(parsed['DASHBOARD_PRACTICE_SCHEDULE_TIMES'], '09:25,10:00,14:50')
         self.assertEqual(parsed['DASHBOARD_US_MARKET_SUMMARY_CRON'], '1 8 * * 1-5')
@@ -8432,11 +8428,60 @@ process.stdout.write(JSON.stringify({{
         self.assertNotIn('26 9 * * 1-5', payload_text)
         self.assertFalse(any('LaunchAgent' in item.get('source', '') for item in payload['items']))
 
+    def test_saving_shared_model_migrates_and_removes_legacy_summary_settings(self):
+        original_env_file = dashboard.DASHBOARD_ENV_FILE
+        names = set(dashboard.SHARED_MODEL_ENV_NAMES) | set(
+            dashboard.LEGACY_SUMMARY_MODEL_ENV_NAMES
+        )
+        original_env_values = {name: dashboard.os.environ.get(name) for name in names}
+        try:
+            dashboard.DASHBOARD_ENV_FILE = self.tmp_path / 'dashboard.env'
+            dashboard.DASHBOARD_ENV_FILE.write_text(
+                'A_SHARE_MODEL_SUMMARY_MODEL=legacy-model\n'
+                'A_SHARE_MODEL_SUMMARY_BASE_URL=https://legacy.example/v1\n'
+                'A_SHARE_MODEL_SUMMARY_API_KEY=legacy-key\n'
+                'A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH=256000\n',
+                encoding='utf-8',
+            )
+            for name in names:
+                dashboard.os.environ.pop(name, None)
+
+            before = dashboard.build_admin_config_payload()
+            before_by_name = {item['name']: item for item in before['items']}
+            result = dashboard.persist_and_sync_business_updates({
+                'DASHBOARD_DECISION_MODEL': 'legacy-model',
+                'DASHBOARD_DECISION_BASE_URL': 'https://legacy.example/v1',
+                'DASHBOARD_DECISION_API_KEY': '',
+                'DASHBOARD_DECISION_CONTEXT_LENGTH': '256000',
+            })
+            stored = dashboard.parse_env_file(
+                dashboard.DASHBOARD_ENV_FILE,
+                include_container_overrides=False,
+            )
+        finally:
+            dashboard.DASHBOARD_ENV_FILE = original_env_file
+            for name, value in original_env_values.items():
+                if value is None:
+                    dashboard.os.environ.pop(name, None)
+                else:
+                    dashboard.os.environ[name] = value
+
+        self.assertEqual(before_by_name['DASHBOARD_DECISION_MODEL']['file_value'], 'legacy-model')
+        self.assertEqual(before_by_name['DASHBOARD_DECISION_API_KEY']['current_state'], '已设置')
+        self.assertTrue(result['changed'])
+        self.assertEqual(stored['DASHBOARD_DECISION_MODEL'], 'legacy-model')
+        self.assertEqual(stored['DASHBOARD_DECISION_API_KEY'], 'legacy-key')
+        self.assertEqual(stored['DASHBOARD_DECISION_CONTEXT_LENGTH'], '256000')
+        self.assertFalse(set(dashboard.LEGACY_SUMMARY_MODEL_ENV_NAMES) & set(stored))
+
     @unittest.skipIf(dashboard.yaml is None, 'PyYAML unavailable')
     def test_model_api_base_urls_do_not_prefill_defaults(self):
         original_env_file = dashboard.DASHBOARD_ENV_FILE
         original_config_path = dashboard.CONFIG_PATH
-        original_env_values = {name: dashboard.os.environ.get(name) for name in dashboard.ADMIN_VISIBLE_ENV_NAMES}
+        isolated_names = set(dashboard.ADMIN_VISIBLE_ENV_NAMES) | set(
+            dashboard.LEGACY_SUMMARY_MODEL_ENV_NAMES
+        )
+        original_env_values = {name: dashboard.os.environ.get(name) for name in isolated_names}
         try:
             dashboard.DASHBOARD_ENV_FILE = self.tmp_path / 'dashboard.env'
             dashboard.DASHBOARD_ENV_FILE.write_text('DASHBOARD_US_FEATURES_ENABLED=1\n', encoding='utf-8')
@@ -8448,10 +8493,7 @@ process.stdout.write(JSON.stringify({{
                 '    api_key: provider-secret\n',
                 encoding='utf-8',
             )
-            for name in [
-                'A_SHARE_MODEL_SUMMARY_BASE_URL',
-                'DASHBOARD_DECISION_BASE_URL',
-            ]:
+            for name in isolated_names:
                 dashboard.os.environ.pop(name, None)
             payload = dashboard.build_admin_config_payload()
         finally:
@@ -8464,10 +8506,7 @@ process.stdout.write(JSON.stringify({{
                     dashboard.os.environ[name] = value
 
         by_name = {item['name']: item for item in payload['items']}
-        for name in [
-            'A_SHARE_MODEL_SUMMARY_BASE_URL',
-            'DASHBOARD_DECISION_BASE_URL',
-        ]:
+        for name in ['DASHBOARD_DECISION_BASE_URL']:
             item = by_name[name]
             self.assertEqual(item['default'], '')
             self.assertEqual(item['file_value'], '')
@@ -8475,7 +8514,6 @@ process.stdout.write(JSON.stringify({{
             by_name['DASHBOARD_DECISION_BASE_URL']['effective'],
             'https://crossdesk.example/v1',
         )
-        self.assertEqual(by_name['A_SHARE_MODEL_SUMMARY_BASE_URL']['effective'], '')
 
     def test_env_config_write_preserves_blank_secret_and_quotes_values(self):
         original_env_file = dashboard.DASHBOARD_ENV_FILE
@@ -8653,10 +8691,9 @@ process.stdout.write(JSON.stringify({{
             )
             body = urllib.parse.urlencode({
                 'env__DASHBOARD_US_FEATURES_ENABLED': '1',
-                'env__A_SHARE_MODEL_SUMMARY_MODEL': 'summary-test',
-                'env__A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH': '1M',
+                'env__DASHBOARD_DECISION_MODEL': 'summary-test',
                 'env__IWENCAI_NEWS_PRECHECK_ENABLED': '1',
-                'env__DASHBOARD_DECISION_CONTEXT_LENGTH': '256K',
+                'env__DASHBOARD_DECISION_CONTEXT_LENGTH': '1M',
                 'env__DASHBOARD_PRACTICE_SCHEDULE_TIMES': ['', '09:25', '10:00', '', '14:50'],
                 'env__DASHBOARD_INDICES_TTL_SECONDS': '20',
                 'env__DASHBOARD_INDUSTRY_FLOW_PLAYBACK_SPEED': '0.75',
@@ -8725,7 +8762,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('config', response)
         config_by_name = {item['name']: item for item in response['config']['items']}
         self.assertEqual(config_by_name['IWENCAI_NEWS_PRECHECK_ENABLED']['current_state'], '1')
-        self.assertEqual(config_by_name['A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH']['current_state'], '1000000')
+        self.assertEqual(config_by_name['DASHBOARD_DECISION_CONTEXT_LENGTH']['current_state'], '1000000')
         self.assertEqual(config_by_name['DASHBOARD_TELEGRAM_CHAT_ID']['current_state'], '已设置')
         self.assertNotEqual(config_by_name['DASHBOARD_TELEGRAM_CHAT_ID']['current_state'], telegram_chat_id)
         self.assertEqual(response['restart']['skipped'], 'hot_applied')
@@ -8737,10 +8774,9 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('strategy_settings', response['runtime']['applied'])
         self.assertIn('trader_runtime', response['runtime']['applied'])
         self.assertEqual(parsed['DASHBOARD_US_FEATURES_ENABLED'], '1')
-        self.assertEqual(parsed['A_SHARE_MODEL_SUMMARY_MODEL'], 'summary-test')
-        self.assertEqual(parsed['A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH'], '1000000')
+        self.assertEqual(parsed['DASHBOARD_DECISION_MODEL'], 'summary-test')
         self.assertEqual(parsed['IWENCAI_NEWS_PRECHECK_ENABLED'], '1')
-        self.assertEqual(parsed['DASHBOARD_DECISION_CONTEXT_LENGTH'], '256000')
+        self.assertEqual(parsed['DASHBOARD_DECISION_CONTEXT_LENGTH'], '1000000')
         self.assertEqual(parsed['DASHBOARD_PRACTICE_SCHEDULE_TIMES'], '09:25,10:00,14:50')
         self.assertEqual(parsed['DASHBOARD_INDICES_TTL_SECONDS'], '20')
         self.assertEqual(parsed['DASHBOARD_INDUSTRY_FLOW_PLAYBACK_SPEED'], '0.75')
@@ -8776,7 +8812,7 @@ process.stdout.write(JSON.stringify({{
         try:
             dashboard.DASHBOARD_ENV_FILE = self.tmp_path / 'dashboard.env'
             dashboard.DASHBOARD_ENV_FILE.write_text(
-                'A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH=1000000\n'
+                'DASHBOARD_DECISION_CONTEXT_LENGTH=1000000\n'
                 'IWENCAI_NEWS_PRECHECK_ENABLED=1\n',
                 encoding='utf-8',
             )
@@ -8785,7 +8821,7 @@ process.stdout.write(JSON.stringify({{
                 lambda: restart_calls.append(True) or {'ok': True}
             )
             body = urllib.parse.urlencode({
-                'env__A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH': '1M',
+                'env__DASHBOARD_DECISION_CONTEXT_LENGTH': '1M',
                 'env__IWENCAI_NEWS_PRECHECK_ENABLED': '1',
             }).encode('utf-8')
             handler = FakeHandler(
@@ -8818,7 +8854,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('config', response)
         config_by_name = {item['name']: item for item in response['config']['items']}
         self.assertEqual(config_by_name['IWENCAI_NEWS_PRECHECK_ENABLED']['current_state'], '1')
-        self.assertEqual(config_by_name['A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH']['current_state'], '1000000')
+        self.assertEqual(config_by_name['DASHBOARD_DECISION_CONTEXT_LENGTH']['current_state'], '1000000')
         self.assertEqual(response['restart']['skipped'], 'unchanged')
 
     def test_admin_config_api_removing_notification_channel_deletes_its_config(self):

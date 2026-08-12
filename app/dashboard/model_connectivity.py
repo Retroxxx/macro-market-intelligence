@@ -21,6 +21,11 @@ from core.model_reasoning import (
     effective_reasoning_effort,
     resolve_model_reasoning_effort,
 )
+from core.shared_model_config import (
+    LEGACY_SUMMARY_MODEL_ENV_NAMES,
+    SHARED_MODEL_ENV_NAMES,
+    resolve_shared_model_config,
+)
 
 
 MODEL_TEST_PROMPT = "这是一次模型连通性测试。无需解释，请只回复：连接成功"
@@ -46,13 +51,24 @@ class ModelTestTarget:
 
 MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
     ModelTestTarget(
-        id="decision-model",
-        group_slug="decision-model",
-        label="买卖决策模型",
-        description="按模型能力验证交易决策使用的 OpenAI 兼容接口。",
-        model_names=("DASHBOARD_DECISION_MODEL",),
-        base_url_names=("DASHBOARD_DECISION_BASE_URL", "CROSSDESK_BASE_URL"),
-        api_key_names=("DASHBOARD_DECISION_API_KEY", "CROSSDESK_API_KEY"),
+        id="shared-model",
+        group_slug="model-config",
+        label="共享模型",
+        description="验证买卖决策、文字策略细化和盘面总结共用的 OpenAI 兼容接口。",
+        model_names=(
+            "DASHBOARD_DECISION_MODEL",
+            "A_SHARE_MODEL_SUMMARY_MODEL",
+        ),
+        base_url_names=(
+            "DASHBOARD_DECISION_BASE_URL",
+            "A_SHARE_MODEL_SUMMARY_BASE_URL",
+            "CROSSDESK_BASE_URL",
+        ),
+        api_key_names=(
+            "DASHBOARD_DECISION_API_KEY",
+            "A_SHARE_MODEL_SUMMARY_API_KEY",
+            "CROSSDESK_API_KEY",
+        ),
         api_mode_names=(),
         stream_mode_names=("DASHBOARD_DECISION_STREAM_MODE",),
         reasoning_effort_names=("DASHBOARD_DECISION_REASONING_EFFORT",),
@@ -66,30 +82,17 @@ MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
         default_model="deepseek-v4-pro",
         default_api_mode="auto",
     ),
-    ModelTestTarget(
-        id="a-share-summary-model",
-        group_slug="market-monitoring",
-        label="盘面总结模型",
-        description="验证 A 股与隔夜美股盘面总结共用的模型、地址和密钥。",
-        model_names=("A_SHARE_MODEL_SUMMARY_MODEL",),
-        base_url_names=("A_SHARE_MODEL_SUMMARY_BASE_URL",),
-        api_key_names=("A_SHARE_MODEL_SUMMARY_API_KEY",),
-        api_mode_names=(),
-        stream_mode_names=("A_SHARE_MODEL_SUMMARY_STREAM_MODE",),
-        reasoning_effort_names=("A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",),
-        override_names=(
-            "A_SHARE_MODEL_SUMMARY_MODEL",
-            "A_SHARE_MODEL_SUMMARY_BASE_URL",
-            "A_SHARE_MODEL_SUMMARY_API_KEY",
-            "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",
-            "A_SHARE_MODEL_SUMMARY_STREAM_MODE",
-        ),
-        default_model="",
-        default_api_mode="auto",
-    ),
 )
 
 MODEL_TEST_TARGET_BY_ID = {target.id: target for target in MODEL_TEST_TARGETS}
+# Keep old API target ids callable during upgrades, while metadata exposes only
+# the single shared model test in the settings UI.
+MODEL_TEST_TARGET_BY_ID.update(
+    {
+        "decision-model": MODEL_TEST_TARGETS[0],
+        "a-share-summary-model": MODEL_TEST_TARGETS[0],
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -133,6 +136,8 @@ def model_test_setting_names() -> set[str]:
         names.update(target.api_mode_names)
         names.update(target.stream_mode_names)
         names.update(target.reasoning_effort_names)
+    names.update(SHARED_MODEL_ENV_NAMES)
+    names.update(LEGACY_SUMMARY_MODEL_ENV_NAMES)
     return names
 
 
@@ -154,23 +159,28 @@ def resolve_model_test_config(
     if target is None:
         raise ValueError("不支持的模型测试目标")
 
-    fallback = provider_fallback or {}
-    model = _first_value(values, target.model_names) or target.default_model
-    base_url = _first_value(values, target.base_url_names)
-    api_key = _first_value(values, target.api_key_names)
-    fallback_base_url = str(fallback.get("base_url") or "").strip()
-    fallback_api_key = str(fallback.get("api_key") or "").strip()
-    # Runtime loaders select a complete YAML provider only when the environment
-    # chain does not already contain both values. Do not combine a user-entered
-    # address with an unrelated provider secret.
-    if not (base_url and api_key) and fallback_base_url and fallback_api_key:
-        base_url = fallback_base_url
-        api_key = fallback_api_key
+    fallback = dict(provider_fallback or {})
+    crossdesk_base_url = str(values.get("CROSSDESK_BASE_URL") or "").strip()
+    crossdesk_api_key = str(values.get("CROSSDESK_API_KEY") or "").strip()
+    if crossdesk_base_url and crossdesk_api_key:
+        fallback = {
+            "base_url": crossdesk_base_url,
+            "api_key": crossdesk_api_key,
+            "model": str(fallback.get("model") or "").strip(),
+        }
+    shared = resolve_shared_model_config(
+        values,
+        provider_fallback=fallback,
+        default_model=target.default_model,
+    )
+    model = shared.model
+    base_url = shared.base_url
+    api_key = shared.api_key
     api_mode = _first_value(values, target.api_mode_names) or target.default_api_mode
     stream_mode = normalize_model_stream_mode(
-        _first_value(values, target.stream_mode_names) or "auto"
+        shared.stream_mode
     )
-    reasoning_effort = _first_value(values, target.reasoning_effort_names)
+    reasoning_effort = shared.reasoning_effort
     effort_resolution = resolve_model_reasoning_effort(model, reasoning_effort)
     return ResolvedModelTestConfig(
         target=target,

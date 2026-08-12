@@ -20,6 +20,12 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from core.model_api import build_model_request, request_model_complete
+from core.shared_model_config import (
+    LEGACY_SUMMARY_MODEL_ENV_NAMES,
+    SHARED_MODEL_ENV_NAMES,
+    load_crossdesk_provider,
+    resolve_shared_model_config,
+)
 from niuone_paths import get_dashboard_env_file, get_dashboard_home
 
 CN_TZ = ZoneInfo("Asia/Shanghai")
@@ -169,17 +175,11 @@ US_SECTOR_PROXY_DEFS: list[dict[str, Any]] = [
 
 def load_dashboard_env() -> None:
     allowed = {
-        "A_SHARE_MODEL_SUMMARY_MODEL",
-        "A_SHARE_MODEL_SUMMARY_STREAM_MODE",
-        "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",
-        "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH",
-        "A_SHARE_MODEL_SUMMARY_MAX_TOKENS",
-        "A_SHARE_MODEL_SUMMARY_BASE_URL",
-        "A_SHARE_MODEL_SUMMARY_API_KEY",
         "US_MARKET_SUMMARY_MAX_TOKENS",
         "US_MARKET_SUMMARY_DEADLINE_SECONDS",
         "US_MARKET_SUMMARY_REQUEST_TIMEOUT_SECONDS",
-    }
+        "DASHBOARD_CONFIG",
+    } | set(SHARED_MODEL_ENV_NAMES) | set(LEGACY_SUMMARY_MODEL_ENV_NAMES)
     path = get_dashboard_env_file(PROJECT_ROOT)
     if not path.exists():
         return
@@ -205,51 +205,42 @@ def _int_env(name: str, default: int, *, min_value: int) -> int:
     return max(min_value, value)
 
 
-def _token_count_env(*names: str, default: int) -> int:
-    for name in names:
-        raw = str(os.environ.get(name) or "").strip()
-        if not raw:
-            continue
+def _token_count_value(raw: str, *, default: int) -> int:
+    raw = str(raw or "").strip()
+    if raw:
         compact = raw.replace(",", "").replace("_", "").strip()
         match = re.fullmatch(r"(\d+(?:\.\d+)?)([kKmM]?)", compact)
-        if not match:
-            continue
-        number = float(match.group(1))
-        unit = match.group(2).lower()
-        multiplier = 1_000_000 if unit == "m" else 1_000 if unit == "k" else 1
-        value = int(number * multiplier)
-        if value > 0:
-            return value
+        if match:
+            number = float(match.group(1))
+            unit = match.group(2).lower()
+            multiplier = 1_000_000 if unit == "m" else 1_000 if unit == "k" else 1
+            value = int(number * multiplier)
+            if value > 0:
+                return value
     return default
 
 
-US_MARKET_SUMMARY_MODEL = (
-    os.environ.get("A_SHARE_MODEL_SUMMARY_MODEL")
-    or ""
+_SHARED_MODEL = resolve_shared_model_config(
+    os.environ,
+    provider_fallback=load_crossdesk_provider(
+        os.environ.get("DASHBOARD_CONFIG") or DASHBOARD_HOME / "config.yaml"
+    ),
 )
-US_MARKET_SUMMARY_STREAM_MODE = str(
-    os.environ.get("A_SHARE_MODEL_SUMMARY_STREAM_MODE") or "auto"
-).strip()
-US_MARKET_SUMMARY_REASONING_EFFORT = str(
-    os.environ.get("A_SHARE_MODEL_SUMMARY_REASONING_EFFORT") or ""
-).strip()
+US_MARKET_SUMMARY_MODEL = _SHARED_MODEL.model
+US_MARKET_SUMMARY_STREAM_MODE = _SHARED_MODEL.stream_mode
+US_MARKET_SUMMARY_REASONING_EFFORT = _SHARED_MODEL.reasoning_effort
 US_MARKET_SUMMARY_DEADLINE_SECONDS = _int_env("US_MARKET_SUMMARY_DEADLINE_SECONDS", 150, min_value=30)
 US_MARKET_SUMMARY_REQUEST_TIMEOUT_SECONDS = _int_env("US_MARKET_SUMMARY_REQUEST_TIMEOUT_SECONDS", 90, min_value=10)
-US_MARKET_SUMMARY_CONTEXT_LENGTH = _token_count_env(
-    "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH",
+US_MARKET_SUMMARY_CONTEXT_LENGTH = _token_count_value(
+    _SHARED_MODEL.context_length,
     default=128000,
 )
-US_MARKET_SUMMARY_MAX_TOKENS = _token_count_env(
-    "US_MARKET_SUMMARY_MAX_TOKENS",
-    "A_SHARE_MODEL_SUMMARY_MAX_TOKENS",
+US_MARKET_SUMMARY_MAX_TOKENS = _token_count_value(
+    _SHARED_MODEL.max_tokens,
     default=4096,
 )
-US_MARKET_SUMMARY_BASE_URL = str(
-    os.environ.get("A_SHARE_MODEL_SUMMARY_BASE_URL") or ""
-).strip().rstrip("/")
-US_MARKET_SUMMARY_API_KEY = str(
-    os.environ.get("A_SHARE_MODEL_SUMMARY_API_KEY") or ""
-).strip()
+US_MARKET_SUMMARY_BASE_URL = _SHARED_MODEL.base_url
+US_MARKET_SUMMARY_API_KEY = _SHARED_MODEL.api_key
 
 
 def previous_us_session_date(cn_day: date | datetime | None = None) -> date:
@@ -297,10 +288,10 @@ def _is_transient_error(err: Exception) -> bool:
 
 def _call_grok_api(messages: list[dict[str, str]], *, max_tokens: int = US_MARKET_SUMMARY_MAX_TOKENS) -> str:
     if not US_MARKET_SUMMARY_MODEL:
-        raise RuntimeError("market summary model not configured: set A_SHARE_MODEL_SUMMARY_MODEL")
+        raise RuntimeError("shared model not configured: set DASHBOARD_DECISION_MODEL")
     base_url, api_key = _get_grok_credentials()
     if not base_url or not api_key:
-        raise RuntimeError("market summary credentials not found: set A_SHARE_MODEL_SUMMARY_BASE_URL/API_KEY")
+        raise RuntimeError("shared model credentials not found: set DASHBOARD_DECISION_BASE_URL/API_KEY")
     model_request = build_model_request(
         base_url,
         US_MARKET_SUMMARY_MODEL,

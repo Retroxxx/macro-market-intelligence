@@ -76,7 +76,9 @@ http://127.0.0.1:8787/
 
 ## 3. 模型与评级数据源配置
 
-NiuOne 需要大模型驱动完整交易决策工作流。美股机构评级日报不调用模型，改用 Financial Modeling Prep（FMP）结构化评级、目标价和行情数据，并在本地执行买入倾向筛选、去重、机构聚类与排序；A 股竞价、午盘、盘后总结与隔夜美股总结共用盘面总结模型，不再读取旧 Grok 配置；A 股候选股及龙虎榜连板/连榜股票的消息面证据由问财检索，并复用买卖决策模型判断方向；选股后的买卖决策可配置兼容模型，推荐使用 DeepSeek。
+NiuOne 需要大模型驱动完整交易决策工作流。设置页的“模型配置”集中维护一套共享模型，供买卖决策、文字策略 AI 细化、问财消息判断、A 股竞价/午盘/盘后总结及隔夜美股总结共同使用。美股机构评级日报不调用模型，改用 Financial Modeling Prep（FMP）结构化评级、目标价和行情数据，并在本地执行买入倾向筛选、去重、机构聚类与排序。
+
+升级时，旧 `A_SHARE_MODEL_SUMMARY_*` 模型字段仅作为共享配置尚未完整设置时的兼容回退；下一次保存“模型配置”后会把可用旧值安全迁移到 `DASHBOARD_DECISION_*`，并移除重复旧字段。
 
 核心配置项：
 
@@ -84,18 +86,17 @@ NiuOne 需要大模型驱动完整交易决策工作流。美股机构评级日�
 |---|---|
 | 美股机构评级总开关 | `DASHBOARD_US_FEATURES_ENABLED` |
 | 美股机构评级数据源 | `FMP_API_BASE_URL`、`FMP_API_KEY`、`FMP_RATING_MAX_RESULTS`、`DASHBOARD_US_RATING_CRON`、`US_RATING_DEADLINE_SECONDS`、`US_RATING_REQUEST_TIMEOUT_SECONDS` |
-| A 股与隔夜美股盘面总结 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_STREAM_MODE`、`A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`、`A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
+| 共享模型（买卖决策与盘面总结） | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL`、`DASHBOARD_DECISION_STREAM_MODE`、`DASHBOARD_DECISION_REASONING_EFFORT`、`DASHBOARD_DECISION_CONTEXT_LENGTH`、`DASHBOARD_DECISION_MAX_TOKENS` |
 | 问财内置数据源与消息面预检 | `IWENCAI_ENABLED`、`IWENCAI_NEWS_PRECHECK_ENABLED`、`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_TIMEOUT_SECONDS`、`IWENCAI_MAX_RETRIES`、`IWENCAI_MAX_CONCURRENCY`、`IWENCAI_CACHE_TTL_SECONDS`、`IWENCAI_DRAGON_TIGER_CRON` |
-| 买卖决策 API | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL`、`DASHBOARD_DECISION_STREAM_MODE`、`DASHBOARD_DECISION_REASONING_EFFORT` |
 | 买卖决策情报包 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`、`DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`、`DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 | 买卖决策交易纪律 | `DASHBOARD_TRADE_DISCIPLINE_TEXT`；为空时使用内置默认纪律，填写后进入模型 prompt 的“必须遵守”段 |
 | 模拟账户节奏与仓位参考 | `DASHBOARD_MAX_OPEN_POSITIONS`、`DASHBOARD_MAX_NEW_BUYS_PER_DECISION`、`DASHBOARD_MAX_SINGLE_POSITION_PCT`、`DASHBOARD_MAX_TOTAL_POSITION_PCT`、`DASHBOARD_MIN_CASH_RESERVE_PCT`；默认作为模型参考，Z 哥和板块潮汐等注册硬限制策略会在模拟执行层取全局与策略限制的更严格值 |
 
-完成管理员认证后，优先通过页面上的设置按钮进入设置页维护。模型分组提供“测试模型连接”，美股机构评级分组提供“测试数据源连接”；测试使用页面当前填写值但不会自动保存，API Key 输入框留空时会复用已保存密钥。美股评级相关设置由“开启美股机构评级”总开关控制；关闭时设置页会隐藏这些项并跳过美股评级定时任务。FMP API Key 通过请求头发送，不会进入请求 URL 或日志。评级主数据失败时任务明确失败并由调度器重试；目标价或行情补充失败时只降级对应字段，不覆盖已有日报。也可以直接编辑 `.local-data/dashboard.env`，保存后等待下一轮任务读取。
-各场景的 `*_REASONING_EFFORT` 可填写模型或网关支持的枚举值，留空时不发送思考强度参数。下表中的已知官方模型会在保存、连接测试和运行请求前执行本地校验；表外自定义模型或网关别名仍可自由填写。连接测试使用当前未保存值；成功只表示网关接受当前请求，不代表上游一定执行了对应强度。不支持参数或值非法时会给出针对性提示，并且运行时不会静默删除参数重试。
+完成管理员认证后，优先通过页面上的设置按钮进入独立的“模型配置”栏目维护。该栏目提供“测试模型连接”，美股机构评级分组提供“测试数据源连接”；测试使用页面当前填写值但不会自动保存，API Key 输入框留空时会复用已保存密钥。美股评级相关设置由“开启美股机构评级”总开关控制；关闭时设置页会隐藏这些项并跳过美股评级定时任务。FMP API Key 通过请求头发送，不会进入请求 URL 或日志。评级主数据失败时任务明确失败并由调度器重试；目标价或行情补充失败时只降级对应字段，不覆盖已有日报。也可以直接编辑 `.local-data/dashboard.env`，保存后等待下一轮任务读取。
+共享模型的 `DASHBOARD_DECISION_REASONING_EFFORT` 可填写模型或网关支持的枚举值，留空时不发送思考强度参数。下表中的已知官方模型会在保存、连接测试和运行请求前执行本地校验；表外自定义模型或网关别名仍可自由填写。连接测试使用当前未保存值；成功只表示网关接受当前请求，不代表上游一定执行了对应强度。不支持参数或值非法时会给出针对性提示，并且运行时不会静默删除参数重试。
 
-各场景的 `*_STREAM_MODE` 支持 `auto`、`stream`、`non_stream`。默认 `auto` 保持非流式请求；当网关明确返回必须设置 `stream=true` 时自动以流式重试。`stream` 强制流式，`non_stream` 强制非流式。后台任务即使使用流式传输，也会先拼接完整内容，再执行 JSON 校验、落盘和交易决策。
-文字策略的 AI 细化需要在浏览器实时展示模型输出，因此复用买卖决策配置时，`auto` 保持原有流式展示；选择 `non_stream` 可改为整段返回。
+共享模型的 `DASHBOARD_DECISION_STREAM_MODE` 支持 `auto`、`stream`、`non_stream`。默认 `auto` 保持非流式请求；当网关明确返回必须设置 `stream=true` 时自动以流式重试。`stream` 强制流式，`non_stream` 强制非流式。后台任务即使使用流式传输，也会先拼接完整内容，再执行 JSON 校验、落盘和交易决策。
+文字策略的 AI 细化需要在浏览器实时展示模型输出，因此复用共享模型时，`auto` 保持原有流式展示；选择 `non_stream` 可改为整段返回。
 
 ### 常见模型思考强度表
 

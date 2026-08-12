@@ -39,19 +39,16 @@ class _Response:
 
 
 class ModelConnectivityTests(unittest.TestCase):
-    def test_all_model_setting_sections_publish_test_metadata(self):
+    def test_one_shared_model_setting_section_publishes_test_metadata(self):
         metadata = model_test_metadata()
 
         self.assertEqual(
             [item["id"] for item in metadata],
-            [
-                "decision-model",
-                "a-share-summary-model",
-            ],
+            ["shared-model"],
         )
         self.assertEqual(
             {item["group_slug"] for item in metadata},
-            {"decision-model", "market-monitoring"},
+            {"model-config"},
         )
         self.assertTrue(all("API_KEY" in " ".join(item["field_names"]) for item in metadata))
 
@@ -64,7 +61,7 @@ class ModelConnectivityTests(unittest.TestCase):
 
         ticks = iter((10.0, 10.125))
         result = run_model_connection_test(
-            "decision-model",
+            "shared-model",
             {
                 "DASHBOARD_DECISION_MODEL": "decision-test-model",
                 "DASHBOARD_DECISION_BASE_URL": "https://model.example/v1/",
@@ -103,7 +100,7 @@ class ModelConnectivityTests(unittest.TestCase):
             return _Response()
 
         result = run_model_connection_test(
-            "decision-model",
+            "shared-model",
             {
                 "DASHBOARD_DECISION_BASE_URL": "https://model.example/v1",
                 "DASHBOARD_DECISION_API_KEY": "private-key",
@@ -119,7 +116,7 @@ class ModelConnectivityTests(unittest.TestCase):
 
     def test_complete_provider_fallback_is_not_mixed_with_partial_override(self):
         config = resolve_model_test_config(
-            "decision-model",
+            "shared-model",
             {
                 "DASHBOARD_DECISION_MODEL": "decision-test-model",
                 "DASHBOARD_DECISION_BASE_URL": "https://partial.example/v1",
@@ -133,7 +130,7 @@ class ModelConnectivityTests(unittest.TestCase):
         self.assertEqual(config.base_url, "https://provider.example/v1")
         self.assertEqual(config.api_key, "provider-key")
 
-    def test_summary_target_ignores_legacy_grok_values(self):
+    def test_shared_target_ignores_legacy_grok_values(self):
         values = {
             "DASHBOARD_GROK_MODEL": "shared-grok",
             "DASHBOARD_GROK_BASE_URL": "https://grok.example/v1",
@@ -141,11 +138,11 @@ class ModelConnectivityTests(unittest.TestCase):
             "DASHBOARD_GROK_API_MODE": "responses",
         }
 
-        summary = resolve_model_test_config("a-share-summary-model", values)
+        summary = resolve_model_test_config("shared-model", values)
 
         self.assertEqual(
             (summary.model, summary.base_url, summary.api_key, summary.api_mode),
-            ("", "", "", "auto"),
+            ("deepseek-v4-pro", "", "", "auto"),
         )
         self.assertEqual(summary.reasoning_effort, "")
         self.assertEqual(summary.stream_mode, "auto")
@@ -154,7 +151,7 @@ class ModelConnectivityTests(unittest.TestCase):
         calls = []
 
         result = run_model_connection_test(
-            "decision-model",
+            "shared-model",
             {
                 "DASHBOARD_DECISION_MODEL": "deepseek-v4-pro",
                 "DASHBOARD_DECISION_BASE_URL": "https://model.example/v1",
@@ -172,7 +169,7 @@ class ModelConnectivityTests(unittest.TestCase):
     def test_documented_compatibility_mapping_is_visible_in_success_message(self):
         ticks = iter((3.0, 3.01))
         result = run_model_connection_test(
-            "decision-model",
+            "shared-model",
             {
                 "DASHBOARD_DECISION_MODEL": "deepseek-v4-pro",
                 "DASHBOARD_DECISION_BASE_URL": "https://model.example/v1",
@@ -197,7 +194,7 @@ class ModelConnectivityTests(unittest.TestCase):
             )
 
         invalid = run_model_connection_test(
-            "decision-model",
+            "shared-model",
             {
                 "DASHBOARD_DECISION_BASE_URL": "https://model.example/v1",
                 "DASHBOARD_DECISION_API_KEY": "private-key",
@@ -219,7 +216,7 @@ class ModelConnectivityTests(unittest.TestCase):
             )
 
         unsupported = run_model_connection_test(
-            "decision-model",
+            "shared-model",
             {
                 "DASHBOARD_DECISION_BASE_URL": "https://model.example/v1",
                 "DASHBOARD_DECISION_API_KEY": "private-key",
@@ -232,7 +229,7 @@ class ModelConnectivityTests(unittest.TestCase):
         self.assertIn("请留空后重试", unsupported["error"])
 
     def test_failures_are_actionable_and_do_not_expose_provider_bodies(self):
-        missing = run_model_connection_test("decision-model", {})
+        missing = run_model_connection_test("shared-model", {})
         self.assertFalse(missing["ok"])
         self.assertIn("API 地址", missing["error"])
         self.assertIn("API Key", missing["error"])
@@ -247,7 +244,7 @@ class ModelConnectivityTests(unittest.TestCase):
             )
 
         failed = run_model_connection_test(
-            "decision-model",
+            "shared-model",
             {
                 "DASHBOARD_DECISION_BASE_URL": "https://model.example/v1",
                 "DASHBOARD_DECISION_API_KEY": "private-key",

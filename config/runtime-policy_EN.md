@@ -62,9 +62,8 @@ Recommended usage:
 | Purpose | Recommended model | Settings |
 |---|---|---|
 | Daily U.S. institutional-rating report | Financial Modeling Prep structured data and local deterministic rules | `FMP_API_BASE_URL`, `FMP_API_KEY`, `FMP_RATING_MAX_RESULTS` |
-| A-share and overnight U.S. market summaries | An OpenAI-compatible model | `A_SHARE_MODEL_SUMMARY_BASE_URL`, `A_SHARE_MODEL_SUMMARY_API_KEY`, `A_SHARE_MODEL_SUMMARY_MODEL` |
+| Trading decisions, prompt refinement, news judgment, and A-share/overnight U.S. summaries | One shared OpenAI-compatible model | `DASHBOARD_DECISION_BASE_URL`, `DASHBOARD_DECISION_API_KEY`, `DASHBOARD_DECISION_MODEL`, `DASHBOARD_DECISION_STREAM_MODE`, `DASHBOARD_DECISION_REASONING_EFFORT` |
 | News prechecks for A-share candidates and dragon-tiger limit-up-streak/consecutive-listing stocks | Tonghuashun iWencai OpenAPI | `IWENCAI_NEWS_PRECHECK_ENABLED` and `IWENCAI_*` |
-| Buy and sell decisions after candidate screening | DeepSeek recommended; other compatible models may be used | `DASHBOARD_DECISION_BASE_URL`, `DASHBOARD_DECISION_API_KEY`, `DASHBOARD_DECISION_MODEL` |
 | Comprehensive decision reference | Local aggregation; no additional model required | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`, `DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`, `DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 
 The daily U.S. institutional-rating report is controlled by the `DASHBOARD_US_FEATURES_ENABLED` master switch. When it is disabled, the settings page hides the related configuration and skips the scheduled U.S. rating task.

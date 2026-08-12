@@ -140,7 +140,9 @@ Dashboard、定时任务、消息通知与策略研究。修改时优先保证�
 - `scope` 取主要领域，例如：`dashboard`、`market`、`settings`、`strategy`、`trading`、
   `auction`、`container`、`run`、`readme`、`app`。修改 `app/trading/` 的行为应使用
   `fix(trading): ...`，不要退化成无 scope 的 `fix: ...`。
-- `subject` 使用简洁的英文祈使表达，小写开头，不加句号。一个提交只承载一个逻辑变更。
+- 提交信息只使用一行标题，不写正文。`subject` 使用清晰具体的英文祈使表达，小写开头，
+  不加句号；应直接说明改了什么及主要影响对象，避免只写含义宽泛的 `update`、`improve`
+  或 `unify`。一个提交只承载一个逻辑变更。
 - PR 标题必须直接可用作 squash commit 标题；执行 squash merge 前再次核对最终标题，避免
   把不合规的 PR 标题写入 `main`。
 - PR 描述至少包含：修改内容、问题原因、兼容性/影响范围、实际运行的验证命令和结果。
