@@ -61,10 +61,8 @@ class ServiceLauncherTests(unittest.TestCase):
         for value in (
             "ai.niuone.dashboard",
             "ai.niuone.cron-scheduler",
-            "ai.niuone.x-watchlist",
             "niuone-dashboard.service",
             "niuone-cron-scheduler.service",
-            "niuone-x-watchlist.service",
             "NIUONE_LOCAL_DATA_DIR",
             "DASHBOARD_ENV_FILE",
             "is-installed",
@@ -80,9 +78,9 @@ class ServiceLauncherTests(unittest.TestCase):
         self.assertIn("-Action IsInstalled", launcher)
         self.assertIn("NIUONE_MANAGED_SERVICE_CHILD", runner)
         self.assertIn('"IsInstalled"', manager)
-        for task_name in ("NiuOne Dashboard", "NiuOne Cron Scheduler", "NiuOne X Watchlist"):
+        for task_name in ("NiuOne Dashboard", "NiuOne Cron Scheduler"):
             self.assertIn(task_name, manager)
-        for service_name in ("dashboard", "cron-scheduler", "x-watchlist"):
+        for service_name in ("dashboard", "cron-scheduler"):
             self.assertIn(service_name, runner)
         self.assertIn("NIUONE_LOCAL_DATA_DIR", runner)
         self.assertIn("DASHBOARD_ENV_FILE", runner)

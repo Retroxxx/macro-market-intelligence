@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.dashboard.fastapi_app import _legacy_module, create_app
 from app.dashboard.routers.market import compact_industry_flow_payload
-from app.dashboard.routers.messages import message_page_payload, messages_revision_payload
+from app.dashboard.routers.messages import messages_revision_payload
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -97,6 +97,10 @@ class FastApiDashboardTests(unittest.TestCase):
 
         missing = self.client.get("/admin/settings/not-a-group")
         self.assertEqual(missing.status_code, 404)
+
+        for removed_path in ("/x-monitor", "/api/x_media"):
+            with self.subTest(removed_path=removed_path):
+                self.assertEqual(self.client.get(removed_path).status_code, 404)
 
         asset = self.client.get("/assets/app.js")
         self.assertEqual(asset.status_code, 200)
@@ -223,7 +227,6 @@ class FastApiDashboardTests(unittest.TestCase):
         message_payload = {
             "categories": {
                 "market_monitor": {"label": "盘面监控", "count": 6},
-                "x_monitor": {"label": "推特监控", "count": 108},
                 "us_ratings": {"label": "美股机构买入评级", "count": 4},
                 "other": {"label": "其他", "count": 3},
             },
@@ -247,7 +250,7 @@ class FastApiDashboardTests(unittest.TestCase):
         )
         self.assertEqual(
             first.json()["message_counts"],
-            {"market_monitor": 6, "x_monitor": 108, "us_ratings": 4},
+            {"market_monitor": 6, "us_ratings": 4},
         )
         self.assertIs(first.json()["message_counts_available"], True)
         self.assertIn(f"{self.legacy.VISITOR_COOKIE_NAME}=nvst_", first.headers["Set-Cookie"])
@@ -301,14 +304,10 @@ class FastApiDashboardTests(unittest.TestCase):
                 ),
             }
             for path, cache_key in (
-                ("/api/messages?limit=25&offset=50&category=x_monitor", "messages:v4:x_monitor:25:50"),
+                ("/api/messages?limit=25&offset=50&category=market_monitor", "messages:v4:market_monitor:25:50"),
                 (
                     "/api/messages/revision?category=market_monitor",
                     "messages-revision:v1:market_monitor",
-                ),
-                (
-                    "/api/messages/revision?category=x_monitor&limit=10&offset=20",
-                    "messages-revision:v2:x_monitor:10:20",
                 ),
                 ("/api/realtime-news", "realtime_news:v1"),
                 (
@@ -361,9 +360,8 @@ class FastApiDashboardTests(unittest.TestCase):
 
         self.assertEqual(reset_daily.call_count, 4)
         self.assertEqual(seen_keys, [
-            "messages:v4:x_monitor:25:50",
+            "messages:v4:market_monitor:25:50",
             "messages-revision:v1:market_monitor",
-            "messages-revision:v2:x_monitor:10:20",
             "realtime_news:v1",
             "iwencai_dragon_tiger:2026-07-16:2:10:0:0:0",
             "practice_candidates",
@@ -497,59 +495,6 @@ class FastApiDashboardTests(unittest.TestCase):
         self.assertNotIn("content", revision["latest"])
         self.assertNotIn("records", revision)
 
-        page_payload = {
-            "categories": {"x_monitor": {"count": 21}},
-            "records": [{
-                "id": "page-id",
-                "timestamp": 1784619500.0,
-                "content_hash": "page-hash",
-                "updated_at": "2026-07-21 15:30:00",
-                "metadata": {"post": {"media": [{"url": "https://pbs.twimg.com/media/a.jpg"}]}},
-                "content": "page body",
-            }],
-        }
-        page_revision = messages_revision_payload(
-            page_payload,
-            "x_monitor",
-            page_limit=10,
-            page_offset=20,
-        )
-        changed_payload = json.loads(json.dumps(page_payload))
-        changed_payload["records"][0]["metadata"]["post"]["media"][0]["url"] = (
-            "https://pbs.twimg.com/media/b.jpg"
-        )
-        changed_revision = messages_revision_payload(
-            changed_payload,
-            "x_monitor",
-            page_limit=10,
-            page_offset=20,
-        )
-
-        self.assertEqual(page_revision["page"]["limit"], 10)
-        self.assertEqual(page_revision["page"]["offset"], 20)
-        self.assertEqual(page_revision["page"]["count"], 1)
-        self.assertEqual(len(page_revision["page"]["fingerprint"]), 64)
-        self.assertNotEqual(
-            page_revision["page"]["fingerprint"],
-            changed_revision["page"]["fingerprint"],
-        )
-        self.assertNotIn("metadata", page_revision["latest"])
-
-        full_page = message_page_payload(
-            page_payload,
-            "x_monitor",
-            limit=10,
-            offset=20,
-        )
-        ordinary_page = message_page_payload(
-            page_payload,
-            "market_monitor",
-            limit=10,
-            offset=0,
-        )
-        self.assertEqual(full_page["revision"]["page"]["fingerprint"], page_revision["page"]["fingerprint"])
-        self.assertIs(ordinary_page, page_payload)
-
         missing = self.client.get("/api/messages/revision")
         self.assertEqual(missing.status_code, 400)
         self.assertEqual(missing.json()["error"], "message_category_required")
@@ -603,17 +548,12 @@ class FastApiDashboardTests(unittest.TestCase):
         self.assertNotIn("volume_model", payload["sampling"])
         self.assertTrue(payload["stale_cache"])
 
-    def test_native_media_and_practice_status_routes_bypass_the_adapter(self):
+    def test_native_practice_status_routes_bypass_the_adapter(self):
         (self.legacy.CRON_OUTPUT_DIR / "daily_evolution_report.json").write_text(
             json.dumps({"available": True}),
             encoding="utf-8",
         )
         with (
-            patch.object(
-                self.legacy,
-                "fetch_x_media",
-                return_value=(b"image-bytes", "image/png"),
-            ) as media,
             patch.object(
                 self.legacy,
                 "practice_manual_cycle_status",
@@ -630,19 +570,11 @@ class FastApiDashboardTests(unittest.TestCase):
                 return_value={"enabled": True},
             ) as self_optimize,
         ):
-            media_response = self.client.get(
-                "/api/x_media?url=https%3A%2F%2Fpbs.twimg.com%2Fmedia%2Fexample.jpg"
-            )
             manual_response = self.client.get("/api/niuniu_practice/manual-cycle")
             summary_response = self.client.get("/api/niuniu_practice/market-summary")
             optimize_response = self.client.get("/api/self_optimize/status")
             evolution_response = self.client.get("/api/daily_evolution")
 
-        self.assertEqual(media_response.status_code, 200)
-        self.assertEqual(media_response.content, b"image-bytes")
-        self.assertEqual(media_response.headers["Content-Type"], "image/png")
-        self.assertIn("immutable", media_response.headers["Cache-Control"])
-        media.assert_called_once_with("https://pbs.twimg.com/media/example.jpg")
         self.assertEqual(manual_response.json(), {"running": False})
         self.assertEqual(summary_response.json(), {"available": True})
         self.assertEqual(optimize_response.json(), {"enabled": True})

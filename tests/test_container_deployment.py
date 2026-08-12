@@ -45,11 +45,10 @@ class ContainerDeploymentTests(unittest.TestCase):
     def test_compose_runs_niuone_processes_with_bundled_newsnow(self):
         config = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
         services = config["services"]
-        self.assertEqual(set(services), {"dashboard", "scheduler", "x-watchlist", "newsnow"})
+        self.assertEqual(set(services), {"dashboard", "scheduler", "newsnow"})
         self.assertEqual(services["dashboard"]["command"], ["dashboard"])
         self.assertEqual(services["scheduler"]["command"], ["scheduler"])
-        self.assertEqual(services["x-watchlist"]["command"], ["x-watchlist"])
-        for name in ("dashboard", "scheduler", "x-watchlist"):
+        for name in ("dashboard", "scheduler"):
             self.assertIn("niuone-data:/data", services[name]["volumes"])
 
         newsnow = services["newsnow"]
@@ -87,7 +86,6 @@ class ContainerDeploymentTests(unittest.TestCase):
                         "PYTHON_BIN=/host/python",
                         "DASHBOARD_CONFIG=/host/config.yaml",
                         "DASHBOARD_NIUNIU_DB=/host/niuniu.db",
-                        "X_WATCHLIST_ENABLED=1",
                         "NEWSNOW_BASE_URL=https://legacy-public.example/api/s",
                         "CUSTOM_FROM_ENV=loaded",
                     )
@@ -105,7 +103,6 @@ class ContainerDeploymentTests(unittest.TestCase):
                     "NIUONE_CONTAINER_PORT": "8787",
                     "NIUONE_BUNDLED_NEWSNOW_URL": "http://newsnow:4444/api/s",
                     "PYTHON_BIN": sys.executable,
-                    "X_WATCHLIST_ENABLED": "0",
                 }
             )
             container_python = Path(sys.executable).resolve()
@@ -115,7 +112,6 @@ from pathlib import Path
 sys.path[:0] = [str(Path.cwd() / 'app' / 'compat'), str(Path.cwd() / 'app')]
 import niuone_cron_scheduler
 import niuone_dashboard
-import x_watchlist_daemon
 keys = (
     'DASHBOARD_ENV_FILE', 'DASHBOARD_HOME', 'DASHBOARD_HOST',
     'DASHBOARD_PORT', 'PYTHON_BIN', 'DASHBOARD_CONFIG',
@@ -124,9 +120,6 @@ keys = (
 result = {
     'process': {key: os.environ.get(key) for key in keys},
     'scheduler': {key: niuone_cron_scheduler.parse_env_file().get(key) for key in keys},
-    'watchlist': {key: x_watchlist_daemon.parse_env_file().get(key) for key in keys},
-    'x_watchlist_process_enabled': os.environ.get('X_WATCHLIST_ENABLED'),
-    'x_watchlist_runtime_enabled': x_watchlist_daemon.runtime_env().get('X_WATCHLIST_ENABLED'),
     'newsnow_process_base_url': os.environ.get('NEWSNOW_BASE_URL'),
     'bundled_newsnow_url': os.environ.get('NIUONE_BUNDLED_NEWSNOW_URL'),
     'newsnow_endpoint': niuone_dashboard.newsnow_config().endpoint,
@@ -148,7 +141,7 @@ print(json.dumps(result))
                 text=True,
             )
             values = json.loads(output)
-            for name in ("process", "scheduler", "watchlist"):
+            for name in ("process", "scheduler"):
                 runtime_values = values[name]
                 self.assertEqual(runtime_values["DASHBOARD_ENV_FILE"], str(data_dir / "dashboard.env"))
                 self.assertEqual(runtime_values["DASHBOARD_HOME"], str(data_dir / "runtime"))
@@ -161,8 +154,6 @@ print(json.dumps(result))
                 self.assertEqual(runtime_values["DASHBOARD_CONFIG"], str(data_dir / "runtime" / "config.yaml"))
                 self.assertEqual(runtime_values["DASHBOARD_NIUNIU_DB"], str(data_dir / "runtime" / "niuniu.db"))
                 self.assertEqual(runtime_values["CUSTOM_FROM_ENV"], "loaded")
-            self.assertEqual(values["x_watchlist_process_enabled"], "0")
-            self.assertEqual(values["x_watchlist_runtime_enabled"], "0")
             self.assertIsNone(values["newsnow_process_base_url"])
             self.assertEqual(values["bundled_newsnow_url"], "http://newsnow:4444/api/s")
             self.assertEqual(values["newsnow_endpoint"], "http://newsnow:4444/api/s")

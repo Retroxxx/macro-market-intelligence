@@ -59,15 +59,6 @@ services:
     healthcheck:
       disable: true
 
-  x-watchlist:
-    <<: *niuone-common
-    command: ["x-watchlist"]
-    depends_on:
-      dashboard:
-        condition: service_healthy
-    healthcheck:
-      disable: true
-
 volumes:
   niuone-data:
   newsnow-data:

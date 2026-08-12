@@ -11,7 +11,7 @@
 
 ## Introduction
 
-NiuOne is a local-first market research and simulated trading system. Its main focus is China's A-share market, with additional coverage of overnight U.S. markets, institutional ratings, and selected Twitter/X sources. Market data, news, strategies, and simulated portfolios come together in a single web dashboard, with optional LLM support for research and trading decisions.
+NiuOne is a local-first market research and simulated trading system. Its main focus is China's A-share market, with additional coverage of overnight U.S. markets and institutional ratings. Market data, news, strategies, and simulated portfolios come together in a single web dashboard, with optional LLM support for research and trading decisions.
 
 Scheduled jobs collect pre-open auction data, intraday and post-market activity, capital flows, sector performance, and overseas market information. When a model service is enabled, NiuOne can retrieve news, analyze the market, and make simulated buy and sell decisions within user-defined strategy rules. Portfolio state, trade records, and decision rationale remain local, while execution alerts can be sent through Feishu, DingTalk, WeCom, or Telegram.
 
@@ -77,16 +77,6 @@ Click an animation to open the corresponding live page.
 
 <p align="center"><sub>Pre-open, midday, and post-market reports cover the main view, capital flows, leading sectors, risks, and next-session watchlist.</sub></p>
 
-### Twitter/X Monitoring
-
-<p align="center">
-  <a href="https://niuone.cn/x-monitor">
-    <img width="1200" alt="Twitter monitoring interaction: expand text and media posts and open the image viewer" src="docs/assets/readme/twitter-monitor.gif" />
-  </a>
-</p>
-
-<p align="center"><sub>Posts, replies, quotes, and media from watched accounts are collected in a chronological feed.</sub></p>
-
 ### U.S. Institutional Ratings
 
 <p align="center">
@@ -111,7 +101,7 @@ Click an animation to open the corresponding live page.
 
 - **Market dashboard**: View theme strength, indices, sectors, market breadth, industry capital flows, important market flashes, Dragon-Tiger data, and historical news in one place.
 - **Theme and strategy research**: Compare today's theme strength with cross-session structural rankings, using full-market quotes, theme attribution, and Eastmoney rankings as context. NiuOne includes Base, Z-ge, Li Daxiao, Sector Tide, and NiuOne strategies, and also accepts natural-language rules for candidates, entries, exits, position sizing, and timing.
-- **Information and model-assisted analysis**: Aggregate live CLS and Jin10 flashes through NewsNow, alongside A-share auction, midday, and close reports, overnight U.S. markets, institutional ratings, Twitter/X watchlists, and iWencai Dragon-Tiger data. Compatible model services can support retrieval, summarization, and structured analysis.
+- **Information and model-assisted analysis**: Aggregate live CLS and Jin10 flashes through NewsNow, alongside A-share auction, midday, and close reports, overnight U.S. markets, institutional ratings, and iWencai Dragon-Tiger data. Compatible model services can support retrieval, summarization, and structured analysis.
 - **Simulated trading**: Track candidates, decisions, positions, P&L, equity curves, and trade logs without connecting to a brokerage or using real funds.
 - **Automation and notifications**: Schedule data collection, report generation, database ingestion, and monitoring. Simulated execution alerts can be sent to Feishu, DingTalk, WeCom, and Telegram.
 - **Local data management**: Configuration, databases, logs, and task output stay in a separate runtime directory. The settings page supports connection tests and update checks, but never installs updates automatically.
@@ -126,7 +116,7 @@ Primary pages and dependencies:
 | `/dragon-tiger` | Dated Dragon-Tiger seats, limit-up/consecutive-list signals, and news prechecks | Enable and configure iWencai; news-precheck model is optional |
 | `/market-monitor` | A-share auction/midday/close and overnight U.S. summaries | Keep the scheduler running; model enhancement is optional |
 | `/realtime-news` | NewsNow aggregation for selectable financial-news sources; Overview shows five items with an important-only option | No API key; Compose bundles NewsNow and the admin page exposes finance and business sources as searchable multi-select options |
-| `/x-monitor`, `/us-ratings` | Twitter/X watchlists and U.S. institutional ratings | Enable “NiuNiu U.S. Stocks” and configure the relevant model |
+| `/us-ratings` | U.S. institutional ratings | Enable “NiuNiu U.S. Stocks” and configure the relevant model |
 | `/admin` | Configuration, connection tests, version, and runtime status | Administrator authentication is always required |
 
 See the [Strategy Research Guide](docs/strategies/README_EN.md) for methodology and the [app module architecture](docs/APP_ARCHITECTURE.md) for code structure and extension points.

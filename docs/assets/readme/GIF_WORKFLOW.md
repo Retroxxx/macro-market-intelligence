@@ -22,7 +22,6 @@
 | `capital-flow.gif` | `/indices` | 1200 × 750 | 8 fps | 13–16 秒 | 切换 A 股、滚动查看主力净流入/流出榜、切换并重播行业资金流 |
 | `market-breadth.gif` | `/indices` | 1200 × 675 | 10 fps | 6–8 秒 | 鼠标沿日内曲线移动，悬停查看时间点和十项指标 |
 | `market-monitor.gif` | `/market-monitor` | 1200 × 750 | 8 fps | 6–8 秒 | 展开盘后总结并滚动查看完整详情 |
-| `twitter-monitor.gif` | `/x-monitor` | 1200 × 675 | 10 fps | 7–9 秒 | 展开文本与图文推文，并打开图片预览 |
 | `us-ratings.gif` | `/us-ratings` | 1200 × 675 | 8 fps | 7–9 秒 | 展开个股评级详情并切换历史日期 |
 | `dashboard-settings.gif` | `/admin` | 1200 × 750 | 8 fps | 9–11 秒 | 浏览配置分组、切换并恢复策略、打开行情与资金流设置 |
 
@@ -160,18 +159,6 @@ hoverX: 300 → 930，步长约 30；再折返至 570
 
 滚动过渡应表现为页面连续移动，不使用无关联截图的淡入淡出代替。
 
-### 推特监控
-
-录制视口为 1280 × 720，输出为 1200 × 675。
-
-1. 从推特监控时间流开始，保留当前页、总页数和本页条数。
-2. 点击第一条文本推文，展示展开后的完整正文。
-3. 再次点击将正文收起。
-4. 点击带图片的推文，展示图文详情。
-5. 点击详情中的图片，打开全屏图片预览层并停留约 1–2 秒。
-
-源帧建议固定命名为 `list.png`、`text-expanded.png`、`collapsed.png`、`image-expanded.png` 和 `lightbox.png`，再按本文的通用帧处理与 GIF 编码步骤生成。
-
 ### 美股机构买入评级
 
 录制视口为 1280 × 720，输出为 1200 × 675。
@@ -258,7 +245,7 @@ ffmpeg -y -loglevel error \
 - 图表浮层的时间和数值是否随鼠标移动；
 - 页面滚动是否连续，是否出现白屏或加载态；
 - 最后一帧停留是否足够，循环回第一帧是否突兀；
-- 八个 GIF 之间是否存在重复分镜。
+- 七个 GIF 之间是否存在重复分镜。
 
 ## 替换素材与同步 README
 
@@ -270,7 +257,6 @@ cp "$GIF_WORK_DIR/theme-strength.gif" docs/assets/readme/theme-strength.gif
 cp "$GIF_WORK_DIR/capital-flow.gif" docs/assets/readme/capital-flow.gif
 cp "$GIF_WORK_DIR/market-breadth.gif" docs/assets/readme/market-breadth.gif
 cp "$GIF_WORK_DIR/market-monitor.gif" docs/assets/readme/market-monitor.gif
-cp "$GIF_WORK_DIR/twitter-monitor.gif" docs/assets/readme/twitter-monitor.gif
 cp "$GIF_WORK_DIR/us-ratings.gif" docs/assets/readme/us-ratings.gif
 cp "$GIF_WORK_DIR/dashboard-settings.gif" docs/assets/readme/dashboard-settings.gif
 ```

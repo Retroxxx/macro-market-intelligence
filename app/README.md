@@ -12,7 +12,6 @@
 | `entrypoints/` | Dashboard、调度器、监控与报告等可执行入口 |
 | `market_data/` | 行情访问、证券代码规范化、日 K/量能缓存与问财研究数据客户端 |
 | `messaging/` | 通知模型、渠道、分发与兼容层 |
-| `monitoring/x/` | X 监控服务、解析、格式化与状态规则 |
 | `monitoring/news/` | NewsNow 金融快讯客户端、规范化、缓存与失败降级 |
 | `reports/a_share/` | A 股竞价、午盘、盘后、日历与 Grok 报告 |
 | `reports/us/` | 美股盘面和机构评级报告 |

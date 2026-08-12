@@ -1,6 +1,6 @@
 import { computed, reactive, ref } from 'vue'
 
-const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger', 'x_monitor', 'us_ratings']
+const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger', 'us_ratings']
 const CATEGORY_LABELS = {
   overview: '总览',
   practice: '模拟交易',
@@ -9,7 +9,6 @@ const CATEGORY_LABELS = {
   market_monitor: '盘面监控',
   realtime_news: '财经快讯',
   dragon_tiger: '龙虎榜',
-  x_monitor: '推特监控',
   us_ratings: '美股机构买入评级',
 }
 const CATEGORY_PATHS = {
@@ -21,15 +20,14 @@ const CATEGORY_PATHS = {
   market_monitor: '/market-monitor',
   realtime_news: '/realtime-news',
   dragon_tiger: '/dragon-tiger',
-  x_monitor: '/x-monitor',
   us_ratings: '/us-ratings',
 }
 const PATH_CATEGORIES = Object.fromEntries(
   Object.entries(CATEGORY_PATHS).map(([category, path]) => [path, category]),
 )
 const LEGACY_CATEGORY_ALIASES = { b1_screen: 'practice' }
-const US_FEATURE_CATEGORIES = new Set(['x_monitor', 'us_ratings'])
-const MESSAGE_COUNT_CATEGORIES = ['market_monitor', 'x_monitor', 'us_ratings']
+const US_FEATURE_CATEGORIES = new Set(['us_ratings'])
+const MESSAGE_COUNT_CATEGORIES = ['market_monitor', 'us_ratings']
 const REQUEST_TIMEOUT_MS = 15 * 1000
 
 const initialQueryCategory = new URLSearchParams(window.location.search).get('category') || ''
@@ -43,7 +41,6 @@ const bootstrapError = ref('')
 const countOverrides = reactive({
   market_monitor: '',
   realtime_news: '',
-  x_monitor: '',
   us_ratings: '',
 })
 let bootstrapRequest = null

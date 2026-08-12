@@ -31,12 +31,8 @@ const playbackSpeed = computed(() => (
   ['0.5', '0.75', '1', '1.5', '2', '5', '10'].includes(value.value) ? value.value : '0.5'
 ))
 const listValues = ref([
-  ...(String(props.item.kind || '') === 'time_list'
-    ? (props.item.time_values || [])
-    : (props.item.handle_values || [])),
+  ...(props.item.time_values || []),
 ])
-const listInputType = computed(() => kind.value === 'time_list' ? 'time' : 'text')
-const listLabel = computed(() => kind.value === 'time_list' ? '时间点' : '作者')
 const strategyOptions = computed(() => (
   kind.value === 'strategy_suite'
     ? (props.item.strategy_suite_options || [])
@@ -157,32 +153,28 @@ watch(
     </div>
   </template>
 
-  <template v-else-if="kind === 'time_list' || kind === 'handle_list'">
+  <template v-else-if="kind === 'time_list'">
     <div
       class="time-list-control"
       data-time-list
       :data-field-name="fieldName"
-      :data-input-type="listInputType"
-      :data-placeholder="kind === 'handle_list' ? 'handle' : ''"
+      data-input-type="time"
       :data-input-label="label"
     >
       <input type="hidden" :name="fieldName" value="">
       <div class="time-list-grid" data-time-list-items>
         <div v-for="(entry, index) in listValues" :key="index" class="time-list-item">
           <input
-            :type="listInputType"
+            type="time"
             :name="fieldName"
             :aria-label="`${label} ${index + 1}`"
             v-model="listValues[index]"
-            :placeholder="kind === 'handle_list' ? 'handle' : null"
-            :autocapitalize="kind === 'handle_list' ? 'off' : null"
-            :spellcheck="kind === 'handle_list' ? 'false' : null"
           >
           <button
             type="button"
             class="time-list-remove"
             data-time-list-remove
-            :aria-label="`删除${listLabel}`"
+            aria-label="删除时间点"
             @click.stop="removeListValue(index)"
           >x</button>
         </div>
@@ -191,11 +183,11 @@ watch(
         type="button"
         class="time-list-add"
         data-time-list-add
-        :aria-label="`添加${listLabel}`"
+        aria-label="添加时间点"
         @click.stop="addListValue"
       >+</button>
     </div>
-    <div class="config-meta">{{ kind === 'time_list' ? '北京时间' : 'X/Twitter handle' }}</div>
+    <div class="config-meta">北京时间</div>
   </template>
 
   <template v-else-if="kind === 'news_sources'">

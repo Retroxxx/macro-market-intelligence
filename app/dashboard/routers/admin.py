@@ -44,7 +44,6 @@ def parse_admin_form(body: bytes, services: Any) -> dict[str, str]:
     result: dict[str, str] = {}
     multi_value_kinds = {
         "time_list",
-        "handle_list",
         "news_sources",
         "stock_universe",
         "strategy_multi",

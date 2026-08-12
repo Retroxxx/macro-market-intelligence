@@ -41,7 +41,6 @@ class FrontendPerformanceTests(unittest.TestCase):
             "OverviewPanel",
             "PracticePanel",
             "UsRatingsPanel",
-            "XMonitorPanel",
         )
         for panel_name in panel_names:
             self.assertIn(
@@ -56,7 +55,6 @@ class FrontendPerformanceTests(unittest.TestCase):
             WEB_SRC / "composables" / "useIndustryFlowData.js",
             WEB_SRC / "composables" / "useMarketMonitorData.js",
             WEB_SRC / "composables" / "useUsRatingsData.js",
-            WEB_SRC / "composables" / "useXMonitorData.js",
             WEB_SRC / "components" / "DragonTigerPanel.vue",
         )
         for path in paths:

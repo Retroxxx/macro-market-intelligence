@@ -29,7 +29,6 @@ globalThis.fetch = async url => {{
         us_features_enabled: true,
         message_counts: {{
           market_monitor: 6,
-          x_monitor: 108,
           us_ratings: 4,
         }},
       }};
@@ -71,7 +70,6 @@ console.log(JSON.stringify({{fetchCalls, initialMarketCount, counts}}));
                     "market_monitor": " · 6",
                     "realtime_news": "",
                     "dragon_tiger": "",
-                    "x_monitor": " · 108",
                     "us_ratings": " · 4",
                 },
             },

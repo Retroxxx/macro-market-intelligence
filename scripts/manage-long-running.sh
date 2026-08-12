@@ -20,17 +20,14 @@ PLATFORM="$(uname -s)"
 LABELS=(
   "ai.niuone.dashboard"
   "ai.niuone.cron-scheduler"
-  "ai.niuone.x-watchlist"
 )
 PROGRAMS=(
   "$ROOT/run-dashboard.sh"
   "$ROOT/run-niuone-cron-scheduler.sh"
-  "$ROOT/run-x-watchlist-daemon.sh"
 )
 LINUX_UNITS=(
   "niuone-dashboard.service"
   "niuone-cron-scheduler.service"
-  "niuone-x-watchlist.service"
 )
 
 usage() {

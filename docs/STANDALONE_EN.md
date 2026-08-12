@@ -99,13 +99,12 @@ After testing, stop the process and delete `$env:TEMP\niuone-smoke` if needed.
 
 ## Large Language Model Configuration
 
-NiuOne requires access to a large language model to run the complete workflow. Without model configuration, the local pages and some static views are available, but event collection, information retrieval, X watchlist monitoring, the daily U.S. institutional ratings report, and trading decisions cannot operate fully.
+NiuOne requires access to a large language model to run the complete workflow. Without model configuration, the local pages and some static views are available, but event collection, information retrieval, the daily U.S. institutional ratings report, and trading decisions cannot operate fully.
 
 Recommended configuration:
 
 | Scenario | Recommended model | Main configuration items |
 |---|---|---|
-| X watchlist monitoring | Grok | `X_WATCHLIST_ENABLED`, `DASHBOARD_GROK_BASE_URL`, `DASHBOARD_GROK_API_KEY`, `DASHBOARD_GROK_MODEL`, `DASHBOARD_GROK_API_MODE`, `X_WATCHLIST_MAX_TOKENS` |
 | Daily U.S. institutional ratings report | A model with real-time search; reuses Grok when left empty | `US_RATING_MODEL`, `US_RATING_BASE_URL`, `US_RATING_API_KEY`, `US_RATING_MAX_TOKENS` |
 | Enhanced A-share market summary | A model compatible with `/chat/completions` | `A_SHARE_MODEL_SUMMARY_BASE_URL`, `A_SHARE_MODEL_SUMMARY_API_KEY`, `A_SHARE_MODEL_SUMMARY_MODEL`, `A_SHARE_MODEL_SUMMARY_MAX_TOKENS`; reuses `DASHBOARD_GROK_*` when left empty |
 | News precheck for A-share candidates and Dragon-Tiger limit-up/consecutive-list signals | A model with real-time search capabilities | `DASHBOARD_NEWS_BASE_URL`, `DASHBOARD_NEWS_API_KEY`, `DASHBOARD_NEWS_MODEL`, `DASHBOARD_NEWS_API_MODE`, `DASHBOARD_NEWS_MAX_TOKENS`, `DASHBOARD_NEWS_CONCURRENCY` |
@@ -115,9 +114,9 @@ Recommended configuration:
 
 **Market Flash** requires no model, API key, or service-URL configuration. Compose starts, stops, and restores the official NewsNow container together with NiuOne, while the Dashboard reads it over the private container network; users manage no separate port or process. NewsNow persists its state in the separate `newsnow-data` volume. The admin page provides search and multi-select access to the 12 current sources in the finance and business category, with CLS Telegraph, Jin10, and WallstreetCN Quick enabled by default. The Overview page shows the latest five items as a vertical list in its lower-right area and defaults to important items only; disabling **Show only important information in Overview** includes ordinary items without changing the full Market Flash page. Native `run.sh` / `run.bat` deployments also require no configuration and automatically use the public-service fallback when no container sidecar is running. The browser receives only the normalized same-origin `/api/realtime-news` response. Successful refreshes merge by ID into a bounded rolling history of 300 items by default, with priority retention for up to 50 important items; on upstream failure, the Dashboard reuses that saved history from `.local-data/runtime/news/realtime_news_latest.json` and marks it as cached.
 
-After startup, click the settings button on the page to manage models, task schedules, and monitored X/Twitter authors. Every section that requires a model and API key includes **Test Model Connection**; it tests the current form values without saving them and reuses the saved secret when the API key input is empty. Enter X/Twitter handles without `@`.
-Tweet monitoring and U.S. ratings settings are controlled by the “Enable NiuNiu U.S. Stocks” master switch. When disabled, those settings are collapsed and hidden, and the background X monitoring and U.S. ratings scheduled tasks are skipped. Disabling only **Enable X Watchlist Monitoring** makes both the daemon and direct entry point skip X queries while the U.S. ratings report continues on schedule.
-`DASHBOARD_GROK_API_MODE` defaults to `auto`: Grok 4.5 uses the Responses API with search tools, while other models use Chat Completions; set `responses` or `chat` to force a mode. `X_WATCHLIST_REQUEST_TIMEOUT_SECONDS` defaults to `45` seconds.
+After startup, click the settings button on the page to manage models and task schedules. Every section that requires a model and API key includes **Test Model Connection**; it tests the current form values without saving them and reuses the saved secret when the API key input is empty.
+U.S. ratings settings are controlled by the “Enable NiuNiu U.S. Stocks” master switch. When disabled, those settings are collapsed and hidden and the U.S. ratings scheduled task is skipped.
+`DASHBOARD_GROK_API_MODE` defaults to `auto`: Grok 4.5 uses the Responses API with search tools, while other models use Chat Completions; set `responses` or `chat` to force a mode.
 `DASHBOARD_NEWS_API_MODE` defaults to `auto`: Grok 4.5 and GPT-5 search models use the Responses API with `web_search`, and a Grok Responses news model also receives `x_search`. Other models use `web_search` for publicly indexed Xueqiu/X pages and never fall back to `DASHBOARD_GROK_*`.
 `*_CONTEXT_LENGTH` represents only the model context window and defaults to `128000`; `*_MAX_TOKENS` is the desired maximum output length and is mapped to a compatible Chat or Responses parameter. Both JSON and SSE responses are supported.
 The news pre-check examines at most five candidate stocks concurrently by default. If the upstream service imposes rate limits, reduce `DASHBOARD_NEWS_CONCURRENCY` to `2` or `1`.
@@ -177,7 +176,6 @@ By default, runtime data is stored in:
 | `DASHBOARD_KLINE_READINESS_MIN_COVERAGE_PERCENT` | `90` | Valid-date daily-K-line coverage required to admit a Practice scan, from 90 through 100; requires a restart |
 | `DASHBOARD_TENCENT_QUOTE_STAGE_TIMEOUT_SECONDS` | `90` | Aggregate budget for the full-market live-quote stage, from 15 through 300 seconds; requires a restart |
 | `DASHBOARD_MANUAL_DATA_INITIALIZATION_TIMEOUT_SECONDS` | `660` | Maximum seconds a manual task waits for daily-K-line initialization; requires a restart |
-| `X_WATCHLIST_ACCOUNTS` | Empty | Comma-separated list of monitored tweet authors |
 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED` | `1` | Whether to enable the global intelligence bundle for trading decisions |
 | `DASHBOARD_TRADE_DISCIPLINE_TEXT` | Empty | Trading-discipline text for the trading-decision prompt; the built-in default discipline is used when empty |
 | `DASHBOARD_MAX_TOTAL_POSITION_PCT` | `80` | Global total-exposure cap; `zettaranc` and `sector_tide` enforce the stricter of the global limit and the strategy-suite hard cap, while other suites mainly use it as model guidance |
@@ -190,13 +188,12 @@ After settings are saved, configurations that support hot application are used i
 
 ## Independent Processes and Long-Term Operation
 
-A complete background deployment generally consists of three independent processes:
+A complete background deployment generally consists of two independent processes:
 
 | Process | macOS / Linux entry point | Windows entry point | Required? |
 |---|---|---|---|
 | Dashboard | `run-dashboard.sh` | `run.bat --no-browser --skip-install` | Yes |
 | Scheduled-task scheduler | `run-niuone-cron-scheduler.sh` | `.local-data\.venv\Scripts\python.exe app\entrypoints\niuone_cron_scheduler.py` | Required for automatic summaries, database writes, or simulated-position automatic-exit checks |
-| Watch-source daemon | `run-x-watchlist-daemon.sh` | `.local-data\.venv\Scripts\python.exe app\entrypoints\x_watchlist_daemon.py` | Required when the X watchlist is enabled |
 
 The live B1 stock-selection schedule runs inside the Dashboard process. Before each scheduled trading decision, it synchronously generates the unified **Current Market Summary and Evaluation**, whose risk label becomes the Practice trading context. The page button and the manual candidate-scan/trading flow use the same generator. The scheduled-task scheduler does not select stocks, but at startup and again at 09:05 on weekdays it freezes or verifies the strict-forward protocol and the pre-cohort zero-position account boundary before the first 09:25 decision. It then runs independent automatic-exit checks, takes a no-trade post-close equity snapshot at 15:15, and derives the private NiuOne strict-forward report at 15:20 from complete `niuniu.db` fills, observed opportunity sets, daily equity, and decision payloads plus the recent JSON log. Protocol v18 requires both an `ok` terminal state and structurally complete SQLite decision evidence for every Practice slot. Deferred execution retains the original slot's candidate denominator, and the report presents observed, eligible, model-BUY, executed-BUY, sizing-utilization, and rejection-category evidence by all five stages. Persistence or schema-validation failure fails that slot or automatic-exit task. The frozen fingerprint covers all three forward Cron expressions, effective durable-database/recovery-state/operational-audit/exchange-calendar paths, and the scheduling/storage/evaluation source chain; path values are stored only as digests, and `--as-of` cannot alter the actual lock date. The 30-trade or three-full-month sample gate becomes reviewable only when every completed lifecycle has complete entry attribution and every actual A-share operating day has a pre-first-slot preflight, all Practice slots and durable decision rows, both exit checks, the post-close equity snapshot, and forward evaluation recorded as successful; without a trustworthy exchange calendar the system conservatively falls back to weekdays. Three elapsed months with fewer than 30 completed lifecycles permit only a frequency/operations review. A final high-win-rate and positive-return claim additionally requires at least 30 trades and must pass the frozen historical-reference, trade-level Wilson 95% lower bound, minimum unique and Herfindahl-effective entry-date-by-industry cluster counts, cluster-balanced win rate and its 95% lower bound, fee-inclusive lifecycle-return, NiuOne-only account attribution, positive portfolio return, maximum-drawdown-at-most-6%, return-to-drawdown-at-least-1, operations, and opportunity-funnel gates. Same-date, same-industry fills add only one unique cluster. Missing attribution yields `data_quality_blocked`; missing operations yields `operations_blocked`. A code or locked-setting change also blocks cohort advancement until the old report/lock is archived and a new `DASHBOARD_NIUONE_FORWARD_COHORT_START` begins. Both processes must stay running for the full protocol-preflight-selection-summary/evaluation-decision-exit-equity-snapshot-forward-attribution lifecycle. v18 also records the holding-stage path from the first BUY through each mainline scan and freezes the exit stage only on an actual SELL; a missing operating-day observation or a path that does not align with entry and exit prevents manual-review eligibility.
 
@@ -264,7 +261,7 @@ It can be combined with other arguments:
 run.bat --service --port 8877 --no-browser
 ```
 
-All three processes are registered. After the “NiuNiu U.S. Stocks” feature is disabled, the X watch-source daemon skips collection and remains in a low-frequency sleep state, so it does not need to be uninstalled separately.
+Both processes are registered.
 
 ### Updating a Source Deployment
 
@@ -275,7 +272,7 @@ git pull --ff-only
 ./run.sh --service --no-browser
 ```
 
-Running `--service` again updates and restarts all three native services while preserving configuration, databases, and logs under `.local-data/`. When long-running services are already installed, a regular `./run.sh` (or `run.bat` on Windows) invocation also restarts the managed processes so a new frontend cannot be served by an old backend. For a foreground installation without long-running services, run:
+Running `--service` again updates and restarts both native services while preserving configuration, databases, and logs under `.local-data/`. When long-running services are already installed, a regular `./run.sh` (or `run.bat` on Windows) invocation also restarts the managed processes so a new frontend cannot be served by an old backend. For a foreground installation without long-running services, run:
 
 ```bash
 git pull --ff-only

@@ -46,7 +46,6 @@ SPA_DASHBOARD_PATHS = (
     "/dragon-tiger",
     "/market-monitor",
     "/realtime-news",
-    "/x-monitor",
     "/us-ratings",
 )
 SECURITY_HEADERS = {

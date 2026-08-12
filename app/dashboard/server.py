@@ -20,7 +20,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
 import urllib.error
 import urllib.request
 
@@ -256,7 +255,6 @@ VISITOR_COOKIE_NAME = "niuone_visitor_id"
 ACTION_HEADER_NAME = "X-NiuOne-Action"
 ACTION_HEADER_VALUES = {"1", "true", "yes", "on"}
 TRUTHY_VALUES = {"1", "true", "yes", "on"}
-US_FEATURE_CATEGORIES = {"x_monitor", "us_ratings"}
 INDUSTRY_FLOW_PLAYBACK_SPEED_OPTIONS = (0.5, 0.75, 1.0, 1.5, 2.0, 5.0, 10.0)
 INDUSTRY_FLOW_WINDOW_CONFIG_NAMES = (
     "DASHBOARD_INDUSTRY_FLOW_MORNING_START",
@@ -312,7 +310,6 @@ def _industry_flow_sampling_windows_value(
 
 NIUONE_LAUNCHD_LABELS = (
     "ai.niuone.cron-scheduler",
-    "ai.niuone.x-watchlist",
     "ai.niuone.dashboard",
 )
 NIUONE_RESTART_DELAY_SECONDS = float(os.environ.get("NIUONE_RESTART_DELAY_SECONDS", "1.2") or "1.2")
@@ -522,12 +519,6 @@ API_CACHE_MAX_ENTRIES = int(os.environ.get("DASHBOARD_API_CACHE_MAX_ENTRIES", "2
 API_STALE_WHILE_REFRESH_SECONDS = int(
     os.environ.get("DASHBOARD_API_STALE_WHILE_REFRESH_SECONDS", "300") or "300"
 )
-X_MEDIA_CACHE: dict[str, dict[str, Any]] = {}
-X_MEDIA_CACHE_LOCK = threading.RLock()
-X_MEDIA_CACHE_MAX_ENTRIES = int(os.environ.get("DASHBOARD_X_MEDIA_CACHE_MAX_ENTRIES", "96") or "96")
-X_MEDIA_CACHE_TTL_SECONDS = int(os.environ.get("DASHBOARD_X_MEDIA_CACHE_TTL_SECONDS", str(7 * 24 * 3600)) or str(7 * 24 * 3600))
-X_MEDIA_MAX_BYTES = int(os.environ.get("DASHBOARD_X_MEDIA_MAX_BYTES", str(8 * 1024 * 1024)) or str(8 * 1024 * 1024))
-X_MEDIA_ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"}
 EDGE_CACHE_ENABLED = os.environ.get("DASHBOARD_EDGE_CACHE_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
 API_DEFAULT_LIMIT = 80
 API_LIMIT_MAX = 200
@@ -636,7 +627,6 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_B1_SCANNER", "label": "实战选股扫描脚本", "group": "基础路径", "kind": "path", "default": str(ENTRYPOINT_DIR / "multi_strategy_screen.py"), "effect": "restart"},
     {"name": "DASHBOARD_CN_STOCK_TOOLS", "label": "A股行情工具脚本", "group": "基础路径", "kind": "path", "default": str(ENTRYPOINT_DIR / "cn_stock_tools.py"), "effect": "restart"},
     {"name": "DASHBOARD_CRON_JOBS", "label": "Cron jobs JSON", "group": "基础路径", "kind": "path", "default": str(DASHBOARD_HOME / "cron" / "jobs.json"), "effect": "next_run"},
-    {"name": "DASHBOARD_X_WATCHLIST_STATE", "label": "X 监控状态文件", "group": "基础路径", "kind": "path", "default": str(DASHBOARD_HOME / "cron" / "state" / "x_watchlist_latest.json"), "effect": "next_run"},
     {"name": "DASHBOARD_PUBLIC_DATA_DIR", "label": "公开快照目录", "group": "基础路径", "kind": "path", "default": str(DASHBOARD_HOME / "public-data"), "effect": "restart"},
     {"name": "DASHBOARD_PUBLIC_PROJECTION_ENABLED", "label": "公开增量快照", "group": "基础路径", "kind": "bool", "default": "1", "effect": "restart"},
 
@@ -651,9 +641,6 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_RATE_LIMIT_ADMIN", "label": "管理操作/窗口", "group": "限流与缓存", "kind": "int", "default": "90", "effect": "restart"},
     {"name": "DASHBOARD_API_CACHE_MAX_ENTRIES", "label": "API 缓存条目上限", "group": "限流与缓存", "kind": "int", "default": "256", "effect": "restart"},
     {"name": "DASHBOARD_API_OFFSET_MAX", "label": "消息分页最大 offset", "group": "限流与缓存", "kind": "int", "default": "5000", "effect": "restart"},
-    {"name": "DASHBOARD_X_MEDIA_CACHE_MAX_ENTRIES", "label": "X 图片缓存条目上限", "group": "限流与缓存", "kind": "int", "default": "96", "effect": "restart"},
-    {"name": "DASHBOARD_X_MEDIA_CACHE_TTL_SECONDS", "label": "X 图片缓存 TTL 秒数", "group": "限流与缓存", "kind": "int", "default": str(7 * 24 * 3600), "effect": "restart"},
-    {"name": "DASHBOARD_X_MEDIA_MAX_BYTES", "label": "X 图片代理最大字节", "group": "限流与缓存", "kind": "int", "default": str(8 * 1024 * 1024), "effect": "restart"},
     {"name": "DASHBOARD_PUBLIC_REFRESH_SECONDS", "label": "公开快照刷新秒数", "group": "行情与资金流设置", "kind": "int", "default": "15", "effect": "restart"},
     {"name": "DASHBOARD_NIUONE_MAINLINE_MINUTE_REFRESH_ENABLED", "label": "题材强度跟随全市场行情更新", "group": "行情与资金流设置", "kind": "bool", "default": "1", "effect": "restart"},
     {
@@ -869,10 +856,6 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "A_SHARE_MODEL_SUMMARY_API_KEY", "label": "A股盘面总结 API密钥", "group": "盘面监控生产时间点", "kind": "secret", "default": "", "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_DEADLINE_SECONDS", "label": "A股模型总结总超时秒数", "group": "盘面监控生产时间点", "kind": "int", "default": "60", "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_REQUEST_TIMEOUT_SECONDS", "label": "A股模型总结单次超时秒数", "group": "盘面监控生产时间点", "kind": "int", "default": "45", "effect": "next_run"},
-    {"name": "X_WATCHLIST_ENABLED", "label": "开启 X 关注列表监控", "group": "牛牛美股", "kind": "bool", "default": "1", "effect": "next_run"},
-    {"name": "X_WATCHLIST_ACCOUNTS", "label": "推文监控作者", "group": "牛牛美股", "kind": "handle_list", "default": "", "effect": "next_run"},
-    {"name": "X_WATCHLIST_MAX_TOKENS", "label": "X 监控最大输出长度", "group": "牛牛美股", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
-    {"name": "X_WATCHLIST_DAEMON_INTERVAL_SECONDS", "label": "推文监控间隔", "group": "牛牛美股", "kind": "int", "default": "1200", "effect": "next_run"},
     {"name": "DASHBOARD_US_RATING_CRON", "label": "美股买入评级时间", "group": "牛牛美股", "kind": "cron_time", "default": "0 11 * * *", "effect": "next_run"},
     {"name": "US_RATING_DEADLINE_SECONDS", "label": "美股评级总超时秒数", "group": "牛牛美股", "kind": "int", "default": "240", "effect": "next_run"},
     {"name": "US_RATING_REQUEST_TIMEOUT_SECONDS", "label": "美股评级单次请求超时秒数", "group": "牛牛美股", "kind": "int", "default": "120", "effect": "next_run"},
@@ -884,25 +867,6 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_INDUSTRY_FLOW_MORNING_END", "label": "上午采样结束时间", "group": "行情与资金流设置", "kind": "time", "default": "11:31", "effect": "runtime"},
     {"name": "DASHBOARD_INDUSTRY_FLOW_AFTERNOON_START", "label": "下午采样开始时间", "group": "行情与资金流设置", "kind": "time", "default": "13:00", "effect": "runtime"},
     {"name": "DASHBOARD_INDUSTRY_FLOW_AFTERNOON_END", "label": "下午采样结束时间", "group": "行情与资金流设置", "kind": "time", "default": "15:01", "effect": "runtime"},
-
-    {"name": "X_WATCHLIST_STRICT_CONTEXT_HOLD", "label": "X 上下文缺失时暂缓发送", "group": "X 监控", "kind": "bool", "default": "0", "effect": "next_run"},
-    {"name": "X_WATCHLIST_DEADLINE_SECONDS", "label": "X 总截止秒数", "group": "X 监控", "kind": "int", "default": "135", "effect": "next_run"},
-    {"name": "X_WATCHLIST_REQUEST_TIMEOUT_SECONDS", "label": "X 单账号请求超时秒数", "group": "牛牛美股", "kind": "int", "default": "45", "effect": "next_run"},
-    {"name": "X_WATCHLIST_SCRIPT_ALARM_SECONDS", "label": "X 脚本 alarm 秒数", "group": "X 监控", "kind": "int", "default": "90", "effect": "next_run"},
-    {"name": "X_WATCHLIST_MAX_WORKERS", "label": "X 抓取并发", "group": "X 监控", "kind": "int", "default": "5", "effect": "next_run"},
-    {"name": "X_WATCHLIST_MAX_ATTEMPTS", "label": "X 抓取重试次数", "group": "X 监控", "kind": "int", "default": "1", "effect": "next_run"},
-    {"name": "X_WATCHLIST_MAX_MEDIA_HTML_HYDRATE_ITEMS", "label": "X HTML 补图条数", "group": "X 监控", "kind": "int", "default": "6", "effect": "next_run"},
-    {"name": "X_WATCHLIST_MEDIA_HTML_WORKERS", "label": "X HTML 补图并发", "group": "X 监控", "kind": "int", "default": "3", "effect": "next_run"},
-    {"name": "X_WATCHLIST_CONTEXT_REPAIR_RETRY_ROUNDS", "label": "X 上下文修复轮数", "group": "X 监控", "kind": "int", "default": "2", "effect": "next_run"},
-    {"name": "X_WATCHLIST_MAX_CONTEXT_REPAIR_ITEMS", "label": "X 每轮修复条数", "group": "X 监控", "kind": "int", "default": "4", "effect": "next_run"},
-    {"name": "X_WATCHLIST_CONTEXT_REPAIR_WORKERS", "label": "X 上下文修复并发", "group": "X 监控", "kind": "int", "default": "4", "effect": "next_run"},
-    {"name": "X_WATCHLIST_CONTEXT_REPAIR_RETRY_SLEEP_SECONDS", "label": "X 修复轮间隔秒数", "group": "X 监控", "kind": "text", "default": "2", "effect": "next_run"},
-    {"name": "X_WATCHLIST_HELD_CONTEXT_REPAIR_TIMEOUT_SECONDS", "label": "X held 修复超时秒数", "group": "X 监控", "kind": "int", "default": "8", "effect": "next_run"},
-    {"name": "X_WATCHLIST_HELD_CONTEXT_REPAIR_ITEMS", "label": "X held 修复条数", "group": "X 监控", "kind": "int", "default": "4", "effect": "next_run"},
-    {"name": "X_WATCHLIST_SENT_CONTEXT_REPAIR_LOOKBACK_HOURS", "label": "X 已发修复回看小时", "group": "X 监控", "kind": "int", "default": "72", "effect": "next_run"},
-    {"name": "X_WATCHLIST_SENT_CONTEXT_REPAIR_MAX_ATTEMPTS", "label": "X 已发修复最大尝试", "group": "X 监控", "kind": "int", "default": "8", "effect": "next_run"},
-    {"name": "X_WATCHLIST_SENT_CONTEXT_REPAIR_COOLDOWN_MINUTES", "label": "X 已发修复冷却分钟", "group": "X 监控", "kind": "int", "default": "20", "effect": "next_run"},
-    {"name": "X_WATCHLIST_SENT_CONTEXT_REPAIR_ITEMS", "label": "X 已发修复条数", "group": "X 监控", "kind": "int", "default": "2", "effect": "next_run"},
 
     {"name": "DASHBOARD_AUTO_VERSION_CHECK_ENABLED", "label": "开启自动检测新版本", "group": "关于", "kind": "bool", "default": "1", "effect": "runtime"},
 ]
@@ -945,10 +909,6 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "DASHBOARD_GROK_MAX_TOKENS",
     "DASHBOARD_GROK_BASE_URL",
     "DASHBOARD_GROK_API_KEY",
-    "X_WATCHLIST_ENABLED",
-    "X_WATCHLIST_ACCOUNTS",
-    "X_WATCHLIST_DAEMON_INTERVAL_SECONDS",
-    "X_WATCHLIST_REQUEST_TIMEOUT_SECONDS",
     "DASHBOARD_US_RATING_CRON",
     "US_RATING_CONTEXT_LENGTH",
     "US_RATING_MAX_TOKENS",
@@ -1027,7 +987,6 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "A_SHARE_MODEL_SUMMARY_API_KEY",
     "A_SHARE_MODEL_SUMMARY_DEADLINE_SECONDS",
     "A_SHARE_MODEL_SUMMARY_REQUEST_TIMEOUT_SECONDS",
-    "X_WATCHLIST_MAX_TOKENS",
     "DASHBOARD_CRON_MAX_ATTEMPTS",
     "DASHBOARD_CRON_RETRY_DELAY_SECONDS",
     "DASHBOARD_INDICES_TTL_SECONDS",
@@ -1094,7 +1053,6 @@ ENV_GROUP_ORDER = [
     "限流与缓存",
     "任务调度",
     "上游模型覆盖",
-    "X 监控",
     "其他",
     "关于",
 ]
@@ -5185,8 +5143,11 @@ def fmt_ts(ts: float | None) -> str:
         return ""
     return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
-CATEGORIES = {"us_ratings": "美股机构买入评级", "x_monitor": "推特监控",
-              "market_monitor": "盘面监控", "other": "其他"}
+CATEGORIES = {
+    "us_ratings": "美股机构买入评级",
+    "market_monitor": "盘面监控",
+    "other": "其他",
+}
 
 def merge_records_from_db(limit: int | None = None, category: str | None = None, offset: int = 0) -> dict[str, Any]:
     data = push_history.query_messages(limit=limit, category=category, offset=offset)
@@ -5736,48 +5697,6 @@ def produce_industry_flow_data() -> dict[str, Any]:
     )
 
 
-def is_allowed_x_media_url(url: str) -> bool:
-    try:
-        parsed = urlparse(url)
-    except Exception:
-        return False
-    if parsed.scheme != "https" or parsed.netloc.lower() != "pbs.twimg.com":
-        return False
-    return bool(re.match(r"^/(?:media|ext_tw_video_thumb|tweet_video_thumb)/", parsed.path))
-
-
-def fetch_x_media(url: str) -> tuple[bytes, str]:
-    if not is_allowed_x_media_url(url):
-        raise ValueError("unsupported_media_url")
-    now = time.time()
-    with X_MEDIA_CACHE_LOCK:
-        cached = X_MEDIA_CACHE.get(url)
-        if cached and now - float(cached.get("ts") or 0) < X_MEDIA_CACHE_TTL_SECONDS:
-            return cached["body"], cached["content_type"]
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126 Safari/537.36",
-            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            "Referer": "https://x.com/",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        content_type = (resp.headers.get("Content-Type") or "application/octet-stream").split(";", 1)[0].strip().lower()
-        if content_type not in X_MEDIA_ALLOWED_CONTENT_TYPES:
-            raise ValueError("upstream_not_image")
-        body = resp.read(X_MEDIA_MAX_BYTES + 1)
-    if len(body) > X_MEDIA_MAX_BYTES:
-        raise ValueError("media_too_large")
-    with X_MEDIA_CACHE_LOCK:
-        X_MEDIA_CACHE[url] = {"ts": time.time(), "body": body, "content_type": content_type}
-        if len(X_MEDIA_CACHE) > X_MEDIA_CACHE_MAX_ENTRIES:
-            oldest = sorted(X_MEDIA_CACHE.items(), key=lambda item: float(item[1].get("ts") or 0))
-            for old_key, _ in oldest[:max(1, len(X_MEDIA_CACHE) - X_MEDIA_CACHE_MAX_ENTRIES)]:
-                X_MEDIA_CACHE.pop(old_key, None)
-    return body, content_type
-
-
 def sanitize_symbols(raw_symbols: str) -> list[str]:
     raw_symbols = (raw_symbols or "")[:800]
     symbols = []
@@ -6022,8 +5941,6 @@ def normalize_env_update(name: str, value: str, kind: str) -> str:
         return normalized
     if kind == "time_list":
         return normalize_time_list_update(value)
-    if kind == "handle_list":
-        return normalize_handle_list_update(value)
     if kind == "news_sources":
         return ",".join(parse_newsnow_source_ids(value))
     if kind == "stock_universe":
@@ -6257,7 +6174,7 @@ CRON_TIME_CONFIGS = {
 }
 ADMIN_GROUP_NOTES = {
     "财经快讯": "通过 NewsNow 聚合财联社电报、金十数据和华尔街见闻快讯。可选择是否将重要快讯写入买卖决策证据；交易日 15:00 后及休市日信息归入下一交易日。无需 API Key 或服务地址配置；Compose 部署会随牛牛1号自动启动内置实例，来源抓取失败时继续展示最近一次成功缓存并标记陈旧。",
-    "牛牛美股": "集中管理 X/推文监控、美股买入评级和隔夜美股盘面总结使用的 Grok 配置。长度默认：上下文 128000 tokens，最大输出 4096 tokens；关闭时隐藏 X/评级相关设置，隔夜美股总结仍会读取已配置的 Grok 参数。",
+    "牛牛美股": "集中管理美股买入评级和隔夜美股盘面总结使用的 Grok 配置。长度默认：上下文 128000 tokens，最大输出 4096 tokens；关闭时隐藏评级相关设置，隔夜美股总结仍会读取已配置的 Grok 参数。",
     "消息面预检模型": "用于 A 股候选股及龙虎榜连板/连榜股票最近 3 天消息面预检，并把雪球/X公开内容单列为市场舆情；auto 会为 Grok 4.5 和 GPT-5 系列搜索模型选择 Responses API，Grok Responses 还会使用 x_search。也可显式选择 responses 或 chat。长度默认：上下文 128000 tokens，最大输出 4096 tokens。模型和密钥留空则跳过。",
     "买卖决策模型": "推荐使用 deepseek-v4-pro；也可填写其他兼容 /chat/completions 的模型服务。长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
     "交易规则与风控": "约束买卖决策必须遵守的交易纪律、持仓数量、仓位比例、现金缓冲与盘面控仓规则。交易纪律 Prompt 会直接写入决策模型的必须遵守段。",
@@ -6333,7 +6250,7 @@ ADMIN_SETTING_GROUPS: tuple[dict[str, str], ...] = (
     {
         "slug": "us-market",
         "name": "牛牛美股",
-        "summary": "配置美股功能、Grok 接入、推文监控与评级任务。",
+        "summary": "配置美股功能、Grok 接入与评级任务。",
         "icon": "美股",
     },
     {
@@ -6424,9 +6341,6 @@ def removed_notification_config_names(channel_ids: set[str] | list[str] | tuple[
     return clear_names
 
 
-US_FEATURE_GATED_GROUPS = {
-    "X 监控",
-}
 US_FEATURE_GATED_NAMES = {
     "US_RATING_MODEL",
     "US_RATING_BASE_URL",
@@ -6439,11 +6353,6 @@ US_FEATURE_GATED_NAMES = {
     "DASHBOARD_GROK_MAX_TOKENS",
     "DASHBOARD_GROK_BASE_URL",
     "DASHBOARD_GROK_API_KEY",
-    "X_WATCHLIST_ENABLED",
-    "X_WATCHLIST_ACCOUNTS",
-    "X_WATCHLIST_MAX_TOKENS",
-    "X_WATCHLIST_DAEMON_INTERVAL_SECONDS",
-    "X_WATCHLIST_REQUEST_TIMEOUT_SECONDS",
     "DASHBOARD_US_RATING_CRON",
     "US_RATING_DEADLINE_SECONDS",
     "US_RATING_REQUEST_TIMEOUT_SECONDS",
@@ -6493,38 +6402,6 @@ def split_hhmm_values(value: str) -> list[str]:
     return values
 
 
-def normalize_x_handle(value: str) -> str:
-    handle = str(value or "").strip().lstrip("@").lower()
-    if not handle:
-        return ""
-    if not re.fullmatch(r"[a-z0-9_]{1,15}", handle):
-        return ""
-    return handle
-
-
-def split_handle_values(value: str) -> list[str]:
-    handles: list[str] = []
-    seen: set[str] = set()
-    for raw in re.split(r"[,，;\s]+", str(value or "")):
-        handle = normalize_x_handle(raw)
-        if not handle or handle in seen:
-            continue
-        seen.add(handle)
-        handles.append(handle)
-    return handles
-
-
-def normalize_handle_list_update(value: str) -> str:
-    handles = split_handle_values(value)
-    if not handles and str(value or "").strip():
-        raise ValueError("推文监控作者请使用 X handle，例如 wallstreet0name")
-    return ",".join(handles)
-
-
-def friendly_handle_list_text(value: str) -> str:
-    return "、".join(split_handle_values(value))
-
-
 def friendly_newsnow_sources_text(value: str) -> str:
     try:
         source_ids = parse_newsnow_source_ids(value)
@@ -6556,37 +6433,6 @@ def friendly_strategy_suite_text(value: str) -> str:
     normalized = normalize_strategy_suite_update(value)
     labels = {str(item["id"]): str(item["label"]) for item in strategy_suite_options()}
     return labels.get(normalized, normalized)
-
-
-def x_watchlist_state_accounts(path: Path | None = None) -> list[str]:
-    if path is None:
-        path = Path(os.environ.get("DASHBOARD_X_WATCHLIST_STATE") or str(CRON_STATE_DIR / "x_watchlist_latest.json")).expanduser()
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    if not isinstance(state, dict):
-        return []
-    handles: list[str] = []
-    seen: set[str] = set()
-
-    def add(value: object) -> None:
-        handle = normalize_x_handle(str(value or ""))
-        if handle and handle not in seen:
-            seen.add(handle)
-            handles.append(handle)
-
-    for key in ("latest", "seen_ids"):
-        section = state.get(key)
-        if isinstance(section, dict):
-            for handle in section:
-                add(handle)
-    sent_missing = state.get("sent_missing_context")
-    if isinstance(sent_missing, list):
-        for item in sent_missing:
-            if isinstance(item, dict):
-                add(item.get("handle"))
-    return handles
 
 
 def normalize_time_list_update(value: str) -> str:
@@ -6642,8 +6488,6 @@ def normalize_business_updates(updates: dict[str, str]) -> dict[str, str]:
             normalized[name] = normalize_time_list_update(normalized[name])
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "time":
             normalized[name] = normalize_env_update(name, normalized[name], "time")
-        elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "handle_list":
-            normalized[name] = normalize_handle_list_update(normalized[name])
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "stock_universe":
             normalized[name] = normalize_stock_universe(normalized[name])
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") in {"strategy_multi", "strategy_single"}:
@@ -6787,8 +6631,6 @@ def validate_business_updates(updates: dict[str, str]) -> None:
             number = int(value)
             if number < 30 or number > 600:
                 raise ValueError(f"{name} 必须在 30 到 600 之间")
-        elif name == "X_WATCHLIST_ACCOUNTS":
-            normalize_handle_list_update(value)
         elif name == STOCK_UNIVERSE_ENV:
             normalize_stock_universe(value)
         elif name == STRATEGY_SOURCE_ENV:
@@ -6802,7 +6644,6 @@ def validate_business_updates(updates: dict[str, str]) -> None:
         elif name == TRADE_DISCIPLINE_TEXT_ENV:
             normalize_trade_discipline_text_update(value)
         elif name in {
-            "X_WATCHLIST_DAEMON_INTERVAL_SECONDS",
             "DASHBOARD_INDICES_TTL_SECONDS",
             "DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS",
             "DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS",
@@ -6834,10 +6675,6 @@ def validate_business_updates(updates: dict[str, str]) -> None:
             timeout = int(value)
             if timeout < 1 or timeout > 30:
                 raise ValueError(f"{name} 必须在 1 到 30 之间")
-        elif name == "X_WATCHLIST_REQUEST_TIMEOUT_SECONDS" and str(value or "").strip():
-            timeout = int(value)
-            if timeout < 8 or timeout > 120:
-                raise ValueError(f"{name} 必须在 8 到 120 之间")
         elif name in {
             "DASHBOARD_MAX_SINGLE_POSITION_PCT",
             "DASHBOARD_MAX_TOTAL_POSITION_PCT",
@@ -7690,9 +7527,6 @@ def business_config_fallback_value(
     if name in {"DASHBOARD_GROK_API_KEY", "DASHBOARD_DECISION_API_KEY"}:
         provider = crossdesk_provider if crossdesk_provider is not None else crossdesk_provider_values()
         return provider.get("api_key", ""), "config.yaml" if provider.get("api_key") else "default"
-    if name == "X_WATCHLIST_ACCOUNTS":
-        handles = x_watchlist_state_accounts()
-        return ",".join(handles), "x_watchlist_state" if handles else "default"
     return "", "default"
 
 
@@ -7779,18 +7613,6 @@ def build_admin_config_payload() -> dict[str, Any]:
                 "file_state": friendly_time_list_text(str(state_value or "")),
                 "default": friendly_time_list_text(default_value),
                 "time_values": split_hhmm_values(str(file_value or "")),
-            })
-        if schema.get("kind") == "handle_list" and not secret:
-            edit_value = str(file_value or "")
-            if name not in env_values and name not in os.environ and fallback_value:
-                edit_value = fallback_value
-            state_value = env_values.get(name) if name in env_values else (fallback_value or default_value)
-            item.update({
-                "effective": friendly_handle_list_text(effective),
-                "file_value": normalize_handle_list_update(edit_value),
-                "file_state": friendly_handle_list_text(state_value),
-                "default": friendly_handle_list_text(default_value),
-                "handle_values": split_handle_values(edit_value),
             })
         if schema.get("kind") == "news_sources" and not secret:
             edit_source = str(file_value or default_value)

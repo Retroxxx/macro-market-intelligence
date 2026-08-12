@@ -157,30 +157,6 @@ def create_market_router(
             enforce_limits=False,
         )
 
-    @router.api_route("/api/x_media", methods=["GET", "HEAD"])
-    async def x_media(request: Request) -> Response:
-        limited = await enforce_api_limits(request)
-        if limited is not None:
-            return limited
-        if request.method == "HEAD":
-            return Response(status_code=200, headers={"Cache-Control": "no-store"})
-        media_url = str(request.query_params.get("url") or "").strip()
-        try:
-            body, content_type = await run_in_threadpool(services.fetch_x_media, media_url)
-        except Exception:
-            return Response(
-                content=b"media unavailable",
-                status_code=404,
-                media_type="text/plain",
-                headers={"Cache-Control": "no-store"},
-            )
-        return Response(
-            content=body,
-            status_code=200,
-            media_type=content_type,
-            headers={"Cache-Control": "public, max-age=604800, immutable"},
-        )
-
     @router.api_route("/api/indices", methods=["GET", "HEAD"])
     async def indices(request: Request) -> Response:
         ttl = services.API_TTLS["indices"]

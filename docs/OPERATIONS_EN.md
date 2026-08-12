@@ -17,8 +17,7 @@ This document records NiuOne's local operation, validation, deployment, log insp
 ├── run.sh                  # One-click startup for macOS/Linux
 ├── run.bat                 # One-click Windows BAT startup
 ├── run-dashboard.sh        # Web service entry point
-├── run-niuone-cron-scheduler.sh
-└── run-x-watchlist-daemon.sh
+└── run-niuone-cron-scheduler.sh
 ```
 
 Runtime data is stored by default in:
@@ -77,14 +76,13 @@ The final **About** settings group shows the project author, GitHub repository, 
 
 ## 3. Model Configuration
 
-NiuOne requires a large language model to run the complete workflow. X watchlist monitoring uses Grok with `x_search` support. The daily U.S. institutional ratings report can use a dedicated model with real-time web search and reuses Grok when those settings are blank. Enhanced A-share market summaries can use any model compatible with `/chat/completions`. A-share candidates plus dragon-tiger limit-up-streak or consecutive-listing stocks use the separately configured news-precheck model with real-time search support. Trading decisions after stock selection can use a compatible model, with DeepSeek recommended.
+NiuOne requires a large language model to run the complete workflow. The daily U.S. institutional ratings report can use a dedicated model with real-time web search and reuses Grok when those settings are blank. Enhanced A-share market summaries can use any model compatible with `/chat/completions`. A-share candidates plus dragon-tiger limit-up-streak or consecutive-listing stocks use the separately configured news-precheck model with real-time search support. Trading decisions after stock selection can use a compatible model, with DeepSeek recommended.
 
 Core configuration items:
 
 | Scenario | Configuration items |
 |---|---|
 | Master switch for NiuNiu U.S. Stocks | `DASHBOARD_US_FEATURES_ENABLED` |
-| Independent X watchlist switch | `X_WATCHLIST_ENABLED`; disabling it does not disable the U.S. ratings report |
 | Grok API | `DASHBOARD_GROK_BASE_URL`, `DASHBOARD_GROK_API_KEY`, `DASHBOARD_GROK_MODEL`, `DASHBOARD_GROK_API_MODE`, `DASHBOARD_GROK_CONTEXT_LENGTH` |
 | Separate override for A-share market model summaries | `A_SHARE_MODEL_SUMMARY_BASE_URL`, `A_SHARE_MODEL_SUMMARY_API_KEY`, `A_SHARE_MODEL_SUMMARY_MODEL`, `A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
 | News pre-check API | `DASHBOARD_NEWS_BASE_URL`, `DASHBOARD_NEWS_API_KEY`, `DASHBOARD_NEWS_MODEL`, `DASHBOARD_NEWS_API_MODE`, `DASHBOARD_NEWS_MAX_TOKENS`, `DASHBOARD_NEWS_CONCURRENCY` |
@@ -94,10 +92,9 @@ Core configuration items:
 | Trading discipline for trading decisions | `DASHBOARD_TRADE_DISCIPLINE_TEXT`; when empty, the built-in default discipline is used; when populated, its content is inserted into the “Mandatory Rules” section of the model prompt |
 | Simulated-account cadence and position-sizing references | `DASHBOARD_MAX_OPEN_POSITIONS`, `DASHBOARD_MAX_NEW_BUYS_PER_DECISION`, `DASHBOARD_MAX_SINGLE_POSITION_PCT`, `DASHBOARD_MAX_TOTAL_POSITION_PCT`, `DASHBOARD_MIN_CASH_RESERVE_PCT`; these are model references by default, while suites with registered hard limits, including Z-ge and Sector Tide, enforce the stricter global or suite limit in the simulation layer |
 | Separate override for U.S. stock ratings | `US_RATING_MODEL`, `US_RATING_BASE_URL`, `US_RATING_API_KEY`, `US_RATING_MAX_TOKENS` |
-| Separate override for the X watchlist | `X_WATCHLIST_BASE_URL`, `X_WATCHLIST_API_KEY`, `X_WATCHLIST_MODEL`, `X_WATCHLIST_MAX_TOKENS` |
 
-After administrator authentication, preferably use the settings button on the page to open the settings page and manage these values. Every section that requires a model and API key includes a **Test Model Connection** button. The test uses the current form values without saving them; leaving the API key input empty reuses the saved secret. Tweet monitoring and U.S. ratings settings are controlled by the “Enable NiuNiu U.S. Stocks” master switch. When disabled, the settings page hides these items, and the background X monitoring and U.S. ratings scheduled tasks are skipped. To stop tweet queries while retaining U.S. ratings, disable **Enable X Watchlist Monitoring**; both the daemon and direct monitor entry point then skip X requests without affecting the ratings schedule. You can also edit `.local-data/dashboard.env` directly; after saving, restart the affected components as appropriate, or wait for the next task cycle to pick up the changes.
-`DASHBOARD_GROK_API_MODE` accepts `auto`, `responses`, or `chat`. The default `auto` mode uses the Responses API with `web_search`/`x_search` tools for Grok 4.5 and keeps Chat Completions for other models; compatible gateways can force either mode. `X_WATCHLIST_REQUEST_TIMEOUT_SECONDS` controls the per-account X request timeout and defaults to `45` seconds.
+After administrator authentication, preferably use the settings button on the page to open the settings page and manage these values. Every section that requires a model and API key includes a **Test Model Connection** button. The test uses the current form values without saving them; leaving the API key input empty reuses the saved secret. U.S. ratings settings are controlled by the “Enable NiuNiu U.S. Stocks” master switch. When disabled, the settings page hides these items and skips the U.S. ratings scheduled task. You can also edit `.local-data/dashboard.env` directly; after saving, restart the affected components as appropriate, or wait for the next task cycle to pick up the changes.
+`DASHBOARD_GROK_API_MODE` accepts `auto`, `responses`, or `chat`. The default `auto` mode uses the Responses API with `web_search`/`x_search` tools for Grok 4.5 and keeps Chat Completions for other models; compatible gateways can force either mode.
 `DASHBOARD_NEWS_API_MODE` also accepts `auto`, `responses`, or `chat`. The default `auto` mode uses the Responses API with `web_search` for Grok 4.5 and GPT-5 search models. A Grok Responses news model also receives `x_search`; other models use `web_search` for publicly indexed Xueqiu/X pages and never switch to `DASHBOARD_GROK_*`.
 `*_CONTEXT_LENGTH` represents only the model context window and defaults to `128000`; `*_MAX_TOKENS` is the desired maximum output length and is mapped to `max_tokens` or `max_output_tokens` for the selected API. Known GPT-5.6 gateway aliases that reject the Responses output-limit parameter omit it, and other gateways receive one guarded retry without it when they explicitly report the parameter as unsupported. Both JSON and SSE responses are accepted, including gateways that force SSE when `stream=false`.
 The news pre-check examines at most five candidate stocks concurrently by default. If the upstream service returns rate limits or 403/429 responses, reduce `DASHBOARD_NEWS_CONCURRENCY` to `2` or `1`. When a legacy snapshot has an `unclassified_response` whose saved summary implies one unambiguous positive, negative, or neutral conclusion, backfill repairs the label locally while retaining the original fetch time and making no model request; ambiguous records remain unclassified.
@@ -377,11 +374,8 @@ Task scripts:
 
 ```bash
 ./run-niuone-cron-scheduler.sh
-./run-x-watchlist-daemon.sh
 ./scripts/run_us_rating_report.sh
 ```
-
-Manage X watchlist authors under “Tweet Monitoring Authors” on the settings page. Enter handles without `@`.
 
 ## 8. Rollback
 
@@ -436,7 +430,7 @@ curl -s "http://127.0.0.1:8787/api/messages?limit=5" | python3 -m json.tool | he
 
 The current message stream primarily uses `push_history.db`. Corresponding messages appear on the page only after the task scripts successfully write them to this database.
 
-New market-monitoring, X-monitoring, and U.S. institutional-ratings records are written only to this database; Markdown files are no longer generated. Existing historical `.md` files from before the upgrade are preserved unchanged, but the page does not read or automatically delete them.
+New market-monitoring and U.S. institutional-ratings records are written only to this database; Markdown files are no longer generated. Existing historical `.md` files from before the upgrade are preserved unchanged, but the page does not read or automatically delete them.
 
 ### Tasks Do Not Update Automatically
 
@@ -444,11 +438,10 @@ Check these three areas:
 
 ```bash
 launchctl print gui/$(id -u)/ai.niuone.cron-scheduler | sed -n '1,100p'
-launchctl print gui/$(id -u)/ai.niuone.x-watchlist | sed -n '1,100p'
 tail -n 200 .local-data/runtime/logs/*.log
 ```
 
-Also confirm that model keys, task schedules, and monitored tweet authors have been configured.
+Also confirm that model keys and task schedules have been configured.
 
 ### The Page Is Blank After Frontend Changes
 

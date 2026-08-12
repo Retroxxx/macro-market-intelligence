@@ -16,7 +16,7 @@ LimitCheck = Callable[[Request], Awaitable[Response | None]]
 PublicLimitCheck = Callable[[Request], Response | None]
 JsonResponder = Callable[..., Response]
 SecureRequestCheck = Callable[[Request], bool]
-MESSAGE_COUNT_CATEGORIES = ("market_monitor", "x_monitor", "us_ratings")
+MESSAGE_COUNT_CATEGORIES = ("market_monitor", "us_ratings")
 
 
 def dashboard_message_counts(payload: dict[str, Any]) -> dict[str, int]:

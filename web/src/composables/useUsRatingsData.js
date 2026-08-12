@@ -38,7 +38,7 @@ const profileRequests = new Map()
 
 function publishMessageCategoryCounts(categories = state.categories) {
   const { setCategoryCount } = useDashboardTabs()
-  for (const category of ['market_monitor', 'x_monitor', 'us_ratings']) {
+  for (const category of ['market_monitor', 'us_ratings']) {
     const value = categories?.[category]
     if (!value || typeof value !== 'object') continue
     setCategoryCount(category, ` · ${Number(value.count || 0)}`)

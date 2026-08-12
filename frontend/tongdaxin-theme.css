@@ -237,8 +237,6 @@ html[data-theme="tongdaxin"]:root :where(
   .us-market-summary-card,
   .market-detail-overview,
   .market-section,
-  .x-monitor-panel,
-  .x-detail,
   .practice-log-panel,
   .practice-chart-card,
   .rating-card,
@@ -283,7 +281,6 @@ html[data-theme="tongdaxin"]:root :where(
 
 html[data-theme="tongdaxin"]:root :where(
   .market-card-head,
-  .x-monitor-head,
   .market-section-head,
   .practice-log-head,
   .practice-log-detail-head,
@@ -302,7 +299,6 @@ html[data-theme="tongdaxin"]:root :where(
 
 html[data-theme="tongdaxin"]:root :where(
   .market-card-head,
-  .x-monitor-head,
   .practice-log-head,
   .practice-log-detail-head,
   .practice-rule-head,
@@ -315,8 +311,7 @@ html[data-theme="tongdaxin"]:root :where(
 html[data-theme="tongdaxin"]:root .market-section-head { padding:5px 8px; }
 
 /* Route title bars share the overview command bar geometry. */
-html[data-theme="tongdaxin"]:root .dragon-tiger-panel,
-html[data-theme="tongdaxin"]:root .x-monitor-panel {
+html[data-theme="tongdaxin"]:root .dragon-tiger-panel {
   padding:0;
 }
 
@@ -326,7 +321,6 @@ html[data-theme="tongdaxin"]:root :where(
   .mainline-heading,
   .indices-part-head,
   .dragon-tiger-head,
-  .x-monitor-head,
   .rating-table-title
 ) {
   box-sizing:border-box;
@@ -345,7 +339,6 @@ html[data-theme="tongdaxin"]:root :where(
   .mainline-heading h2,
   .indices-part-title,
   .dragon-tiger-head h2,
-  .x-monitor-title,
   .rating-table-title
 ) {
   margin:0;
@@ -357,8 +350,7 @@ html[data-theme="tongdaxin"]:root :where(
 
 html[data-theme="tongdaxin"]:root :where(
   .mainline-heading > div:first-child,
-  .dragon-tiger-head > div:first-child,
-  .x-monitor-head > div:first-child
+  .dragon-tiger-head > div:first-child
 ) {
   display:flex;
   min-width:0;
@@ -368,8 +360,7 @@ html[data-theme="tongdaxin"]:root :where(
 
 html[data-theme="tongdaxin"]:root :where(
   .mainline-heading p,
-  .dragon-tiger-sub,
-  .x-monitor-sub
+  .dragon-tiger-sub
 ) {
   min-width:0;
   margin:0;
@@ -383,7 +374,6 @@ html[data-theme="tongdaxin"]:root :where(
   .mainline-heading,
   .indices-part-head,
   .dragon-tiger-head,
-  .x-monitor-head,
   .rating-table-title
 ) { padding:var(--terminal-page-title-padding); }
 
@@ -400,7 +390,6 @@ html[data-theme="tongdaxin"]:root :where(
   .practice-rule-btn,
   .mainline-actions button,
   .dragon-tiger-unavailable a,
-  .x-page-btn,
   .dragon-tiger-date-controls button
 ) {
   min-height:22px;
@@ -422,7 +411,6 @@ html[data-theme="tongdaxin"]:root :where(
   .practice-rule-btn,
   .mainline-actions button,
   .dragon-tiger-unavailable a,
-  .x-page-btn,
   .dragon-tiger-date-controls button
 ):hover:not(:disabled) {
   border-color:#777 #111 #111 #777;
@@ -567,8 +555,6 @@ html[data-theme="tongdaxin"]:root :where(
   .market-symbol,
   .us-market-title,
   .market-day-title,
-  .x-monitor-title,
-  .x-author,
   .inline-value,
   .position-value,
   .position-brief-name,
@@ -592,9 +578,6 @@ html[data-theme="tongdaxin"]:root :where(
   .market-card-time,
   .market-day-sub,
   .us-market-sub,
-  .x-monitor-sub,
-  .x-handle,
-  .x-time,
   .practice-log-count,
   .practice-log-detail,
   .practice-rule-meta,
@@ -654,8 +637,6 @@ html[data-theme="tongdaxin"]:root :where(
 html[data-theme="tongdaxin"]:root :where(
   .market-chip,
   .market-section-count,
-  .x-metric,
-  .x-badge,
   .benchmark-toggle,
   .practice-log-badge,
   .position-reason-badge
@@ -1075,295 +1056,6 @@ html[data-theme="tongdaxin"]:root .market-card-detail .market-metric-value.down 
   html[data-theme="tongdaxin"]:root .us-market-preview { margin-top:3px; line-height:1.35; }
   html[data-theme="tongdaxin"]:root .market-day-pager { display:grid; }
   html[data-theme="tongdaxin"]:root .market-day-pager > div:first-child { justify-content:space-between; }
-}
-
-/* X monitor follows a dense terminal message ledger instead of a social feed. */
-html[data-theme="tongdaxin"]:root .x-monitor-head { border-bottom-color:var(--line); }
-html[data-theme="tongdaxin"]:root .x-monitor-metrics { gap:1px; }
-html[data-theme="tongdaxin"]:root .x-metric {
-  min-height:22px;
-  border-color:var(--line);
-  padding:3px 6px;
-  background:#050505;
-  color:#c8c8c8;
-  font-size:11px;
-  font-weight:400;
-}
-html[data-theme="tongdaxin"]:root .x-metric:first-child { color:#fff200; }
-html[data-theme="tongdaxin"]:root .x-list {
-  gap:1px;
-  border:1px solid var(--line2);
-  border-top:0;
-  background:var(--line);
-}
-html[data-theme="tongdaxin"]:root .x-monitor-table-head,
-html[data-theme="tongdaxin"]:root .x-row {
-  display:grid;
-  grid-template-columns:44px minmax(135px,.62fr) 54px 126px minmax(320px,2.38fr) 54px 20px;
-  gap:0;
-}
-html[data-theme="tongdaxin"]:root .x-monitor-table-head {
-  min-height:24px;
-  background:var(--terminal-header);
-  color:#c8c8c8;
-  font-size:11px;
-}
-html[data-theme="tongdaxin"]:root .x-monitor-table-head > span {
-  display:flex;
-  min-width:0;
-  align-items:center;
-  border-left:1px solid var(--line);
-  padding:3px 6px;
-}
-html[data-theme="tongdaxin"]:root .x-monitor-table-head > span:first-child { border-left:0; justify-content:center; }
-html[data-theme="tongdaxin"]:root .x-row {
-  align-items:stretch;
-  border:0;
-  padding:0;
-  overflow:hidden;
-  background:var(--terminal-row);
-}
-html[data-theme="tongdaxin"]:root .x-row:nth-of-type(even) { background:var(--terminal-row-alt); }
-html[data-theme="tongdaxin"]:root .x-row:hover { border-color:transparent; background:#181818; }
-html[data-theme="tongdaxin"]:root .x-row.open { border-color:transparent; background:var(--terminal-selection); }
-html[data-theme="tongdaxin"]:root .x-row > .x-copy,
-html[data-theme="tongdaxin"]:root .x-row .x-line { display:contents; }
-html[data-theme="tongdaxin"]:root .x-row :where(
-  .x-avatar,
-  .x-author,
-  .x-handle,
-  .x-time,
-  .x-preview,
-  .x-media-count,
-  .x-badges
-) {
-  box-sizing:border-box;
-  min-width:0;
-  min-height:24px;
-  margin:0;
-  border:0;
-  border-left:1px solid var(--line);
-  border-radius:0;
-  padding:3px 6px;
-  overflow:hidden;
-  background:transparent;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-html[data-theme="tongdaxin"]:root .x-row .x-avatar {
-  grid-column:1;
-  display:grid;
-  width:auto;
-  height:auto;
-  place-items:center;
-  border-left:0;
-  color:#fff200;
-  font-family:Tahoma,Arial,sans-serif;
-  font-size:11px;
-  font-weight:700;
-  box-shadow:none;
-}
-html[data-theme="tongdaxin"]:root .x-row .x-author {
-  grid-column:2;
-  display:block;
-  max-width:none;
-  color:#e0e0e0;
-  font-size:12px;
-  font-weight:700;
-  line-height:18px;
-}
-html[data-theme="tongdaxin"]:root .x-row .x-handle {
-  grid-column:3;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  color:#fff200;
-  font-size:11px;
-}
-html[data-theme="tongdaxin"]:root .x-row .x-time {
-  grid-column:4;
-  display:flex;
-  align-items:center;
-  color:#929292;
-  font-family:Tahoma,Arial,sans-serif;
-  font-size:11px;
-}
-html[data-theme="tongdaxin"]:root .x-row .x-preview {
-  grid-column:5;
-  display:block;
-  color:#c0c0c0;
-  font-size:11px;
-  line-height:18px;
-}
-html[data-theme="tongdaxin"]:root .x-row .x-media-strip { display:none; }
-html[data-theme="tongdaxin"]:root .x-row .x-media-count {
-  grid-column:6;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  color:#21eff6;
-  font-family:Tahoma,Arial,sans-serif;
-  font-size:11px;
-}
-html[data-theme="tongdaxin"]:root .x-row .x-badges {
-  grid-column:7;
-  display:grid;
-  place-items:center;
-  padding:2px;
-}
-html[data-theme="tongdaxin"]:root .x-row .x-chevron {
-  display:grid;
-  width:14px;
-  height:14px;
-  place-items:center;
-  border:1px solid #666;
-  background:#1b1b1b;
-  color:#d8d8d8;
-  font-family:Tahoma,Arial,sans-serif;
-  font-size:0;
-  line-height:1;
-  transform:none;
-}
-html[data-theme="tongdaxin"]:root .x-row .x-chevron::before { content:'+'; font-size:11px; }
-html[data-theme="tongdaxin"]:root .x-row.open .x-chevron { border-color:#fff200; color:#fff200; transform:none; }
-html[data-theme="tongdaxin"]:root .x-row.open .x-chevron::before { content:'\2212'; }
-html[data-theme="tongdaxin"]:root .x-row.open :where(.x-avatar,.x-author,.x-handle,.x-time,.x-badges) {
-  border-bottom:1px solid #2949ff;
-}
-html[data-theme="tongdaxin"]:root .x-detail {
-  grid-column:1 / -1;
-  margin:0;
-  border:0;
-  border-top:1px solid #2949ff;
-  padding:4px;
-  background:#000;
-  color:#c8c8c8;
-  cursor:auto;
-}
-html[data-theme="tongdaxin"]:root .x-detail .content,
-html[data-theme="tongdaxin"]:root .x-detail .thread-reply,
-html[data-theme="tongdaxin"]:root .x-detail .thread-original {
-  display:grid;
-  gap:0;
-  margin:0;
-  border:1px solid var(--line);
-  border-radius:0;
-  padding:0;
-  background:#000;
-  box-shadow:none;
-}
-html[data-theme="tongdaxin"]:root .x-detail .thread-card { gap:3px; }
-html[data-theme="tongdaxin"]:root .x-detail .content::before,
-html[data-theme="tongdaxin"]:root .x-detail .thread-reply::before,
-html[data-theme="tongdaxin"]:root .x-detail .thread-original::before {
-  display:block;
-  min-height:22px;
-  box-sizing:border-box;
-  border-bottom:1px solid var(--line);
-  padding:3px 6px;
-  background:var(--terminal-header);
-  color:#fff200;
-  font-size:11px;
-  line-height:15px;
-  font-weight:700;
-}
-html[data-theme="tongdaxin"]:root .x-detail .content::before { content:'推文正文'; }
-html[data-theme="tongdaxin"]:root .x-detail .thread-reply::before { content:'当前推文'; }
-html[data-theme="tongdaxin"]:root .x-detail .thread-original::before { content:'关联原帖'; }
-html[data-theme="tongdaxin"]:root .x-detail .content,
-html[data-theme="tongdaxin"]:root .x-detail .thread-reply-content,
-html[data-theme="tongdaxin"]:root .x-detail .thread-original-content {
-  max-height:none;
-  overflow:visible;
-  border-top:0;
-  padding:6px 8px;
-  color:#d0d0d0;
-  font-size:12px;
-  line-height:1.5;
-  font-weight:400;
-  white-space:pre-wrap;
-  word-break:break-word;
-}
-html[data-theme="tongdaxin"]:root .x-detail .thread-original-content::first-line {
-  color:#d0d0d0;
-  font-size:12px;
-  font-weight:400;
-  letter-spacing:0;
-}
-html[data-theme="tongdaxin"]:root .x-detail .x-media-gallery {
-  gap:2px;
-  margin:0;
-  border-top:1px solid var(--line);
-  padding:3px;
-  background:#050505;
-}
-html[data-theme="tongdaxin"]:root .x-detail .x-media-group { gap:2px; }
-html[data-theme="tongdaxin"]:root .x-detail .x-media-label {
-  border-bottom:1px solid #4a0000;
-  padding:2px 4px;
-  color:#929292;
-  font-size:10px;
-  font-weight:400;
-  letter-spacing:0;
-}
-html[data-theme="tongdaxin"]:root .x-detail .x-media-grid { gap:2px; }
-html[data-theme="tongdaxin"]:root .x-detail .x-media-tile {
-  border-color:var(--line);
-  border-radius:0;
-  background:#000;
-  box-shadow:none;
-}
-html[data-theme="tongdaxin"]:root .x-detail .x-media-frame {
-  height:clamp(220px,48vh,560px);
-  padding:4px;
-  background:#000;
-}
-html[data-theme="tongdaxin"]:root .x-detail .x-media-frame img { border-radius:0; }
-html[data-theme="tongdaxin"]:root .x-pager {
-  gap:8px;
-  margin-top:3px;
-  border-color:var(--line2);
-  padding:4px 6px;
-  background:var(--terminal-header);
-}
-html[data-theme="tongdaxin"]:root .x-pager-status { color:#929292; font-size:11px; }
-html[data-theme="tongdaxin"]:root .x-pager-actions { gap:2px; }
-html[data-theme="tongdaxin"]:root .x-page-btn { min-height:22px; padding:2px 7px; font-size:11px; }
-
-@media (max-width:720px) {
-  html[data-theme="tongdaxin"]:root .x-monitor-metrics { justify-content:flex-start; }
-  html[data-theme="tongdaxin"]:root .x-list { gap:2px; border:0; background:transparent; }
-  html[data-theme="tongdaxin"]:root .x-monitor-table-head { display:none; }
-  html[data-theme="tongdaxin"]:root .x-row {
-    grid-template-columns:36px minmax(0,1fr) 20px;
-    gap:5px;
-    border:1px solid var(--line);
-    padding:4px 5px;
-  }
-  html[data-theme="tongdaxin"]:root .x-row > .x-copy { display:block; grid-column:2; min-width:0; }
-  html[data-theme="tongdaxin"]:root .x-row .x-line { display:flex; align-items:center; gap:6px; }
-  html[data-theme="tongdaxin"]:root .x-row :where(
-    .x-avatar,
-    .x-author,
-    .x-handle,
-    .x-time,
-    .x-preview,
-    .x-media-count,
-    .x-badges
-  ) { min-height:0; border-left:0; padding:0; }
-  html[data-theme="tongdaxin"]:root .x-row .x-avatar { grid-column:1; width:34px; height:34px; font-size:12px; }
-  html[data-theme="tongdaxin"]:root .x-row .x-author { font-size:12px; line-height:1.35; }
-  html[data-theme="tongdaxin"]:root .x-row .x-handle,
-  html[data-theme="tongdaxin"]:root .x-row .x-time { font-size:10px; }
-  html[data-theme="tongdaxin"]:root .x-row .x-preview { margin-top:3px; font-size:11px; line-height:1.4; }
-  html[data-theme="tongdaxin"]:root .x-row .x-media-strip { display:flex; min-height:40px; margin-top:4px; }
-  html[data-theme="tongdaxin"]:root .x-row .x-media-count { display:none; }
-  html[data-theme="tongdaxin"]:root .x-row .x-badges { grid-column:3; align-self:start; }
-  html[data-theme="tongdaxin"]:root .x-row.open :where(.x-avatar,.x-author,.x-handle,.x-time,.x-badges) { border-bottom:0; }
-  html[data-theme="tongdaxin"]:root .x-detail { grid-column:1 / -1; border:1px solid var(--line); padding:3px; }
-  html[data-theme="tongdaxin"]:root .x-pager { align-items:stretch; }
-  html[data-theme="tongdaxin"]:root .x-pager-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; }
-  html[data-theme="tongdaxin"]:root .x-page-btn { width:100%; }
 }
 
 html[data-theme="tongdaxin"]:root .sector-item.up,
@@ -2330,8 +2022,8 @@ html[data-theme="tongdaxin"]:root :where(.primary-btn,.danger-btn,.save-btn) {
 
 /* Shared Windows-era push-button chrome for every terminal action control. */
 html[data-theme="tongdaxin"]:root body :where(
-  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
-  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card):not(.x-row),
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.us-market-head):not(.market-monitor-card),
   a.header-link,
   a.settings-link,
   a.toplink,
@@ -2353,8 +2045,8 @@ html[data-theme="tongdaxin"]:root body :where(
 }
 
 html[data-theme="tongdaxin"]:root body :where(
-  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
-  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card):not(.x-row),
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.us-market-head):not(.market-monitor-card),
   a.header-link,
   a.settings-link,
   a.toplink,
@@ -2371,8 +2063,8 @@ html[data-theme="tongdaxin"]:root body :where(
 }
 
 html[data-theme="tongdaxin"]:root body :where(
-  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
-  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card):not(.x-row),
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.us-market-head):not(.market-monitor-card),
   a.header-link,
   a.settings-link,
   a.toplink,
@@ -2388,8 +2080,8 @@ html[data-theme="tongdaxin"]:root body :where(
 }
 
 html[data-theme="tongdaxin"]:root body :where(
-  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
-  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card):not(.x-row),
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.us-market-head):not(.market-monitor-card),
   a.header-link,
   a.settings-link,
   a.toplink,
@@ -2709,7 +2401,6 @@ html[data-theme="tongdaxin"]:root .backtest-empty { padding:12px; color:#777; fo
     .mainline-heading,
     .indices-part-head,
     .dragon-tiger-head,
-    .x-monitor-head,
     .rating-table-title
   ) {
     flex:0 0 auto !important;
@@ -3078,8 +2769,6 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .market-section-head,
   .market-day-pager,
   .us-market-head,
-  .x-monitor-head,
-  .x-monitor-table-head,
   .practice-chart-head,
   .practice-position-bar,
   .practice-log-head,
@@ -3130,8 +2819,6 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .market-section-head,
   .market-day-pager,
   .us-market-head,
-  .x-monitor-head,
-  .x-monitor-table-head,
   .practice-chart-head,
   .practice-position-bar,
   .practice-log-head,
@@ -3158,8 +2845,6 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .market-monitor-grid,
   .market-detail-overview,
   .market-section,
-  .x-monitor-panel,
-  .x-detail,
   .practice-log-panel,
   .practice-chart-card,
   .rating-card,
@@ -3215,8 +2900,6 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .market-card-detail,
   .market-card-detail .market-section,
   .market-card-detail .market-section-body,
-  .x-detail,
-  .x-media-tile,
   .thread-original,
   .thread-reply,
   .theme-stock-details,
@@ -3269,7 +2952,6 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .hot-item,
   .market-monitor-card,
   .us-market-summary-card,
-  .x-row,
   .position-brief-card,
   .practice-log-row,
   .theme-row,
@@ -3290,7 +2972,6 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
 ) { background:var(--terminal-row); color:#000; }
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .market-monitor-card:nth-of-type(even),
-  .x-row:nth-of-type(even),
   .theme-row:nth-child(even),
   .theme-stock-detail-row:nth-child(odd),
   .overview-theme-row:nth-child(odd),
@@ -3305,7 +2986,6 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
 ) { background:var(--terminal-row-alt); }
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .market-monitor-card:hover,
-  .x-row:hover,
   .rating-table tbody tr:hover,
   .dragon-tiger-item > summary:hover,
   .news-source-option:hover,
@@ -3321,7 +3001,6 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root .setting-row:h
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .market-monitor-card.open .market-card-head,
   .us-market-summary-card.open .us-market-head,
-  .x-row.open,
   .rating-table tbody tr.expanded,
   .dragon-tiger-item[open] > summary,
   .news-source-option.selected,
@@ -3335,7 +3014,6 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .market-monitor-card.open .market-card-head,
   .us-market-summary-card.open .us-market-head,
-  .x-row.open,
   .rating-table tbody tr.expanded,
   .dragon-tiger-item[open] > summary,
   .news-source-option.selected,
@@ -3352,8 +3030,8 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(input,s
   box-shadow:inset 1px 1px 0 #000;
 }
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body :where(
-  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
-  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card):not(.x-row),
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.us-market-head):not(.market-monitor-card),
   a.header-link,
   a.settings-link,
   a.toplink,
@@ -3369,8 +3047,8 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body :where(
   box-shadow:inset 1px 1px 0 #dfdfdf,inset -1px -1px 0 #808080 !important;
 }
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body :where(
-  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
-  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card):not(.x-row),
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.us-market-head):not(.market-monitor-card),
   a.header-link,
   a.settings-link,
   a.toplink,
@@ -3386,8 +3064,8 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body :where(
   box-shadow:inset 1px 1px 0 #fff,inset -1px -1px 0 #808080 !important;
 }
 html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root body :where(
-  button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head),
-  [role="button"]:not(.practice-log-row):not(.x-media-tile):not(.us-market-head):not(.market-monitor-card):not(.x-row),
+  button:not(.practice-trade-marker):not(.practice-log-row):not(.us-market-head),
+  [role="button"]:not(.practice-log-row):not(.us-market-head):not(.market-monitor-card),
   a.header-link,
   a.settings-link,
   a.toplink,
@@ -3444,8 +3122,6 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .market-symbol,
   .us-market-title,
   .us-market-preview,
-  .x-author,
-  .x-copy,
   .inline-value,
   .position-value,
   .position-reason-text,
@@ -3486,9 +3162,6 @@ html[data-theme="tongdaxin"][data-tongdaxin-palette="light"]:root :where(
   .market-card-time,
   .market-day-sub,
   .us-market-sub,
-  .x-monitor-sub,
-  .x-handle,
-  .x-time,
   .practice-log-count,
   .practice-log-detail,
   .practice-rule-meta,

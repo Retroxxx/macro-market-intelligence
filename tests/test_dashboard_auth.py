@@ -77,20 +77,6 @@ US_RATING_COMPONENTS = '\n'.join(
         ROOT / 'web' / 'src' / 'components' / 'us-ratings' / 'RatingText.vue',
     )
 )
-X_MONITOR_UTILS_PATH = ROOT / 'web' / 'src' / 'utils' / 'xMonitorDisplay.js'
-X_MONITOR_UTILS = X_MONITOR_UTILS_PATH.read_text(encoding='utf-8')
-X_MONITOR_DATA = (
-    ROOT / 'web' / 'src' / 'composables' / 'useXMonitorData.js'
-).read_text(encoding='utf-8')
-X_MONITOR_COMPONENTS = '\n'.join(
-    path.read_text(encoding='utf-8')
-    for path in (
-        ROOT / 'web' / 'src' / 'components' / 'XMonitorPanel.vue',
-        ROOT / 'web' / 'src' / 'components' / 'x-monitor' / 'XMonitorRow.vue',
-        ROOT / 'web' / 'src' / 'components' / 'x-monitor' / 'XMediaGallery.vue',
-        ROOT / 'web' / 'src' / 'components' / 'x-monitor' / 'XImageViewer.vue',
-    )
-)
 PRACTICE_CANDIDATE_UTILS_PATH = (
     ROOT / 'web' / 'src' / 'utils' / 'practiceCandidateDisplay.js'
 )
@@ -311,8 +297,6 @@ class DashboardAuthTests(unittest.TestCase):
             name: os.environ.get(name)
             for name in (
                 'DASHBOARD_ADMIN_PASSWORD',
-                'X_WATCHLIST_ACCOUNTS',
-                'DASHBOARD_X_WATCHLIST_STATE',
                 dashboard.STRATEGY_SOURCE_ENV,
                 dashboard.PERSONA_STRATEGY_ENV,
                 dashboard.PRESET_STRATEGY_TEXT_ENV,
@@ -926,10 +910,12 @@ class DashboardAuthTests(unittest.TestCase):
             '/dragon-tiger',
             '/market-monitor',
             '/realtime-news',
-            '/x-monitor',
             '/us-ratings',
         }
         self.assertEqual(set(SPA_DASHBOARD_PATHS), expected_paths)
+        removed_page = FakeHandler(path='/x-monitor')
+        removed_page.do_GET()
+        self.assertEqual(removed_page.status, 404)
         expected_page = (ROOT / 'web' / 'dist' / 'index.html').read_bytes()
         for path in sorted(expected_paths):
             with self.subTest(path=path):
@@ -2975,114 +2961,10 @@ console.log(JSON.stringify({
 
     def test_vue_data_layers_use_revision_endpoints_instead_of_zero_limit_polling(self):
         self.assertEqual(dashboard.clamp_limit('0'), 0)
-        data_sources = '\n'.join((MARKET_MONITOR_DATA, X_MONITOR_DATA, US_RATING_DATA))
+        data_sources = '\n'.join((MARKET_MONITOR_DATA, US_RATING_DATA))
         self.assertNotIn('/api/messages?limit=0', data_sources)
         self.assertIn('/api/messages/revision?category=${CATEGORY}', data_sources)
         self.assertNotIn('function isMessageCategory(', data_sources)
-
-    def test_x_monitor_uses_vue_page_fingerprints_and_recent_page_cache(self):
-        panel = (
-            ROOT / 'web' / 'src' / 'components' / 'XMonitorPanel.vue'
-        ).read_text(encoding='utf-8')
-        self.assertIn('const CACHE_TTL_MS = 5 * 60 * 1000', X_MONITOR_DATA)
-        self.assertIn('const CACHE_MAX_ENTRIES = 6', X_MONITOR_DATA)
-        self.assertIn("const CACHE_KEY = 'niuniu-dashboard-x-pages-v2'", X_MONITOR_DATA)
-        self.assertIn('const REFRESH_INTERVAL_MS = 15 * 1000', X_MONITOR_DATA)
-        self.assertIn('function prefetchAdjacentPages(offset, total)', X_MONITOR_DATA)
-        self.assertIn('/api/messages/revision?category=${CATEGORY}&limit=${X_MONITOR_PAGE_SIZE}&offset=', X_MONITOR_DATA)
-        self.assertIn('xPageRevisionKey(revision) !== state.revision', X_MONITOR_DATA)
-        self.assertIn("new URLSearchParams(location.search).get('page')", panel)
-        self.assertIn('function cancelPendingMedia()', X_MONITOR_COMPONENTS)
-        self.assertIn("if (!image.complete) image.removeAttribute('src')", X_MONITOR_COMPONENTS)
-        self.assertIn('fetchpriority="low"', X_MONITOR_COMPONENTS)
-        self.assertIn('<XImageViewer', X_MONITOR_COMPONENTS)
-        self.assertIn('export function summarizeXRecord', X_MONITOR_UTILS)
-        self.assertIn('export function parseXThread', X_MONITOR_UTILS)
-        self.assertIn('export function xPageRevisionKey', X_MONITOR_UTILS)
-
-    def test_x_monitor_display_parser_keeps_threads_media_and_page_revisions(self):
-        scenario = r"""
-import {parseXThread, summarizeXRecord, xMediaGroups, xPageRevisionKey} from SOURCE;
-const content = `原帖｜@origin｜2026-07-20 08:00\n│ 原帖正文\n回复｜@reply｜2026-07-21 09:30\n│ 回复正文`;
-const record = {
-  content,
-  metadata:{post:{
-    reply_to_media:[
-      {url:'https://pbs.twimg.com/media/example.jpg',type:'photo'},
-      {url:'https://evil.example/media/example.jpg',type:'photo'},
-    ],
-    media:[{url:'https://pbs.twimg.com/tweet_video_thumb/video.png',type:'video'}],
-  }},
-};
-const thread = parseXThread(content);
-const summary = summarizeXRecord(record);
-const groups = xMediaGroups(record);
-const base = {category:'x_monitor',count:20,page:{limit:10,offset:0,count:10,fingerprint:'a'}};
-const changed = {...base,page:{...base.page,fingerprint:'b'}};
-console.log(JSON.stringify({
-  hasOriginal:thread.originalPost.includes('原帖正文'),
-  hasReply:thread.reply.includes('回复正文'),
-  author:summary.author,
-  label:summary.label,
-  preview:summary.preview,
-  groupLabels:groups.map(group => group.label),
-  mediaUrls:groups.flatMap(group => group.items.map(item => item.url)),
-  revisionChanged:xPageRevisionKey(base) !== xPageRevisionKey(changed),
-}));
-"""
-        output = subprocess.check_output(
-            [
-                'node', '--input-type=module', '-e',
-                scenario.replace('SOURCE', json.dumps(X_MONITOR_UTILS_PATH.as_uri())),
-            ],
-            cwd=ROOT,
-            text=True,
-        )
-        result = json.loads(output)
-        self.assertTrue(result['hasOriginal'])
-        self.assertTrue(result['hasReply'])
-        self.assertEqual(result['author'], '@reply')
-        self.assertEqual(result['label'], '回复')
-        self.assertIn('回复正文', result['preview'])
-        self.assertEqual(result['groupLabels'], ['原帖图片', '推文图片'])
-        self.assertEqual(len(result['mediaUrls']), 2)
-        self.assertTrue(result['mediaUrls'][0].endswith('.jpg:large'))
-        self.assertTrue(result['revisionChanged'])
-
-    def test_tongdaxin_x_monitor_uses_compact_terminal_ledger(self):
-        tongdaxin_stylesheet = (
-            ROOT / 'frontend' / 'tongdaxin-theme.css'
-        ).read_text(encoding='utf-8')
-        self.assertIn('class="x-monitor-table-head" aria-hidden="true"', X_MONITOR_COMPONENTS)
-        self.assertIn('<span>推文摘要</span>', X_MONITOR_COMPONENTS)
-        self.assertIn('<span>媒体</span>', X_MONITOR_COMPONENTS)
-        self.assertIn('class="x-media-count"', X_MONITOR_COMPONENTS)
-        self.assertIn('class="x-badges" aria-hidden="true"', X_MONITOR_COMPONENTS)
-        self.assertIn('.x-monitor-table-head, .x-media-count { display:none; }', DASHBOARD_FRONTEND)
-        self.assertIn(
-            'X monitor follows a dense terminal message ledger instead of a social feed.',
-            tongdaxin_stylesheet,
-        )
-        self.assertIn(
-            'grid-template-columns:44px minmax(135px,.62fr) 54px 126px minmax(320px,2.38fr) 54px 20px;',
-            tongdaxin_stylesheet,
-        )
-        self.assertIn(
-            'html[data-theme="tongdaxin"]:root .x-row > .x-copy,\n'
-            'html[data-theme="tongdaxin"]:root .x-row .x-line { display:contents; }',
-            tongdaxin_stylesheet,
-        )
-        self.assertIn(
-            'html[data-theme="tongdaxin"]:root .x-row.open { border-color:transparent; background:var(--terminal-selection); }',
-            tongdaxin_stylesheet,
-        )
-        self.assertIn("html[data-theme=\"tongdaxin\"]:root .x-detail .thread-reply::before { content:'当前推文'; }", tongdaxin_stylesheet)
-        self.assertIn("html[data-theme=\"tongdaxin\"]:root .x-detail .thread-original::before { content:'关联原帖'; }", tongdaxin_stylesheet)
-        self.assertIn(
-            'html[data-theme="tongdaxin"]:root .x-monitor-table-head { display:none; }',
-            tongdaxin_stylesheet,
-        )
-        self.assertGreaterEqual(tongdaxin_stylesheet.count(':not(.x-row)'), 4)
 
     def test_practice_candidate_vue_display_preserves_strategy_tiers(self):
         scenario = r"""
@@ -3134,7 +3016,7 @@ process.stdout.write(JSON.stringify({
         self.assertIn('revisionKey(revision) !== state.revision', MARKET_MONITOR_DATA)
         self.assertIn('return loadHistory({ background: state.records.length > 0 })', MARKET_MONITOR_DATA)
         self.assertIn("fetchJson('/api/us_market_summary'", MARKET_MONITOR_DATA)
-        self.assertIn("for (const category of ['market_monitor', 'x_monitor', 'us_ratings'])", MARKET_MONITOR_DATA)
+        self.assertIn("for (const category of ['market_monitor', 'us_ratings'])", MARKET_MONITOR_DATA)
         self.assertIn('publishMessageCategoryCounts()', MARKET_MONITOR_DATA)
         self.assertIn('aria-controls="us-market-summary-body"', MARKET_MONITOR_COMPONENTS)
         self.assertIn('class="market-chevron us-market-chevron"', MARKET_MONITOR_COMPONENTS)
@@ -4403,12 +4285,7 @@ console.log(JSON.stringify([
         self.assertIn('grid-template-columns:repeat(8,minmax(78px,1fr));', tongdaxin_styles)
         self.assertIn('grid-template-columns:repeat(auto-fill,minmax(240px,1fr));', tongdaxin_styles)
         self.assertIn('flex:0 0 var(--terminal-page-title-height) !important;', tongdaxin_styles)
-        self.assertIn(
-            'html[data-theme="tongdaxin"]:root .dragon-tiger-panel,\n'
-            'html[data-theme="tongdaxin"]:root .x-monitor-panel {\n'
-            '  padding:0;',
-            tongdaxin_styles,
-        )
+        self.assertIn('html[data-theme="tongdaxin"]:root .dragon-tiger-panel {', tongdaxin_styles)
         self.assertIn('.practice-account-head,\n  .mainline-heading,\n  .indices-part-head,\n  .dragon-tiger-head,', tongdaxin_styles)
         self.assertIn('.market-breadth-grid { stroke:var(--chart-grid); }', tongdaxin_styles)
         self.assertIn('--market-breadth-limit-up:#ff3030;', tongdaxin_styles)
@@ -4705,7 +4582,7 @@ console.log(JSON.stringify([
             stylesheet,
         )
         self.assertIn(
-            'button:not(.practice-trade-marker):not(.practice-log-row):not(.x-media-tile):not(.us-market-head)',
+            'button:not(.practice-trade-marker):not(.practice-log-row):not(.us-market-head)',
             stylesheet,
         )
         self.assertNotIn(':not(.theme-leader-button)', stylesheet)
@@ -5125,7 +5002,6 @@ console.log(JSON.stringify([
             '.industry-flow-heading',
             '.mainline-hero',
             '.market-monitor-grid',
-            '.x-monitor-panel',
             '.dragon-tiger-panel',
             '.rating-table',
         ):
@@ -5364,9 +5240,9 @@ console.log(JSON.stringify([
             ROOT / 'web' / 'src' / 'components' / 'NiuOneMainlinePanel.vue'
         ).read_text(encoding='utf-8')
 
-        for route in ('/practice', '/niuone-mainline', '/indices', '/industry-flow', '/dragon-tiger', '/market-monitor', '/realtime-news', '/x-monitor', '/us-ratings'):
+        for route in ('/practice', '/niuone-mainline', '/indices', '/industry-flow', '/dragon-tiger', '/market-monitor', '/realtime-news', '/us-ratings'):
             self.assertIn(f"'{route}'", router_source)
-        self.assertIn("const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger', 'x_monitor', 'us_ratings']", tabs_source)
+        self.assertIn("const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger', 'us_ratings']", tabs_source)
         self.assertIn("overview: '总览'", tabs_source)
         self.assertIn("niuone_mainline: '题材强度'", tabs_source)
         self.assertIn("industry_flow: '/industry-flow'", tabs_source)
@@ -7427,18 +7303,14 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(handler.status, 200)
         self.assertEqual(len(payload['groups']), 15)
         self.assertEqual(item_names, set(dashboard.ADMIN_VISIBLE_ENV_NAMES))
+        self.assertNotIn('X_WATCHLIST_HANDLES', item_names)
+        self.assertFalse(any(name.startswith('X_WATCHLIST_') for name in item_names))
         for name in (
             'US_RATING_MODEL',
             'US_RATING_BASE_URL',
             'US_RATING_API_KEY',
-            'X_WATCHLIST_ENABLED',
         ):
             self.assertIn(name, item_names)
-        x_watchlist_enabled = next(
-            item for item in payload['items'] if item['name'] == 'X_WATCHLIST_ENABLED'
-        )
-        self.assertEqual(x_watchlist_enabled['kind'], 'bool')
-        self.assertEqual(x_watchlist_enabled['default'], '1')
         self.assertIn('<div id="app">', index_body)
         self.assertNotIn("name='env__", index_body)
         self.assertIn('<AdminSettingsIndex', ADMIN_FRONTEND)
@@ -7493,7 +7365,7 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(grouped_names, set(dashboard.ADMIN_VISIBLE_ENV_NAMES))
         self.assertIn(':to="`/admin/settings/${group.slug}`"', ADMIN_FRONTEND)
         self.assertIn('保存本组设置', ADMIN_FRONTEND)
-        self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 20)
+        self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 15)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('iwencai')), 8)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 10)
         self.assertEqual(
@@ -7790,7 +7662,7 @@ process.stdout.write(JSON.stringify({{
         tabs_source = (
             ROOT / 'web' / 'src' / 'composables' / 'useDashboardTabs.js'
         ).read_text(encoding='utf-8')
-        self.assertIn("const US_FEATURE_CATEGORIES = new Set(['x_monitor', 'us_ratings'])", tabs_source)
+        self.assertIn("const US_FEATURE_CATEGORIES = new Set(['us_ratings'])", tabs_source)
         self.assertIn("fetch('/api/dashboard/bootstrap'", tabs_source)
         self.assertIn('usFeaturesEnabled.value = payload.us_features_enabled === true', tabs_source)
         self.assertIn('.filter(categoryAvailable)', tabs_source)
@@ -7801,22 +7673,6 @@ process.stdout.write(JSON.stringify({{
 
         dashboard.DASHBOARD_ENV_FILE.write_text('DASHBOARD_US_FEATURES_ENABLED=yes\n', encoding='utf-8')
         self.assertTrue(dashboard.us_features_enabled())
-
-    def test_admin_config_restores_x_watchlist_accounts_from_state(self):
-        dashboard.CRON_STATE_DIR.mkdir(parents=True)
-        (dashboard.CRON_STATE_DIR / 'x_watchlist_latest.json').write_text(json.dumps({
-            'latest': {'Foo': {}, 'bar': {}},
-            'seen_ids': {'baz': [], 'foo': []},
-            'sent_missing_context': [{'handle': 'qux'}],
-        }), encoding='utf-8')
-
-        payload = dashboard.build_admin_config_payload()
-        item = next(item for item in payload['items'] if item['name'] == 'X_WATCHLIST_ACCOUNTS')
-
-        self.assertEqual(item['source'], 'x_watchlist_state')
-        self.assertEqual(item['file_value'], 'foo,bar,baz,qux')
-        self.assertEqual(item['handle_values'], ['foo', 'bar', 'baz', 'qux'])
-        self.assertEqual(item['effective'], 'foo、bar、baz、qux')
 
     def test_admin_config_loads_yaml_once_per_payload(self):
         original_loader = dashboard.load_yaml_config
@@ -7851,21 +7707,6 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(by_name['DASHBOARD_DECISION_BASE_URL']['effective'], 'https://crossdesk.example/v1')
         self.assertEqual(by_name['DASHBOARD_GROK_API_KEY']['current_state'], '已设置')
         self.assertNotIn('crossdesk-secret', json.dumps(payload, ensure_ascii=False))
-
-    def test_admin_config_respects_explicit_empty_x_watchlist_accounts(self):
-        dashboard.CRON_STATE_DIR.mkdir(parents=True)
-        (dashboard.CRON_STATE_DIR / 'x_watchlist_latest.json').write_text(json.dumps({
-            'latest': {'foo': {}},
-        }), encoding='utf-8')
-        dashboard.DASHBOARD_ENV_FILE.write_text('X_WATCHLIST_ACCOUNTS=\n', encoding='utf-8')
-
-        payload = dashboard.build_admin_config_payload()
-        item = next(item for item in payload['items'] if item['name'] == 'X_WATCHLIST_ACCOUNTS')
-
-        self.assertEqual(item['source'], 'dashboard.env')
-        self.assertEqual(item['file_value'], '')
-        self.assertEqual(item['handle_values'], [])
-        self.assertEqual(item['effective'], '')
 
     def test_admin_config_decodes_preset_strategy_text(self):
         original_env_values = {
@@ -7922,7 +7763,6 @@ process.stdout.write(JSON.stringify({{
             'DASHBOARD_NEWS_MAX_TOKENS',
             'US_MARKET_SUMMARY_MAX_TOKENS',
             'A_SHARE_MODEL_SUMMARY_MAX_TOKENS',
-            'X_WATCHLIST_MAX_TOKENS',
         ]:
             item = by_name[name]
             self.assertEqual(item['default'], '4096')
@@ -8174,8 +8014,6 @@ process.stdout.write(JSON.stringify({{
                 'DASHBOARD_US_MARKET_SUMMARY_CRON': '08:01',
                 'DASHBOARD_US_RATING_CRON': '10:30',
                 'DASHBOARD_MARKET_AUCTION_CRON': '09:26',
-                'X_WATCHLIST_ACCOUNTS': '@Foo, bar, foo',
-                'X_WATCHLIST_DAEMON_INTERVAL_SECONDS': '900',
             }
             updates = dashboard.normalize_business_updates(updates)
             dashboard.validate_business_updates(updates)
@@ -8205,12 +8043,9 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(parsed['DASHBOARD_US_MARKET_SUMMARY_CRON'], '1 8 * * 1-5')
         self.assertEqual(parsed['DASHBOARD_US_RATING_CRON'], '30 10 * * *')
         self.assertEqual(parsed['DASHBOARD_MARKET_AUCTION_CRON'], '26 9 * * 1-5')
-        self.assertEqual(parsed['X_WATCHLIST_ACCOUNTS'], 'foo,bar')
-        self.assertEqual(parsed['X_WATCHLIST_DAEMON_INTERVAL_SECONDS'], '900')
         payload_text = json.dumps(payload, ensure_ascii=False)
         self.assertIn('09:25、10:00、14:50', payload_text)
         self.assertIn('北京时间 09:26', payload_text)
-        self.assertIn('foo、bar', payload_text)
         self.assertNotIn('26 9 * * 1-5', payload_text)
         self.assertFalse(any('LaunchAgent' in item.get('source', '') for item in payload['items']))
 
@@ -8448,7 +8283,6 @@ process.stdout.write(JSON.stringify({{
                 'env__DASHBOARD_US_MARKET_SUMMARY_CRON': '08:01',
                 'env__DASHBOARD_MARKET_AUCTION_CRON': '09:26',
                 'env__DASHBOARD_US_RATING_CRON': '10:30',
-                'env__X_WATCHLIST_ACCOUNTS': ['', '@Foo', 'bar', 'foo'],
                 'env__DASHBOARD_ACTIVE_STRATEGY': 'preset_text',
                 'env__DASHBOARD_PRESET_STRATEGY_TEXT': '只做主线强趋势回踩\n跌破5日线离场',
                 'env__DASHBOARD_TRADE_DISCIPLINE_TEXT': '纪律一\n纪律二',
@@ -8538,7 +8372,6 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(parsed['DASHBOARD_US_MARKET_SUMMARY_CRON'], '1 8 * * 1-5')
         self.assertEqual(parsed['DASHBOARD_MARKET_AUCTION_CRON'], '26 9 * * 1-5')
         self.assertEqual(parsed['DASHBOARD_US_RATING_CRON'], '30 10 * * *')
-        self.assertEqual(parsed['X_WATCHLIST_ACCOUNTS'], 'foo,bar')
         self.assertEqual(parsed['DASHBOARD_ACTIVE_STRATEGY'], 'preset_text')
         self.assertEqual(parsed['DASHBOARD_PRESET_STRATEGY_TEXT'], '只做主线强趋势回踩\\n跌破5日线离场')
         self.assertEqual(parsed['DASHBOARD_TRADE_DISCIPLINE_TEXT'], '纪律一\\n纪律二')

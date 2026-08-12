@@ -12,7 +12,6 @@
 | `app/dashboard/` | FastAPI 路由、安全辅助、公开展示投影、版本化快照、API 缓存、行情采样及页面侧实战计划编排 | 策略评分细节、账户存储实现、外部数据源解析 |
 | `app/market_data/` | 行情/研究数据访问、证券代码规范化、日 K 与量能缓存 | 策略决策、账户与成交状态 |
 | `app/messaging/` | 通知模型、渠道适配、HTTP 传输、分发和成交消息格式 | 交易状态持久化 |
-| `app/monitoring/x/` | X 关注列表抓取、媒体/上下文解析、消息格式、进程循环与重试状态 | Dashboard 路由、交易决策 |
 | `app/monitoring/news/` | NewsNow 全部实际来源注册、访问、字段规范化、持久缓存与失败降级 | Dashboard 路由、交易决策、前端状态 |
 | `app/reports/a_share/` | A 股竞价、午盘、盘后、日历、龙虎榜和模型增强报告 | Cron 触发时机、Dashboard 路由 |
 | `app/reports/us/` | 隔夜美股摘要与机构评级报告 | Cron 触发时机、Dashboard 路由 |

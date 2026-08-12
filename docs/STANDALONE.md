@@ -99,13 +99,12 @@ $env:NIUONE_LOCAL_DATA_DIR = Join-Path $env:TEMP "niuone-smoke"
 
 ## 大模型配置
 
-NiuOne 需要接入大模型后才能驱动完整工作流。没有模型配置时，本地页面和部分静态视图可以打开，但事件抓取、信息检索、X 关注列表监控、美股机构评级日报和买卖决策无法完整运行。
+NiuOne 需要接入大模型后才能驱动完整工作流。没有模型配置时，本地页面和部分静态视图可以打开，但事件抓取、信息检索、美股机构评级日报和买卖决策无法完整运行。
 
 推荐配置：
 
 | 场景 | 推荐模型 | 主要配置项 |
 |---|---|---|
-| X 关注列表监控 | Grok | `X_WATCHLIST_ENABLED`、`DASHBOARD_GROK_BASE_URL`、`DASHBOARD_GROK_API_KEY`、`DASHBOARD_GROK_MODEL`、`DASHBOARD_GROK_API_MODE`、`X_WATCHLIST_MAX_TOKENS` |
 | 美股机构评级日报 | 具备实时搜索能力的模型；留空时复用 Grok | `US_RATING_MODEL`、`US_RATING_BASE_URL`、`US_RATING_API_KEY`、`US_RATING_MAX_TOKENS` |
 | A 股盘面总结增强 | 兼容 `/chat/completions` 的模型 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_MAX_TOKENS`；留空时复用 `DASHBOARD_GROK_*` |
 | A 股候选股及龙虎榜连板/连榜消息面预检 | 具备实时搜索能力的模型 | `DASHBOARD_NEWS_BASE_URL`、`DASHBOARD_NEWS_API_KEY`、`DASHBOARD_NEWS_MODEL`、`DASHBOARD_NEWS_API_MODE`、`DASHBOARD_NEWS_MAX_TOKENS`、`DASHBOARD_NEWS_CONCURRENCY` |
@@ -115,9 +114,9 @@ NiuOne 需要接入大模型后才能驱动完整工作流。没有模型配置�
 
 “财经快讯”不依赖大模型、API Key 或服务地址配置。Compose 部署会随牛牛1号自动启动、停止和恢复官方 NewsNow 容器，Dashboard 通过私有容器网络读取，用户无需管理独立端口或进程；NewsNow 数据保存在独立的 `newsnow-data` volume。管理设置页仅提供财经商业分类下 12 个实际来源的搜索与多选，默认来源为财联社电报、金十数据和华尔街见闻快讯。总览页会在右下角纵向展示最近 5 条快讯，默认仅显示重要信息；关闭“在总览中仅显示重要信息”后会显示全部类型，但不改变完整财经快讯页。使用 `run.sh` / `run.bat` 的原生部署也无需配置，未运行容器 sidecar 时会自动使用公共服务兜底。Dashboard 只向浏览器暴露规范化后的同源 `/api/realtime-news`，成功刷新按 ID 合并并默认有界保留 300 条滚动历史，其中优先保留最多 50 条重要快讯；上游失败时继续使用 `.local-data/runtime/news/realtime_news_latest.json` 中的已保存历史并标记缓存状态。
 
-启动后点击页面上的设置按钮，在设置页维护模型、任务时间和推文监控作者。所有需要模型和 API Key 的分组均可点击“测试模型连接”，测试页面当前填写值但不会自动保存；API Key 留空时复用已保存密钥。推文监控作者填写 X/Twitter handle，不需要 `@`。
-推文监控和美股评级相关设置由“开启牛牛美股”总开关控制；关闭时这些设置会折叠隐藏，后台 X 监控和美股评级定时任务会跳过。只关闭“开启 X 关注列表监控”时，X 守护进程和直接执行入口都会跳过查询，美股评级日报仍按计划运行。
-`DASHBOARD_GROK_API_MODE` 默认 `auto`：Grok 4.5 使用带搜索工具的 Responses API，其他模型使用 Chat Completions；也可显式填写 `responses` 或 `chat`。`X_WATCHLIST_REQUEST_TIMEOUT_SECONDS` 默认 `45` 秒。
+启动后点击页面上的设置按钮，在设置页维护模型和任务时间。所有需要模型和 API Key 的分组均可点击“测试模型连接”，测试页面当前填写值但不会自动保存；API Key 留空时复用已保存密钥。
+美股评级相关设置由“开启牛牛美股”总开关控制；关闭时这些设置会折叠隐藏并跳过美股评级定时任务。
+`DASHBOARD_GROK_API_MODE` 默认 `auto`：Grok 4.5 使用带搜索工具的 Responses API，其他模型使用 Chat Completions；也可显式填写 `responses` 或 `chat`。
 `DASHBOARD_NEWS_API_MODE` 默认 `auto`：Grok 4.5 和 GPT-5 系列搜索模型使用带 `web_search` 工具的 Responses API；Grok Responses 预检模型还会加入 `x_search`。其他模型以 `web_search` 检索可公开索引的雪球/X 页面，不会回退到 `DASHBOARD_GROK_*`。
 `*_CONTEXT_LENGTH` 只表示模型上下文窗口，默认 `128000`；`*_MAX_TOKENS` 表示本次请求的最大输出长度，调用层会按 Chat 或 Responses 接口映射兼容参数。JSON 与 SSE 返回均受支持。
 消息面预检默认最多并发检查 5 只候选股；若上游限流，可把 `DASHBOARD_NEWS_CONCURRENCY` 调低到 `2` 或 `1`。
@@ -177,7 +176,6 @@ NiuOne 需要接入大模型后才能驱动完整工作流。没有模型配置�
 | `DASHBOARD_KLINE_READINESS_MIN_COVERAGE_PERCENT` | `90` | 实战扫描放行所需的日期有效日 K 覆盖率；允许 90～100，重启生效 |
 | `DASHBOARD_TENCENT_QUOTE_STAGE_TIMEOUT_SECONDS` | `90` | 全市场实时行情阶段总预算；允许 15～300 秒，重启生效 |
 | `DASHBOARD_MANUAL_DATA_INITIALIZATION_TIMEOUT_SECONDS` | `660` | 手动任务等待日 K 初始化完成的最长秒数；重启生效 |
-| `X_WATCHLIST_ACCOUNTS` | 空 | 推文监控作者列表，使用英文逗号分隔 |
 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED` | `1` | 买卖决策是否启用全局情报包 |
 | `DASHBOARD_TRADE_DISCIPLINE_TEXT` | 空 | 买卖决策 prompt 的交易纪律文本；为空使用内置默认纪律 |
 | `DASHBOARD_MAX_TOTAL_POSITION_PCT` | `80` | 全局总仓上限；`zettaranc` 和 `sector_tide` 在执行层取全局限制与策略套件硬上限中的更严格值，其他套件主要作为模型参考 |
@@ -190,13 +188,12 @@ NiuOne 需要接入大模型后才能驱动完整工作流。没有模型配置�
 
 ## 独立进程与长期运行
 
-完整后台运行通常由三个相互独立的进程组成：
+完整后台运行通常由两个相互独立的进程组成：
 
 | 进程 | macOS / Linux 入口 | Windows 入口 | 是否必需 |
 |---|---|---|---|
 | Dashboard | `run-dashboard.sh` | `run.bat --no-browser --skip-install` | 是 |
 | 定时调度器 | `run-niuone-cron-scheduler.sh` | `.local-data\.venv\Scripts\python.exe app\entrypoints\niuone_cron_scheduler.py` | 启用自动摘要、数据库入库或模拟持仓自动离场检查时需要 |
-| 关注源守护进程 | `run-x-watchlist-daemon.sh` | `.local-data\.venv\Scripts\python.exe app\entrypoints\x_watchlist_daemon.py` | 启用 X 关注列表时需要 |
 
 实战 B1 选股计划运行在 Dashboard 进程内；每个计划时间会在买卖决策前同步生成统一的“此刻盘面总结与评价”，其风险标签直接作为实战交易上下文。页面按钮和手动选股与交易链路也使用同一生成器。定时调度器不负责选股，但会在启动时及工作日 09:05、首轮 09:25 决策之前冻结/校验严格前向协议和起始日前零持仓账户基线，随后负责独立的模拟持仓自动离场检查、15:15 无交易盘后净值快照，并在 15:20 从 `niuniu.db` 完整成交、候选机会集、每日权益与决策 payload 加最近 JSON 日志生成私有牛牛严格前向报告。协议 v18 要求每个 Practice 槽不仅终态为 `ok`，还必须有结构完整的 SQLite 决策证据；延迟成交沿用原槽候选分母，报告按五阶段输出观察、入选、模型 BUY、实际 BUY、定仓利用率和拒单分类。落盘或 schema 校验失败会使该槽或自动退出任务失败。冻结指纹覆盖三个前向 Cron、耐久数据库/恢复状态/运行审计/交易所日历缓存有效路径和调度/存储/评估源码；路径只保存摘要，`--as-of` 不能改变锁的实际冻结日期。只有全部完成生命周期的入口归因完整、并且起始日至截止日每个实际 A 股运行日的预检、全部 Practice 槽及其决策账本、开盘/尾盘退出、盘后权益和评估都成功，30 笔交易或 3 个完整自然月的样本门才可进入运营复核；无可信日历缓存时保守退回周一至周五。满三个月但不足 30 笔只检查频率和运行。最终高胜率且正收益声明还必须有至少 30 笔交易，同时通过冻结历史胜率参考、交易级 Wilson 95% 下界、首次入场日期×行业的唯一簇数和 Herfindahl 有效簇数、簇等权胜率及其 95% 下界、费用后收益质量、纯牛牛账户归因、正组合收益、最大回撤不超过 6%、收益/回撤不低于 1 及运行/机会完整性；同日同业的批量交易只计一个唯一簇。归因缺失为 `data_quality_blocked`，运行日缺失为 `operations_blocked`。代码或锁定配置变化后报告同样停止晋级，必须归档旧报告/锁并从新的 `DASHBOARD_NIUONE_FORWARD_COHORT_START` 重新累计。要让模拟账户完整走通“协议预检—定时选股—盘面总结评价—决策—自动离场—净值快照—前向归因”，Dashboard 与定时调度器都必须持续运行。v18 还从首次 BUY 起记录持仓阶段路径、在每次主线扫描时更新，并由真实 SELL 冻结退出阶段；缺少任一实际运行日观察或入口/退出阶段对不上路径时，生命周期不能进入人工复核。
 
@@ -264,7 +261,7 @@ run.bat --service
 run.bat --service --port 8877 --no-browser
 ```
 
-三个进程都会被注册。关闭“牛牛美股”功能后，X 关注源守护进程会跳过采集并保持低频休眠，无需单独卸载。
+两个进程都会被注册。
 
 ### 更新源码部署
 
@@ -275,7 +272,7 @@ git pull --ff-only
 ./run.sh --service --no-browser
 ```
 
-重复运行 `--service` 会更新并重启三个原生服务，同时保留 `.local-data/` 中的配置、数据库和日志。已经安装长期运行服务时，普通执行 `./run.sh`（Windows 为 `run.bat`）也会自动重启托管进程，避免新前端由旧后端提供。尚未安装长期运行服务的前台运行方式使用：
+重复运行 `--service` 会更新并重启两个原生服务，同时保留 `.local-data/` 中的配置、数据库和日志。已经安装长期运行服务时，普通执行 `./run.sh`（Windows 为 `run.bat`）也会自动重启托管进程，避免新前端由旧后端提供。尚未安装长期运行服务的前台运行方式使用：
 
 ```bash
 git pull --ff-only

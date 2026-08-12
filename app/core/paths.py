@@ -59,9 +59,6 @@ def container_runtime_overrides(root: Path) -> dict[str, str]:
         "DASHBOARD_B1_SCANNER": str(entrypoint_dir / "multi_strategy_screen.py"),
         "DASHBOARD_CN_STOCK_TOOLS": str(entrypoint_dir / "cn_stock_tools.py"),
         "DASHBOARD_CRON_JOBS": str(dashboard_home / "cron" / "jobs.json"),
-        "DASHBOARD_X_WATCHLIST_STATE": str(dashboard_home / "cron" / "state" / "x_watchlist_latest.json"),
-        "X_WATCHLIST_MONITOR": str(entrypoint_dir / "x_watchlist_monitor.py"),
-        "X_WATCHLIST_PYTHON": python_bin,
     }
 
 
