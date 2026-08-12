@@ -49,6 +49,41 @@ class FakeClient:
 
 
 class IwencaiDragonTigerTests(unittest.TestCase):
+    def test_core_payload_is_published_before_seat_enrichment(self):
+        observed = []
+
+        def result_for(query, **_kwargs):
+            if "所属行业" in query:
+                return {
+                    "code_count": 1,
+                    "datas": [{"股票代码": "000001.SZ", "所属行业": "银行"}],
+                }
+            if query.endswith("龙虎榜营业部"):
+                self.assertEqual(len(observed), 1)
+                raise IwencaiRequestError("seat_timeout", "temporary")
+            return {
+                "code_count": 1,
+                "datas": [{
+                    "股票代码": "000001.SZ",
+                    "股票简称": "平安银行",
+                    "榜单类型": "单日榜",
+                }],
+            }
+
+        payload = fetch_dragon_tiger(
+            "2026-07-16",
+            env=ENABLED_ENV,
+            client=FakeClient(result_for),
+            on_core_payload=lambda core: observed.append(dict(core)),
+        )
+
+        self.assertEqual(observed[0]["items"][0]["code"], "000001.SZ")
+        self.assertEqual(observed[0]["items"][0]["sector"], "银行")
+        self.assertTrue(observed[0]["seat_enrichment_pending"])
+        self.assertFalse(observed[0]["seat_data_complete"])
+        self.assertFalse(payload["seat_enrichment_pending"])
+        self.assertEqual(payload["seat_error"], "seat_timeout")
+
     def test_marks_only_stocks_present_on_adjacent_trading_day(self):
         previous = {
             "date": "2026-07-15",
@@ -971,6 +1006,32 @@ class IwencaiDragonTigerTests(unittest.TestCase):
                 )
             )
             self.assertEqual(path.read_bytes(), original)
+
+    def test_core_snapshot_keeps_explicit_seat_incomplete_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "iwencai_dragon_tiger_latest.json"
+            core = {
+                "enabled": True,
+                "available": True,
+                "source": "同花顺问财",
+                "date": "2026-07-16",
+                "seat_query": "2026年7月16日龙虎榜营业部",
+                "seat_data_complete": False,
+                "seat_enrichment_pending": True,
+                "snapshot_stage": "core",
+                "items": [{
+                    "code": "000001.SZ",
+                    "name": "平安银行",
+                    "seats": [],
+                }],
+            }
+
+            self.assertTrue(write_dragon_tiger_snapshot(path, core))
+            loaded = read_dragon_tiger_snapshot(path, trade_date="2026-07-16")
+
+            self.assertIsNotNone(loaded)
+            self.assertFalse(loaded["seat_data_complete"])
+            self.assertTrue(loaded["seat_enrichment_pending"])
 
     def test_daily_archive_uses_exact_date_and_preserves_same_day_seat_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
