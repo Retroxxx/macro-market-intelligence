@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
+import importlib.util
 import json
 import os
 import subprocess
@@ -6,395 +9,348 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import uuid
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
+
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / 'app'
-COMPAT = SRC / 'compat'
-ENTRYPOINTS = SRC / 'entrypoints'
+APP = ROOT / "app"
+COMPAT = APP / "compat"
+REPORT_PATH = APP / "reports" / "us" / "rating_report.py"
+sys.path.insert(0, str(APP))
+sys.path.insert(0, str(COMPAT))
+
+from market_data.fmp_ratings import (  # noqa: E402
+    FmpRatingsError,
+    GradeEvent,
+    PriceTargetEvent,
+    Quote,
+)
+
+
+class _Response:
+    def __init__(self, payload) -> None:
+        self.body = json.dumps(payload).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self) -> bytes:
+        return self.body
+
+
+@contextmanager
+def loaded_report(*, api_key: str = "", extra_env: dict[str, str] | None = None):
+    with tempfile.TemporaryDirectory() as tmp:
+        env = {
+            "DASHBOARD_HOME": tmp,
+            "DASHBOARD_ENV_FILE": str(Path(tmp) / "dashboard.env"),
+            "FMP_API_BASE_URL": "https://financialmodelingprep.com/stable",
+            "FMP_API_KEY": api_key,
+            "FMP_RATING_MAX_RESULTS": "10",
+        }
+        env.update(extra_env or {})
+        with mock.patch.dict(os.environ, env, clear=False):
+            name = f"us_rating_report_test_{uuid.uuid4().hex}"
+            spec = importlib.util.spec_from_file_location(name, REPORT_PATH)
+            module = importlib.util.module_from_spec(spec)
+            assert spec and spec.loader
+            spec.loader.exec_module(module)
+        yield module
+
+
+def grade(
+    symbol: str,
+    published: str,
+    *,
+    company: str = "Example Bank",
+    new_grade: str = "Buy",
+    previous_grade: str = "Hold",
+    action: str = "upgrade",
+    title: str = "Analyst raises rating",
+) -> GradeEvent:
+    return GradeEvent(
+        symbol=symbol,
+        published_at=datetime.fromisoformat(published).astimezone(timezone.utc),
+        grading_company=company,
+        new_grade=new_grade,
+        previous_grade=previous_grade,
+        action=action,
+        news_title=title,
+        news_url="https://example.test/news",
+        price_when_posted=100.0,
+    )
 
 
 class UsRatingReportTests(unittest.TestCase):
-    def test_call_api_can_force_stream_transport(self):
+    def test_latest_eastern_batch_keeps_only_positive_non_downgrades(self):
+        with loaded_report() as report:
+            latest_day, selected = report.select_latest_positive_events(
+                [
+                    grade("OLD", "2026-08-11T15:00:00+00:00"),
+                    grade("BUY", "2026-08-12T14:00:00+00:00"),
+                    grade(
+                        "DOWN",
+                        "2026-08-12T15:00:00+00:00",
+                        previous_grade="Strong Buy",
+                        action="downgrade",
+                    ),
+                    grade(
+                        "HOLD",
+                        "2026-08-12T16:00:00+00:00",
+                        new_grade="Hold",
+                        action="reiterated",
+                    ),
+                ]
+            )
+
+        self.assertEqual(latest_day.isoformat(), "2026-08-12")
+        self.assertEqual([event.symbol for event in selected], ["BUY"])
+
+    def test_deduplicates_events_and_ranks_cluster_ahead(self):
+        duplicate = grade("AAA", "2026-08-12T14:00:00+00:00")
+        with loaded_report() as report:
+            _, selected = report.select_latest_positive_events(
+                [
+                    duplicate,
+                    duplicate,
+                    grade(
+                        "AAA",
+                        "2026-08-12T15:00:00+00:00",
+                        company="Second Bank",
+                        action="initiated",
+                    ),
+                    grade("BBB", "2026-08-12T16:00:00+00:00"),
+                ]
+            )
+            ranked = report.rank_rating_groups(selected, [], {})
+
+        self.assertEqual(len(selected), 3)
+        self.assertEqual(ranked[0][0], "AAA")
+        self.assertEqual(len(ranked[0][1]), 2)
+
+    def test_report_keeps_dashboard_parser_field_contract(self):
+        event = grade("NVDA", "2026-08-12T14:00:00+00:00")
+        target = PriceTargetEvent(
+            symbol="NVDA",
+            published_at=event.published_at,
+            analyst_company="Example Bank",
+            analyst_name="A. Analyst",
+            price_target=150.0,
+            price_when_posted=100.0,
+            news_title="Target raised",
+        )
+        quote = Quote(symbol="NVDA", name="NVIDIA Corporation", price=120.0)
+        with loaded_report() as report:
+            content = report.format_report(
+                event.published_at.date(),
+                [("NVDA", [event], target, quote)],
+                now=datetime(2026, 8, 13, 1, 0, tzinfo=timezone.utc),
+                max_results=10,
+            )
+
+        self.assertIn("数据源：Financial Modeling Prep（FMP）", content)
+        self.assertIn("- NVDA / NVIDIA Corporation", content)
+        for label in (
+            "机构/分析师：",
+            "评级动作：",
+            "目标价：",
+            "核心理由/催化剂：",
+            "风险点：",
+            "适合关注类型：",
+        ):
+            self.assertIn(label, content)
+        self.assertIn("$150.00", content)
+        self.assertIn("+25.0%", content)
+
+    def test_generate_report_uses_fmp_feeds_without_model_configuration(self):
+        requests = []
+
+        def opener(request, timeout=0):
+            requests.append((request, timeout))
+            if "/grades-latest-news?" in request.full_url:
+                return _Response(
+                    [
+                        {
+                            "symbol": "NVDA",
+                            "publishedDate": "2026-08-12T14:00:00Z",
+                            "gradingCompany": "Example Bank",
+                            "newGrade": "Buy",
+                            "previousGrade": "Hold",
+                            "action": "upgrade",
+                            "newsTitle": "NVIDIA upgraded after results",
+                            "priceWhenPosted": 100,
+                        }
+                    ]
+                )
+            if "/price-target-latest-news?" in request.full_url:
+                return _Response(
+                    [
+                        {
+                            "symbol": "NVDA",
+                            "publishedDate": "2026-08-12T14:00:00Z",
+                            "analystCompany": "Example Bank",
+                            "priceTarget": 150,
+                            "priceWhenPosted": 100,
+                        }
+                    ]
+                )
+            if "/batch-quote?" in request.full_url:
+                return _Response([{"symbol": "NVDA", "name": "NVIDIA", "price": 120}])
+            raise AssertionError(request.full_url)
+
+        with loaded_report(
+            api_key="fmp-private-key",
+            extra_env={
+                "US_RATING_MODEL": "must-be-ignored",
+                "US_RATING_API_KEY": "must-be-ignored",
+                "DASHBOARD_GROK_API_KEY": "must-be-ignored",
+            },
+        ) as report:
+            content = report.generate_report(
+                now=datetime(2026, 8, 13, 1, 0, tzinfo=timezone.utc),
+                opener=opener,
+            )
+
+        self.assertIn("NVDA / NVIDIA", content)
+        self.assertIn("Example Bank", content)
+        self.assertEqual(len(requests), 3)
+        for request, timeout in requests:
+            self.assertNotIn("fmp-private-key", request.full_url)
+            self.assertEqual(request.get_header("Apikey"), "fmp-private-key")
+            self.assertGreater(timeout, 0)
+
+    def test_optional_target_and_quote_failures_degrade_report(self):
+        with loaded_report(api_key="fmp-private-key") as report:
+            event = grade("TEST", "2026-08-12T14:00:00+00:00")
+            with (
+                mock.patch.object(report, "fetch_latest_grades", return_value=[event]),
+                mock.patch.object(
+                    report,
+                    "fetch_latest_price_targets",
+                    side_effect=FmpRatingsError("target unavailable"),
+                ),
+                mock.patch.object(
+                    report,
+                    "fetch_batch_quotes",
+                    side_effect=FmpRatingsError("quote unavailable"),
+                ),
+            ):
+                content = report.generate_report(
+                    now=datetime(2026, 8, 13, 1, 0, tzinfo=timezone.utc)
+                )
+
+        self.assertIn("TEST / TEST", content)
+        self.assertIn("本次 FMP 评级记录未附目标价", content)
+
+    def test_missing_fmp_key_never_falls_back_to_legacy_model_or_grok(self):
+        with loaded_report(
+            extra_env={
+                "US_RATING_MODEL": "legacy-model",
+                "US_RATING_API_KEY": "legacy-key",
+                "DASHBOARD_GROK_API_KEY": "legacy-grok-key",
+            }
+        ) as report:
+            with self.assertRaisesRegex(FmpRatingsError, "FMP API Key"):
+                report.generate_report()
+            self.assertFalse(hasattr(report, "US_RATING_MODEL"))
+
+    def test_database_write_is_idempotent_and_records_fmp_provider(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
-            env['DASHBOARD_HOME'] = tmp
-            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
-            env['US_RATING_STREAM_MODE'] = 'stream'
-            code = f"""
-import importlib.util, json, sys
-sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
-spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(COMPAT / 'us_rating_report.py')!r})
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-captured = {{}}
-class Resp:
-    headers = {{'Content-Type': 'text/event-stream'}}
-    def __init__(self):
-        self.lines = iter((
-            b'data: {{"choices":[{{"delta":{{"content":"o"}}}}]}}\\n',
-            b'data: {{"choices":[{{"delta":{{"content":"k"}}}}]}}\\n',
-            b'data: [DONE]\\n',
-        ))
-    def __enter__(self):
-        return self
-    def __exit__(self, exc_type, exc, tb):
-        return False
-    def readline(self):
-        return next(self.lines, b'')
-def fake_urlopen(req, timeout=0, context=None):
-    captured['payload'] = json.loads(req.data.decode('utf-8'))
-    captured['accept'] = req.get_header('Accept')
-    return Resp()
-m.urlopen = fake_urlopen
-result = m._call_api('https://rating.example/v1', 'secret', [{{'role':'user','content':'hello'}}])
-print(json.dumps({{'captured': captured, 'result': result}}, ensure_ascii=False))
-"""
-            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
-            data = json.loads(out)
-
-        self.assertEqual(data['result'], 'ok')
-        self.assertTrue(data['captured']['payload']['stream'])
-        self.assertIn('text/event-stream', data['captured']['accept'])
-
-    def test_call_api_omits_temperature_by_default(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = os.environ.copy()
-            env['DASHBOARD_HOME'] = tmp
-            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
-            env['DASHBOARD_GROK_MODEL'] = 'grok-4.20-multi-agent-xhigh'
-            env['DASHBOARD_GROK_API_MODE'] = 'auto'
-            code = f"""
-import importlib.util, json, sys
-sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
-spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(COMPAT / 'us_rating_report.py')!r})
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-captured = {{}}
-class Resp:
-    def __enter__(self):
-        return self
-    def __exit__(self, exc_type, exc, tb):
-        return False
-    def read(self):
-        return b'{{"choices":[{{"message":{{"content":"ok"}}}}]}}'
-def fake_urlopen(req, timeout=0, context=None):
-    captured['payload'] = json.loads(req.data.decode('utf-8'))
-    captured['headers'] = dict(req.header_items())
-    return Resp()
-m.urlopen = fake_urlopen
-m._call_api('https://rating.example/v1', 'secret', [{{'role':'user','content':'hello'}}], max_tokens=123)
-print(json.dumps(captured, ensure_ascii=False))
-"""
-            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
-            captured = json.loads(out)
-            payload = captured['payload']
-            self.assertEqual(payload['max_tokens'], 123)
-            self.assertNotIn('temperature', payload)
-            self.assertEqual(captured['headers']['User-agent'], 'NiuOne/1.0')
-            self.assertEqual(captured['headers']['Accept'], 'application/json')
-
-    def test_grok_45_uses_responses_web_search_tool(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = os.environ.copy()
-            env['DASHBOARD_HOME'] = tmp
-            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
-            env['DASHBOARD_GROK_MODEL'] = 'grok-4.5'
-            env['DASHBOARD_GROK_API_MODE'] = 'auto'
-            env['US_RATING_REASONING_EFFORT'] = 'low'
-            code = f"""
-import importlib.util, json, sys
-sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
-spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(COMPAT / 'us_rating_report.py')!r})
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-captured = {{}}
-class Resp:
-    def __enter__(self):
-        return self
-    def __exit__(self, exc_type, exc, tb):
-        return False
-    def read(self):
-        return b'{{"output":[{{"content":[{{"type":"output_text","text":"ok"}}]}}]}}'
-def fake_urlopen(req, timeout=0, context=None):
-    captured['url'] = req.full_url
-    captured['payload'] = json.loads(req.data.decode('utf-8'))
-    return Resp()
-m.urlopen = fake_urlopen
-result = m._call_api('https://rating.example/v1', 'secret', [{{'role':'user','content':'hello'}}], max_tokens=321)
-print(json.dumps({{'captured': captured, 'result': result}}, ensure_ascii=False))
-"""
-            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
-            data = json.loads(out)
-            payload = data['captured']['payload']
-            self.assertEqual(data['captured']['url'], 'https://rating.example/v1/responses')
-            self.assertEqual(payload['max_output_tokens'], 321)
-            self.assertEqual(payload['tools'], [{'type': 'web_search'}])
-            self.assertEqual(payload['reasoning'], {'effort': 'low'})
-            self.assertEqual(data['result'], 'ok')
-
-    def test_api_mode_can_force_chat_completions_for_grok_45(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = os.environ.copy()
-            env['DASHBOARD_HOME'] = tmp
-            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
-            env['DASHBOARD_GROK_MODEL'] = 'grok-4.5'
-            env['DASHBOARD_GROK_API_MODE'] = 'chat'
-            code = f"""
-import importlib.util, json, sys
-sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
-spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(COMPAT / 'us_rating_report.py')!r})
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-captured = {{}}
-class Resp:
-    def __enter__(self):
-        return self
-    def __exit__(self, exc_type, exc, tb):
-        return False
-    def read(self):
-        return b'{{"choices":[{{"message":{{"content":"ok"}}}}]}}'
-def fake_urlopen(req, timeout=0, context=None):
-    captured['url'] = req.full_url
-    captured['payload'] = json.loads(req.data.decode('utf-8'))
-    return Resp()
-m.urlopen = fake_urlopen
-result = m._call_api('https://rating.example/v1', 'secret', [{{'role':'user','content':'hello'}}], max_tokens=222)
-print(json.dumps({{'captured': captured, 'result': result}}, ensure_ascii=False))
-"""
-            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
-            data = json.loads(out)
-            payload = data['captured']['payload']
-            self.assertEqual(data['captured']['url'], 'https://rating.example/v1/chat/completions')
-            self.assertEqual(payload['max_tokens'], 222)
-            self.assertNotIn('tools', payload)
-            self.assertEqual(data['result'], 'ok')
-
-    def test_us_rating_context_length_does_not_set_report_max_tokens(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = os.environ.copy()
-            env['DASHBOARD_HOME'] = tmp
-            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
-            env['US_RATING_CONTEXT_LENGTH'] = '128K'
-            code = f"""
-import importlib.util, json, sys
-sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
-spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(COMPAT / 'us_rating_report.py')!r})
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-m._get_crossdesk_credentials = lambda: ('https://rating.example/v1', 'secret')
-captured = {{}}
-def fake_call(base_url, api_key, messages, max_tokens=4096):
-    captured.update({{'base_url': base_url, 'api_key': api_key, 'max_tokens': max_tokens}})
-    return '- TEST: upgraded by Example'
-m._call_api = fake_call
-result = m.generate_report(test_mode=False)
-print(json.dumps({{
-  'result': result,
-  'context_length': m.US_RATING_CONTEXT_LENGTH,
-  'max_tokens': captured.get('max_tokens'),
-}}, ensure_ascii=False))
-"""
-            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
-            data = json.loads(out)
-            self.assertEqual(data['context_length'], 128000)
-            self.assertEqual(data['max_tokens'], 4096)
-            self.assertIn('TEST', data['result'])
-
-    def test_us_rating_max_tokens_sets_report_output_tokens(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = os.environ.copy()
-            env['DASHBOARD_HOME'] = tmp
-            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
-            env['US_RATING_CONTEXT_LENGTH'] = '128K'
-            env['US_RATING_MAX_TOKENS'] = '4096'
-            code = f"""
-import importlib.util, json, sys
-sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
-spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(COMPAT / 'us_rating_report.py')!r})
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-m._get_crossdesk_credentials = lambda: ('https://rating.example/v1', 'secret')
-captured = {{}}
-def fake_call(base_url, api_key, messages, max_tokens=4096):
-    captured.update({{'max_tokens': max_tokens}})
-    return '- TEST: upgraded by Example'
-m._call_api = fake_call
-result = m.generate_report(test_mode=False)
-print(json.dumps({{
-  'result': result,
-  'context_length': m.US_RATING_CONTEXT_LENGTH,
-  'max_tokens': captured.get('max_tokens'),
-}}, ensure_ascii=False))
-"""
-            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
-            data = json.loads(out)
-            self.assertEqual(data['context_length'], 128000)
-            self.assertEqual(data['max_tokens'], 4096)
-            self.assertIn('TEST', data['result'])
-
-    def test_paths_are_dashboard_home_scoped_and_prompt_has_no_telegram(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = os.environ.copy()
-            env['DASHBOARD_HOME'] = tmp
-            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
-            code = f"""
-import importlib.util, json, sys
-sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
-spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(COMPAT / 'us_rating_report.py')!r})
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-prompt = m.build_user_prompt()
-print(json.dumps({{
-  'dashboard_home': str(m.DASHBOARD_HOME),
-  'config_path': str(m.CONFIG_PATH),
-  'mentions_telegram': 'telegram' in prompt.lower(),
-}}, ensure_ascii=False))
-"""
-            out = subprocess.check_output([sys.executable, '-c', code], env=env, text=True)
-            data = json.loads(out)
-            self.assertEqual(data['dashboard_home'], tmp)
-            self.assertEqual(data['config_path'], str(Path(tmp) / 'config.yaml'))
-            self.assertFalse(data['mentions_telegram'])
-
-    def test_database_write_creates_one_record_without_markdown(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = os.environ.copy()
-            env['DASHBOARD_HOME'] = tmp
-            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
-            sample = """**牛牛大王，美股机构买入评级日报（2026年06月23日）**
-
-- TEST / Test Corp
-  机构/分析师：Example Bank / Analyst
-  评级动作：新覆盖 Buy
-  目标价：100美元
-  核心理由/催化剂：测试催化剂
-  风险点：测试风险
-  适合关注类型：中线趋势
-"""
+            env["DASHBOARD_HOME"] = tmp
+            env["DASHBOARD_ENV_FILE"] = str(Path(tmp) / "dashboard.env")
             code = f"""
 import importlib.util, json, os, sys
 from datetime import datetime, timezone
-from pathlib import Path
-sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
-spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(COMPAT / 'us_rating_report.py')!r})
+sys.path[:0] = [{str(COMPAT)!r}, {str(APP)!r}]
+spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(REPORT_PATH)!r})
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-now = datetime(2026, 6, 23, 3, 0, 0, tzinfo=timezone.utc)
-later = datetime(2026, 6, 23, 3, 5, 0, tzinfo=timezone.utc)
-os.environ['NIUONE_CRON_RUN_KEY'] = 'fd0b807138f4:202606231100'
-first_count = m.write_report_to_db({sample!r}, now=now)
-second_count = m.write_report_to_db({sample!r}, now=later)
+os.environ['NIUONE_CRON_RUN_KEY'] = 'fd0b807138f4:202608130900'
+now = datetime(2026, 8, 13, 1, 0, tzinfo=timezone.utc)
+first = m.write_report_to_db('- TEST / Test Corp', now=now)
+second = m.write_report_to_db('- TEST / Test Corp', now=now)
 import push_history
-data = push_history.query_messages(category='us_ratings', limit=5)
-record = data['records'][0]
+records = push_history.query_messages(category='us_ratings', limit=5)['records']
+record = records[0]
 print(json.dumps({{
-  'first_count': first_count,
-  'second_count': second_count,
-  'record_count': len(data['records']),
-  'record_category': record.get('category'),
-  'record_kind': record.get('kind'),
-  'record_source_type': record.get('source_type'),
-  'record_raw_path': record.get('raw_path'),
-  'record_external_id': record.get('external_id'),
-  'metadata_run_key': (record.get('metadata') or {{}}).get('run_key'),
-  'delivery_mode': (record.get('delivery') or {{}}).get('mode'),
-  'record_contains_sample': 'TEST / Test Corp' in record.get('content', ''),
-  'markdown_count': len(list(Path({tmp!r}).rglob('*.md'))),
-}}, ensure_ascii=False))
+    'first': first,
+    'second': second,
+    'count': len(records),
+    'provider': (record.get('metadata') or {{}}).get('provider'),
+    'external_id': record.get('external_id'),
+}}))
 """
-            out = subprocess.check_output([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True)
-            data = json.loads(out)
-            self.assertEqual(data['first_count'], 1)
-            self.assertEqual(data['second_count'], 1)
-            self.assertEqual(data['record_count'], 1)
-            self.assertEqual(data['record_category'], 'us_ratings')
-            self.assertEqual(data['record_kind'], 'cron_output')
-            self.assertEqual(data['record_source_type'], 'us_ratings')
-            self.assertEqual(data['record_raw_path'], '')
-            self.assertEqual(data['record_external_id'], 'fd0b807138f4:202606231100')
-            self.assertEqual(data['metadata_run_key'], 'fd0b807138f4:202606231100')
-            self.assertEqual(data['delivery_mode'], 'dashboard_database_only')
-            self.assertTrue(data['record_contains_sample'])
-            self.assertEqual(data['markdown_count'], 0)
+            out = subprocess.check_output(
+                [sys.executable, "-c", textwrap.dedent(code)], env=env, text=True
+            )
+            result = json.loads(out)
 
-    def test_failure_does_not_create_dashboard_record(self):
+        self.assertEqual(result["first"], 1)
+        self.assertEqual(result["second"], 1)
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["provider"], "financial_modeling_prep")
+        self.assertEqual(result["external_id"], "fd0b807138f4:202608130900")
+
+    def test_generation_failure_creates_no_record(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
-            env['DASHBOARD_HOME'] = tmp
-            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
+            env["DASHBOARD_HOME"] = tmp
+            env["DASHBOARD_ENV_FILE"] = str(Path(tmp) / "dashboard.env")
             code = f"""
 import importlib.util, json, sys
-from pathlib import Path
-sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
-spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(COMPAT / 'us_rating_report.py')!r})
+sys.path[:0] = [{str(COMPAT)!r}, {str(APP)!r}]
+spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(REPORT_PATH)!r})
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-def fail_generate_report(test_mode=False):
-    raise RuntimeError('boom')
-m.generate_report = fail_generate_report
+m.generate_report = lambda test_mode=False: (_ for _ in ()).throw(RuntimeError('boom'))
 sys.argv = ['us_rating_report.py', '--store-only']
 try:
     m.main()
 except SystemExit as exc:
-    code = int(exc.code or 0)
+    exit_code = int(exc.code or 0)
 else:
-    code = 0
+    exit_code = 0
 import push_history
-data = push_history.query_messages(category='us_ratings', limit=5)
-print(json.dumps({{
-  'code': code,
-  'record_count': len(data['records']),
-  'markdown_count': len(list(Path({tmp!r}).rglob('*.md'))),
-}}, ensure_ascii=False))
-"""
-            proc = subprocess.run([sys.executable, '-c', textwrap.dedent(code)], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            data = json.loads(proc.stdout)
-            self.assertEqual(data['code'], 1)
-            self.assertEqual(data['record_count'], 0)
-            self.assertEqual(data['markdown_count'], 0)
-            self.assertIn('ERROR: RuntimeError: boom', proc.stderr)
-
-    def test_database_failure_exits_nonzero_for_scheduler_retry(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = os.environ.copy()
-            env['DASHBOARD_HOME'] = tmp
-            env['DASHBOARD_ENV_FILE'] = str(Path(tmp) / 'dashboard.env')
-            code = f"""
-import importlib.util, json, sys
-from pathlib import Path
-sys.path[:0] = [{str(COMPAT)!r}, {str(SRC)!r}]
-spec = importlib.util.spec_from_file_location('us_rating_report_under_test', {str(COMPAT / 'us_rating_report.py')!r})
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-m.generate_report = lambda test_mode=False: '- TEST / Test Corp: Buy'
-def fail_write(*_args, **_kwargs):
-    raise RuntimeError('database unavailable')
-m.write_report_to_db = fail_write
-sys.argv = ['us_rating_report.py', '--store-only']
-try:
-    m.main()
-except SystemExit as exc:
-    code = int(exc.code or 0)
-else:
-    code = 0
-print(json.dumps({{
-  'code': code,
-  'markdown_count': len(list(Path({tmp!r}).rglob('*.md'))),
-}}, ensure_ascii=False))
+records = push_history.query_messages(category='us_ratings', limit=5)['records']
+print(json.dumps({{'exit_code': exit_code, 'count': len(records)}}))
 """
             proc = subprocess.run(
-                [sys.executable, '-c', textwrap.dedent(code)],
+                [sys.executable, "-c", textwrap.dedent(code)],
                 env=env,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                check=False,
             )
-            data = json.loads(proc.stdout)
-            self.assertEqual(data['code'], 1)
-            self.assertEqual(data['markdown_count'], 0)
-            self.assertIn('ERROR: database write failed: RuntimeError: database unavailable', proc.stderr)
+            result = json.loads(proc.stdout)
+
+        self.assertEqual(result["exit_code"], 1)
+        self.assertEqual(result["count"], 0)
+        self.assertIn("ERROR: RuntimeError: boom", proc.stderr)
+
+    def test_database_failure_exits_nonzero_for_scheduler_retry(self):
+        with loaded_report(api_key="fmp-private-key") as report:
+            with (
+                mock.patch.object(report, "generate_report", return_value="- TEST / Test Corp"),
+                mock.patch.object(
+                    report,
+                    "write_report_to_db",
+                    side_effect=RuntimeError("database unavailable"),
+                ),
+                mock.patch.object(sys, "argv", ["us_rating_report.py", "--store-only"]),
+                mock.patch("sys.stderr"),
+            ):
+                with self.assertRaisesRegex(SystemExit, "1"):
+                    report.main()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

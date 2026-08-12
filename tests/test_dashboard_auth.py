@@ -6724,6 +6724,80 @@ process.stdout.write(JSON.stringify({{
             },
         )])
 
+    def test_data_source_test_api_requires_admin_action_and_whitelists_target_fields(self):
+        original_sender = dashboard.send_data_source_connection_test
+        original_admin_limit = dashboard.RATE_LIMIT_ADMIN
+        original_test_limit = dashboard.RATE_LIMIT_DATA_SOURCE_TEST
+        calls = []
+        body = urllib.parse.urlencode({
+            'target': 'fmp-ratings',
+            'env__FMP_API_BASE_URL': 'https://financialmodelingprep.com/stable',
+            'env__FMP_API_KEY': 'unsaved-key',
+            'env__DASHBOARD_DECISION_API_KEY': 'must-be-ignored',
+            'env__DASHBOARD_ADMIN_PASSWORD': 'must-be-ignored',
+        }).encode('utf-8')
+        try:
+            dashboard.RATE_LIMIT_ADMIN = 100
+            dashboard.RATE_LIMIT_DATA_SOURCE_TEST = 100
+            dashboard.send_data_source_connection_test = (
+                lambda target, overrides: calls.append((target, dict(overrides)))
+                or {'ok': True, 'target': target, 'message': 'FMP 已接通'}
+            )
+
+            unauthorized = FakeHandler(
+                path='/api/admin/data-sources/test',
+                method='POST',
+                headers={
+                    'Content-Length': str(len(body)),
+                    dashboard.ACTION_HEADER_NAME: '1',
+                },
+                body=body,
+            )
+            unauthorized.do_POST()
+            self.assertEqual(unauthorized.status, 403)
+            self.assertEqual(unauthorized.rfile.tell(), 0)
+
+            missing_action = FakeHandler(
+                path='/api/admin/data-sources/test',
+                method='POST',
+                headers={
+                    'Content-Length': str(len(body)),
+                    'Cookie': self.admin_cookie(),
+                },
+                body=body,
+            )
+            missing_action.do_POST()
+            self.assertEqual(missing_action.status, 403)
+            self.assertEqual(missing_action.rfile.tell(), 0)
+
+            handler = FakeHandler(
+                path='/api/admin/data-sources/test',
+                method='POST',
+                headers={
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Content-Length': str(len(body)),
+                    'Cookie': self.admin_cookie(),
+                    dashboard.ACTION_HEADER_NAME: '1',
+                },
+                body=body,
+            )
+            handler.do_POST()
+            response = json.loads(handler.wfile.getvalue().decode('utf-8'))
+        finally:
+            dashboard.send_data_source_connection_test = original_sender
+            dashboard.RATE_LIMIT_ADMIN = original_admin_limit
+            dashboard.RATE_LIMIT_DATA_SOURCE_TEST = original_test_limit
+
+        self.assertEqual(handler.status, 200)
+        self.assertTrue(response['ok'])
+        self.assertEqual(calls, [(
+            'fmp-ratings',
+            {
+                'FMP_API_BASE_URL': 'https://financialmodelingprep.com/stable',
+                'FMP_API_KEY': 'unsaved-key',
+            },
+        )])
+
     def test_iwencai_test_api_requires_admin_action_whitelists_and_rate_limits(self):
         original_sender = dashboard.send_iwencai_connection_test
         original_admin_limit = dashboard.RATE_LIMIT_ADMIN
@@ -7367,6 +7441,7 @@ process.stdout.write(JSON.stringify({{
         for path in (
             '/api/admin/notifications/test',
             '/api/admin/models/test',
+            '/api/admin/data-sources/test',
             '/api/admin/iwencai/test',
         ):
             with self.subTest(path=path):
@@ -7383,11 +7458,11 @@ process.stdout.write(JSON.stringify({{
     def test_unauthenticated_config_writes_are_rejected_before_reading_body(self):
         original_config_path = dashboard.CONFIG_PATH
         dashboard.CONFIG_PATH = self.tmp_path / 'config.yaml'
-        dashboard.DASHBOARD_ENV_FILE.write_text('DASHBOARD_GROK_MODEL=safe\n', encoding='utf-8')
+        dashboard.DASHBOARD_ENV_FILE.write_text('A_SHARE_MODEL_SUMMARY_MODEL=safe\n', encoding='utf-8')
         dashboard.CONFIG_PATH.write_text('model:\n  default: safe\n', encoding='utf-8')
         try:
             cases = (
-                ('/api/admin/config/env', b'env__DASHBOARD_GROK_MODEL=attacker'),
+                ('/api/admin/config/env', b'env__A_SHARE_MODEL_SUMMARY_MODEL=attacker'),
                 ('/api/admin/config/yaml', b'config_yaml=model%3A+attacker'),
             )
             for path, body in cases:
@@ -7411,7 +7486,7 @@ process.stdout.write(JSON.stringify({{
                     )
                     self.assertEqual(
                         dashboard.DASHBOARD_ENV_FILE.read_text(encoding='utf-8'),
-                        'DASHBOARD_GROK_MODEL=safe\n',
+                        'A_SHARE_MODEL_SUMMARY_MODEL=safe\n',
                     )
                     self.assertEqual(
                         dashboard.CONFIG_PATH.read_text(encoding='utf-8'),
@@ -7423,12 +7498,12 @@ process.stdout.write(JSON.stringify({{
     def test_authenticated_config_writes_require_action_header(self):
         original_config_path = dashboard.CONFIG_PATH
         dashboard.CONFIG_PATH = self.tmp_path / 'config.yaml'
-        dashboard.DASHBOARD_ENV_FILE.write_text('DASHBOARD_GROK_MODEL=safe\n', encoding='utf-8')
+        dashboard.DASHBOARD_ENV_FILE.write_text('A_SHARE_MODEL_SUMMARY_MODEL=safe\n', encoding='utf-8')
         dashboard.CONFIG_PATH.write_text('model:\n  default: safe\n', encoding='utf-8')
         admin_cookie = self.admin_cookie()
         try:
             cases = (
-                ('/api/admin/config/env', b'env__DASHBOARD_GROK_MODEL=attacker'),
+                ('/api/admin/config/env', b'env__A_SHARE_MODEL_SUMMARY_MODEL=attacker'),
                 ('/api/admin/config/yaml', b'config_yaml=model%3A+attacker'),
             )
             for path, body in cases:
@@ -7452,7 +7527,7 @@ process.stdout.write(JSON.stringify({{
                     )
                     self.assertEqual(
                         dashboard.DASHBOARD_ENV_FILE.read_text(encoding='utf-8'),
-                        'DASHBOARD_GROK_MODEL=safe\n',
+                        'A_SHARE_MODEL_SUMMARY_MODEL=safe\n',
                     )
                     self.assertEqual(
                         dashboard.CONFIG_PATH.read_text(encoding='utf-8'),
@@ -7471,14 +7546,24 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(handler.status, 200)
         self.assertEqual(len(payload['groups']), 14)
         self.assertEqual(item_names, set(dashboard.ADMIN_VISIBLE_ENV_NAMES))
+        us_group = next(group for group in payload['groups'] if group['slug'] == 'us-market')
+        us_toggle = next(
+            item for item in payload['items']
+            if item['name'] == 'DASHBOARD_US_FEATURES_ENABLED'
+        )
+        self.assertEqual(us_group['name'], '美股机构评级')
+        self.assertEqual(us_toggle['label'], '开启美股机构评级')
+        self.assertEqual(us_toggle['group'], '美股机构评级')
+        self.assertNotIn('牛牛美股', {group['name'] for group in payload['groups']})
         self.assertNotIn('X_WATCHLIST_HANDLES', item_names)
         self.assertFalse(any(name.startswith('X_WATCHLIST_') for name in item_names))
         for name in (
-            'US_RATING_MODEL',
-            'US_RATING_BASE_URL',
-            'US_RATING_API_KEY',
+            'FMP_API_BASE_URL',
+            'FMP_API_KEY',
+            'FMP_RATING_MAX_RESULTS',
         ):
             self.assertIn(name, item_names)
+        self.assertFalse(any(name.startswith('US_RATING_MODEL') for name in item_names))
         self.assertIn('<div id="app">', index_body)
         self.assertNotIn("name='env__", index_body)
         self.assertIn('<AdminSettingsIndex', ADMIN_FRONTEND)
@@ -7490,9 +7575,15 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('<AdminEnvInput', ADMIN_FRONTEND)
         self.assertEqual(
             [item['id'] for item in payload['model_tests']],
-            ['decision-model', 'grok-model', 'us-rating-model', 'a-share-summary-model'],
+            ['decision-model', 'a-share-summary-model'],
+        )
+        self.assertEqual(
+            [item['id'] for item in payload['data_source_tests']],
+            ['fmp-ratings'],
         )
         self.assertIn("fetch('/api/admin/models/test'", ADMIN_FRONTEND)
+        self.assertIn("fetch('/api/admin/data-sources/test'", ADMIN_FRONTEND)
+        self.assertIn('测试数据源连接', ADMIN_FRONTEND)
         self.assertEqual(payload['iwencai_test']['group_slug'], 'iwencai')
         self.assertEqual(payload['groups'][-1]['slug'], 'about')
         self.assertEqual(payload['about']['author'], 'kunkundi')
@@ -7533,7 +7624,7 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(grouped_names, set(dashboard.ADMIN_VISIBLE_ENV_NAMES))
         self.assertIn(':to="`/admin/settings/${group.slug}`"', ADMIN_FRONTEND)
         self.assertIn('保存本组设置', ADMIN_FRONTEND)
-        self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 19)
+        self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 7)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('iwencai')), 9)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 10)
         self.assertEqual(
@@ -7660,21 +7751,21 @@ process.stdout.write(JSON.stringify({{
             for name in (
                 'IWENCAI_ENABLED',
                 'IWENCAI_NEWS_PRECHECK_ENABLED',
-                'DASHBOARD_GROK_MODEL',
+                'A_SHARE_MODEL_SUMMARY_MODEL',
             )
         }
         try:
             for name in original_values:
                 dashboard.os.environ.pop(name, None)
             dashboard.DASHBOARD_ENV_FILE.write_text(
-                'IWENCAI_ENABLED=1\nIWENCAI_NEWS_PRECHECK_ENABLED=0\nDASHBOARD_GROK_MODEL=old-grok\n',
+                'IWENCAI_ENABLED=1\nIWENCAI_NEWS_PRECHECK_ENABLED=0\nA_SHARE_MODEL_SUMMARY_MODEL=old-summary\n',
                 encoding='utf-8',
             )
-            dashboard.os.environ['DASHBOARD_GROK_MODEL'] = 'process-grok'
+            dashboard.os.environ['A_SHARE_MODEL_SUMMARY_MODEL'] = 'process-summary'
             body = urllib.parse.urlencode({
                 'env__IWENCAI_ENABLED': '1',
                 'env__IWENCAI_NEWS_PRECHECK_ENABLED': '1',
-                'env__DASHBOARD_GROK_MODEL': 'cross-group-attempt',
+                'env__A_SHARE_MODEL_SUMMARY_MODEL': 'cross-group-attempt',
             }).encode('utf-8')
             handler = FakeHandler(
                 path='/api/admin/config/env/iwencai',
@@ -7693,7 +7784,7 @@ process.stdout.write(JSON.stringify({{
                 dashboard.DASHBOARD_ENV_FILE,
                 include_container_overrides=False,
             )
-            runtime_grok = dashboard.os.environ.get('DASHBOARD_GROK_MODEL')
+            runtime_summary = dashboard.os.environ.get('A_SHARE_MODEL_SUMMARY_MODEL')
         finally:
             for name, value in original_values.items():
                 if value is None:
@@ -7705,8 +7796,8 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(result['group']['slug'], 'iwencai')
         self.assertEqual(result['changed_names'], ['IWENCAI_NEWS_PRECHECK_ENABLED'])
         self.assertEqual(stored['IWENCAI_NEWS_PRECHECK_ENABLED'], '1')
-        self.assertEqual(stored['DASHBOARD_GROK_MODEL'], 'old-grok')
-        self.assertEqual(runtime_grok, 'process-grok')
+        self.assertEqual(stored['A_SHARE_MODEL_SUMMARY_MODEL'], 'old-summary')
+        self.assertEqual(runtime_summary, 'process-summary')
 
         missing = FakeHandler(
             path='/api/admin/config/env/not-a-group',
@@ -7842,8 +7933,10 @@ process.stdout.write(JSON.stringify({{
     def test_admin_config_loads_yaml_once_per_payload(self):
         original_loader = dashboard.load_yaml_config
         provider_names = (
-            'DASHBOARD_GROK_BASE_URL',
-            'DASHBOARD_GROK_API_KEY',
+            'A_SHARE_MODEL_SUMMARY_BASE_URL',
+            'A_SHARE_MODEL_SUMMARY_API_KEY',
+            'FMP_API_BASE_URL',
+            'FMP_API_KEY',
             'DASHBOARD_DECISION_BASE_URL',
             'DASHBOARD_DECISION_API_KEY',
         )
@@ -7868,9 +7961,13 @@ process.stdout.write(JSON.stringify({{
 
         self.assertEqual(len(calls), 1)
         by_name = {item['name']: item for item in payload['items']}
-        self.assertEqual(by_name['DASHBOARD_GROK_BASE_URL']['effective'], 'https://crossdesk.example/v1')
         self.assertEqual(by_name['DASHBOARD_DECISION_BASE_URL']['effective'], 'https://crossdesk.example/v1')
-        self.assertEqual(by_name['DASHBOARD_GROK_API_KEY']['current_state'], '已设置')
+        self.assertEqual(by_name['DASHBOARD_DECISION_API_KEY']['current_state'], '已设置')
+        self.assertEqual(by_name['A_SHARE_MODEL_SUMMARY_BASE_URL']['effective'], '')
+        self.assertEqual(
+            by_name['FMP_API_BASE_URL']['effective'],
+            'https://financialmodelingprep.com/stable',
+        )
         self.assertNotIn('crossdesk-secret', json.dumps(payload, ensure_ascii=False))
 
     def test_admin_config_decodes_preset_strategy_text(self):
@@ -7911,8 +8008,6 @@ process.stdout.write(JSON.stringify({{
         by_name = {item['name']: item for item in payload['items']}
 
         for name in [
-            'US_RATING_CONTEXT_LENGTH',
-            'DASHBOARD_GROK_CONTEXT_LENGTH',
             'DASHBOARD_DECISION_CONTEXT_LENGTH',
             'A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH',
         ]:
@@ -7922,8 +8017,6 @@ process.stdout.write(JSON.stringify({{
 
         for name in [
             'DASHBOARD_DECISION_MAX_TOKENS',
-            'US_RATING_MAX_TOKENS',
-            'DASHBOARD_GROK_MAX_TOKENS',
             'US_MARKET_SUMMARY_MAX_TOKENS',
             'A_SHARE_MODEL_SUMMARY_MAX_TOKENS',
         ]:
@@ -7944,11 +8037,32 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(dashboard.B1_SCAN_TIMEOUT_SECONDS, 480)
         self.assertEqual(item['default'], '480')
 
+    def test_fmp_rating_settings_validate_url_limits_and_timeouts(self):
+        cron_item = next(
+            item
+            for item in dashboard.ENV_CONFIG_SCHEMA
+            if item['name'] == 'DASHBOARD_US_RATING_CRON'
+        )
+        self.assertEqual(cron_item['default'], '0 6 * * *')
+        dashboard.validate_business_updates({
+            'FMP_API_BASE_URL': 'https://financialmodelingprep.com/stable',
+            'FMP_RATING_MAX_RESULTS': '10',
+            'US_RATING_DEADLINE_SECONDS': '120',
+            'US_RATING_REQUEST_TIMEOUT_SECONDS': '30',
+        })
+        for name, value in (
+            ('FMP_API_BASE_URL', 'not-a-url'),
+            ('FMP_RATING_MAX_RESULTS', '0'),
+            ('FMP_RATING_MAX_RESULTS', '51'),
+            ('US_RATING_DEADLINE_SECONDS', '29'),
+            ('US_RATING_REQUEST_TIMEOUT_SECONDS', '121'),
+        ):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                dashboard.validate_business_updates({name: value})
+
     def test_reasoning_effort_settings_validate_known_models_and_keep_custom_free_form(self):
         names = {
             'DASHBOARD_DECISION_REASONING_EFFORT',
-            'DASHBOARD_GROK_REASONING_EFFORT',
-            'US_RATING_REASONING_EFFORT',
             'A_SHARE_MODEL_SUMMARY_REASONING_EFFORT',
         }
         items = {
@@ -7982,15 +8096,6 @@ process.stdout.write(JSON.stringify({{
             'DASHBOARD_DECISION_REASONING_EFFORT': 'provider.custom-high',
         })
         dashboard.validate_business_updates({
-            'DASHBOARD_GROK_MODEL': 'grok-4.3',
-            'DASHBOARD_GROK_REASONING_EFFORT': 'none',
-        })
-        with self.assertRaisesRegex(ValueError, '允许值'):
-            dashboard.validate_business_updates({
-                'DASHBOARD_GROK_MODEL': 'grok-4.3',
-                'DASHBOARD_GROK_REASONING_EFFORT': 'xhigh',
-            })
-        dashboard.validate_business_updates({
             'DASHBOARD_DECISION_MODEL': 'glm-5.2',
             'DASHBOARD_DECISION_REASONING_EFFORT': 'max',
         })
@@ -8018,8 +8123,6 @@ process.stdout.write(JSON.stringify({{
     def test_each_model_configuration_exposes_a_validated_stream_mode(self):
         names = {
             'DASHBOARD_DECISION_STREAM_MODE',
-            'DASHBOARD_GROK_STREAM_MODE',
-            'US_RATING_STREAM_MODE',
             'A_SHARE_MODEL_SUMMARY_STREAM_MODE',
         }
         items = {
@@ -8290,8 +8393,8 @@ process.stdout.write(JSON.stringify({{
             dashboard.B1_SCHEDULE_ENABLED = False
             updates = {
                 'DASHBOARD_US_FEATURES_ENABLED': '1',
-                'DASHBOARD_GROK_MODEL': 'grok-new',
-                'DASHBOARD_GROK_CONTEXT_LENGTH': '1M',
+                'A_SHARE_MODEL_SUMMARY_MODEL': 'summary-new',
+                'A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH': '1M',
                 'IWENCAI_NEWS_PRECHECK_ENABLED': '1',
                 'DASHBOARD_PRACTICE_SCHEDULE_TIMES': '09:25, 10:00, 14:50',
                 'DASHBOARD_US_MARKET_SUMMARY_CRON': '08:01',
@@ -8316,8 +8419,8 @@ process.stdout.write(JSON.stringify({{
                     dashboard.os.environ[name] = value
 
         self.assertEqual(parsed['DASHBOARD_US_FEATURES_ENABLED'], '1')
-        self.assertEqual(parsed['DASHBOARD_GROK_MODEL'], 'grok-new')
-        self.assertEqual(parsed['DASHBOARD_GROK_CONTEXT_LENGTH'], '1000000')
+        self.assertEqual(parsed['A_SHARE_MODEL_SUMMARY_MODEL'], 'summary-new')
+        self.assertEqual(parsed['A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH'], '1000000')
         self.assertEqual(parsed['IWENCAI_NEWS_PRECHECK_ENABLED'], '1')
         self.assertEqual(parsed['DASHBOARD_PRACTICE_SCHEDULE_TIMES'], '09:25,10:00,14:50')
         self.assertEqual(parsed['DASHBOARD_US_MARKET_SUMMARY_CRON'], '1 8 * * 1-5')
@@ -8345,7 +8448,10 @@ process.stdout.write(JSON.stringify({{
                 '    api_key: provider-secret\n',
                 encoding='utf-8',
             )
-            for name in ['DASHBOARD_GROK_BASE_URL', 'DASHBOARD_DECISION_BASE_URL']:
+            for name in [
+                'A_SHARE_MODEL_SUMMARY_BASE_URL',
+                'DASHBOARD_DECISION_BASE_URL',
+            ]:
                 dashboard.os.environ.pop(name, None)
             payload = dashboard.build_admin_config_payload()
         finally:
@@ -8358,24 +8464,31 @@ process.stdout.write(JSON.stringify({{
                     dashboard.os.environ[name] = value
 
         by_name = {item['name']: item for item in payload['items']}
-        for name in ['DASHBOARD_GROK_BASE_URL', 'DASHBOARD_DECISION_BASE_URL']:
+        for name in [
+            'A_SHARE_MODEL_SUMMARY_BASE_URL',
+            'DASHBOARD_DECISION_BASE_URL',
+        ]:
             item = by_name[name]
             self.assertEqual(item['default'], '')
             self.assertEqual(item['file_value'], '')
-            self.assertEqual(item['effective'], 'https://crossdesk.example/v1')
+        self.assertEqual(
+            by_name['DASHBOARD_DECISION_BASE_URL']['effective'],
+            'https://crossdesk.example/v1',
+        )
+        self.assertEqual(by_name['A_SHARE_MODEL_SUMMARY_BASE_URL']['effective'], '')
 
     def test_env_config_write_preserves_blank_secret_and_quotes_values(self):
         original_env_file = dashboard.DASHBOARD_ENV_FILE
         try:
             dashboard.DASHBOARD_ENV_FILE = self.tmp_path / 'dashboard.env'
             dashboard.DASHBOARD_ENV_FILE.write_text(
-                'DASHBOARD_PORT=8787\nUS_RATING_API_KEY=old-secret\n',
+                'DASHBOARD_PORT=8787\nFMP_API_KEY=old-secret\n',
                 encoding='utf-8',
             )
 
             dashboard.write_env_file_values({
                 'DASHBOARD_PORT': '9000',
-                'US_RATING_API_KEY': '',
+                'FMP_API_KEY': '',
                 'EXTRA_VALUE': 'hello world',
             })
             parsed = dashboard.parse_env_file(dashboard.DASHBOARD_ENV_FILE)
@@ -8383,16 +8496,16 @@ process.stdout.write(JSON.stringify({{
             dashboard.DASHBOARD_ENV_FILE = original_env_file
 
         self.assertEqual(parsed['DASHBOARD_PORT'], '9000')
-        self.assertEqual(parsed['US_RATING_API_KEY'], 'old-secret')
+        self.assertEqual(parsed['FMP_API_KEY'], 'old-secret')
         self.assertEqual(parsed['EXTRA_VALUE'], 'hello world')
 
     def test_env_config_write_reports_no_change(self):
         original_env_file = dashboard.DASHBOARD_ENV_FILE
         try:
             dashboard.DASHBOARD_ENV_FILE = self.tmp_path / 'dashboard.env'
-            dashboard.DASHBOARD_ENV_FILE.write_text('DASHBOARD_GROK_MODEL=grok-test\n', encoding='utf-8')
+            dashboard.DASHBOARD_ENV_FILE.write_text('A_SHARE_MODEL_SUMMARY_MODEL=summary-test\n', encoding='utf-8')
             before = dashboard.DASHBOARD_ENV_FILE.read_text(encoding='utf-8')
-            result = dashboard.write_env_file_values({'DASHBOARD_GROK_MODEL': 'grok-test'})
+            result = dashboard.write_env_file_values({'A_SHARE_MODEL_SUMMARY_MODEL': 'summary-test'})
             after = dashboard.DASHBOARD_ENV_FILE.read_text(encoding='utf-8')
         finally:
             dashboard.DASHBOARD_ENV_FILE = original_env_file
@@ -8540,8 +8653,8 @@ process.stdout.write(JSON.stringify({{
             )
             body = urllib.parse.urlencode({
                 'env__DASHBOARD_US_FEATURES_ENABLED': '1',
-                'env__DASHBOARD_GROK_MODEL': 'grok-test',
-                'env__DASHBOARD_GROK_CONTEXT_LENGTH': '1M',
+                'env__A_SHARE_MODEL_SUMMARY_MODEL': 'summary-test',
+                'env__A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH': '1M',
                 'env__IWENCAI_NEWS_PRECHECK_ENABLED': '1',
                 'env__DASHBOARD_DECISION_CONTEXT_LENGTH': '256K',
                 'env__DASHBOARD_PRACTICE_SCHEDULE_TIMES': ['', '09:25', '10:00', '', '14:50'],
@@ -8612,7 +8725,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('config', response)
         config_by_name = {item['name']: item for item in response['config']['items']}
         self.assertEqual(config_by_name['IWENCAI_NEWS_PRECHECK_ENABLED']['current_state'], '1')
-        self.assertEqual(config_by_name['DASHBOARD_GROK_CONTEXT_LENGTH']['current_state'], '1000000')
+        self.assertEqual(config_by_name['A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH']['current_state'], '1000000')
         self.assertEqual(config_by_name['DASHBOARD_TELEGRAM_CHAT_ID']['current_state'], '已设置')
         self.assertNotEqual(config_by_name['DASHBOARD_TELEGRAM_CHAT_ID']['current_state'], telegram_chat_id)
         self.assertEqual(response['restart']['skipped'], 'hot_applied')
@@ -8624,8 +8737,8 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('strategy_settings', response['runtime']['applied'])
         self.assertIn('trader_runtime', response['runtime']['applied'])
         self.assertEqual(parsed['DASHBOARD_US_FEATURES_ENABLED'], '1')
-        self.assertEqual(parsed['DASHBOARD_GROK_MODEL'], 'grok-test')
-        self.assertEqual(parsed['DASHBOARD_GROK_CONTEXT_LENGTH'], '1000000')
+        self.assertEqual(parsed['A_SHARE_MODEL_SUMMARY_MODEL'], 'summary-test')
+        self.assertEqual(parsed['A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH'], '1000000')
         self.assertEqual(parsed['IWENCAI_NEWS_PRECHECK_ENABLED'], '1')
         self.assertEqual(parsed['DASHBOARD_DECISION_CONTEXT_LENGTH'], '256000')
         self.assertEqual(parsed['DASHBOARD_PRACTICE_SCHEDULE_TIMES'], '09:25,10:00,14:50')
@@ -8663,7 +8776,7 @@ process.stdout.write(JSON.stringify({{
         try:
             dashboard.DASHBOARD_ENV_FILE = self.tmp_path / 'dashboard.env'
             dashboard.DASHBOARD_ENV_FILE.write_text(
-                'DASHBOARD_GROK_CONTEXT_LENGTH=1000000\n'
+                'A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH=1000000\n'
                 'IWENCAI_NEWS_PRECHECK_ENABLED=1\n',
                 encoding='utf-8',
             )
@@ -8672,7 +8785,7 @@ process.stdout.write(JSON.stringify({{
                 lambda: restart_calls.append(True) or {'ok': True}
             )
             body = urllib.parse.urlencode({
-                'env__DASHBOARD_GROK_CONTEXT_LENGTH': '1M',
+                'env__A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH': '1M',
                 'env__IWENCAI_NEWS_PRECHECK_ENABLED': '1',
             }).encode('utf-8')
             handler = FakeHandler(
@@ -8705,7 +8818,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('config', response)
         config_by_name = {item['name']: item for item in response['config']['items']}
         self.assertEqual(config_by_name['IWENCAI_NEWS_PRECHECK_ENABLED']['current_state'], '1')
-        self.assertEqual(config_by_name['DASHBOARD_GROK_CONTEXT_LENGTH']['current_state'], '1000000')
+        self.assertEqual(config_by_name['A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH']['current_state'], '1000000')
         self.assertEqual(response['restart']['skipped'], 'unchanged')
 
     def test_admin_config_api_removing_notification_channel_deletes_its_config(self):

@@ -136,7 +136,7 @@ Primary pages and dependencies:
 | `/dragon-tiger` | Dated Dragon-Tiger seats, limit-up/consecutive-list signals, and news prechecks | Enable iWencai retrieval and configure the trading-decision model for judgment |
 | `/market-monitor` | A-share auction/midday/close and overnight U.S. summaries | Keep the scheduler running; model enhancement is optional |
 | `/realtime-news` | NewsNow aggregation for selectable financial-news sources; Overview shows five items with an important-only option | No API key; Compose bundles NewsNow and the admin page exposes finance and business sources as searchable multi-select options |
-| `/us-ratings` | U.S. institutional ratings | Enable “NiuNiu U.S. Stocks” and configure the relevant model |
+| `/us-ratings` | U.S. institutional ratings | Enable “U.S. Institutional Ratings” and configure an FMP API key |
 | `/admin` | Configuration, connection tests, version, and runtime status | Administrator authentication is always required |
 
 See the [Strategy Research Guide](docs/strategies/README_EN.md) for methodology and the [app module architecture](docs/APP_ARCHITECTURE.md) for code structure and extension points.

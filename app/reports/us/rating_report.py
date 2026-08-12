@@ -1,53 +1,49 @@
 #!/usr/bin/env python3
-"""Generate and store a US institutional buy-rating daily report.
+"""Generate a deterministic U.S. institutional-rating report from FMP.
 
 Usage:
     us_rating_report.py              # generates, stores, and prints report
     us_rating_report.py --store-only
-    us_rating_report.py --test       # quick smoke test
+    us_rating_report.py --test       # fetches a small live sample without storing
 """
 
 from __future__ import annotations
 
 import os
 import re
-import ssl
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+from collections import defaultdict
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
-from urllib.error import URLError, HTTPError
+from typing import Iterable
 from urllib.request import urlopen
+from zoneinfo import ZoneInfo
 
-from core.model_api import build_model_request, request_model_complete
+from market_data.fmp_ratings import (
+    DEFAULT_BASE_URL as FMP_DEFAULT_BASE_URL,
+    FmpRatingsError,
+    GradeEvent,
+    PriceTargetEvent,
+    Quote,
+    fetch_batch_quotes,
+    fetch_latest_grades,
+    fetch_latest_price_targets,
+)
 from niuone_paths import get_dashboard_env_file, get_dashboard_home
 
-# Crossdesk has intermittent SSL record-layer failures with Python's
-# default SSL context.  Disable certificate verification for this
-# internal-only tool.  The API key still authenticates the request.
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
 
 def load_dashboard_env() -> None:
     allowed = {
-        "DASHBOARD_GROK_MODEL",
-        "DASHBOARD_GROK_STREAM_MODE",
-        "DASHBOARD_GROK_API_MODE",
-        "DASHBOARD_GROK_CONTEXT_LENGTH",
-        "DASHBOARD_GROK_BASE_URL",
-        "DASHBOARD_GROK_API_KEY",
-        "US_RATING_MODEL",
-        "US_RATING_STREAM_MODE",
-        "US_RATING_REASONING_EFFORT",
-        "US_RATING_CONTEXT_LENGTH",
-        "US_RATING_MAX_TOKENS",
-        "US_RATING_BASE_URL",
-        "US_RATING_API_KEY",
+        "FMP_API_BASE_URL",
+        "FMP_API_KEY",
+        "FMP_RATING_MAX_RESULTS",
         "US_RATING_DEADLINE_SECONDS",
         "US_RATING_REQUEST_TIMEOUT_SECONDS",
-        "CROSSDESK_BASE_URL",
-        "CROSSDESK_API_KEY",
     }
     path = get_dashboard_env_file(PROJECT_ROOT)
     if not path.exists():
@@ -67,243 +63,415 @@ load_dashboard_env()
 DASHBOARD_HOME = get_dashboard_home(PROJECT_ROOT)
 os.environ.setdefault("DASHBOARD_HOME", str(DASHBOARD_HOME))
 CN_TZ = timezone(timedelta(hours=8), "Asia/Shanghai")
+US_EASTERN_TZ = ZoneInfo("America/New_York")
 
 try:
     import push_history
 except Exception:
     push_history = None
 
-_SSL_CONTEXT = ssl.create_default_context()
-_SSL_CONTEXT.check_hostname = False
-_SSL_CONTEXT.verify_mode = ssl.CERT_NONE
 
 JOB_ID = "fd0b807138f4"
 JOB_NAME = "每日美股机构买入评级汇报"
-CONFIG_PATH = Path(os.environ.get("DASHBOARD_CONFIG") or str(DASHBOARD_HOME / "config.yaml")).expanduser()
-US_RATING_MODEL = os.environ.get("US_RATING_MODEL") or os.environ.get("DASHBOARD_GROK_MODEL") or "grok-4.20-multi-agent-xhigh"
-US_RATING_STREAM_MODE = (
-    os.environ.get("US_RATING_STREAM_MODE")
-    or os.environ.get("DASHBOARD_GROK_STREAM_MODE")
-    or "auto"
-)
-GROK_API_MODE = os.environ.get("DASHBOARD_GROK_API_MODE") or "auto"
-US_RATING_REASONING_EFFORT = (
-    os.environ.get("US_RATING_REASONING_EFFORT")
-    or ""
-)
+FMP_FEED_LIMIT = 250
 
 
-def _int_env(name: str, default: int, *, min_value: int) -> int:
+def _int_env(
+    name: str,
+    default: int,
+    *,
+    min_value: int,
+    max_value: int,
+) -> int:
     try:
         value = int(str(os.environ.get(name) or "").strip())
     except (TypeError, ValueError):
         value = default
-    return max(min_value, value)
+    return max(min_value, min(max_value, value))
 
 
-def _token_count_env(*names: str, default: int) -> int:
-    for name in names:
-        raw = str(os.environ.get(name) or "").strip()
-        if not raw:
+FMP_API_BASE_URL = str(
+    os.environ.get("FMP_API_BASE_URL") or FMP_DEFAULT_BASE_URL
+).strip().rstrip("/")
+FMP_API_KEY = str(os.environ.get("FMP_API_KEY") or "").strip()
+FMP_RATING_MAX_RESULTS = _int_env(
+    "FMP_RATING_MAX_RESULTS",
+    10,
+    min_value=1,
+    max_value=50,
+)
+US_RATING_DEADLINE_SECONDS = _int_env(
+    "US_RATING_DEADLINE_SECONDS",
+    120,
+    min_value=30,
+    max_value=600,
+)
+US_RATING_REQUEST_TIMEOUT_SECONDS = _int_env(
+    "US_RATING_REQUEST_TIMEOUT_SECONDS",
+    30,
+    min_value=5,
+    max_value=120,
+)
+
+
+_POSITIVE_GRADE_PATTERNS = (
+    r"\bstrong\s*buy\b",
+    r"\bconviction\s*buy\b",
+    r"\bbuy\b",
+    r"\boverweight\b",
+    r"\boutperform(?:er)?\b",
+    r"\bmarket\s+outperform\b",
+    r"\bsector\s+outperform\b",
+    r"\bpositive\b",
+    r"\baccumulate\b",
+    r"\badd\b",
+)
+
+
+def _compact_text(value: str, *, limit: int = 500) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text[:limit]
+
+
+def _company_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+def is_positive_grade(value: str) -> bool:
+    grade = _compact_text(value).lower()
+    if not grade or "underperform" in grade or "underweight" in grade:
+        return False
+    return any(re.search(pattern, grade) for pattern in _POSITIVE_GRADE_PATTERNS)
+
+
+def is_negative_action(value: str) -> bool:
+    action = _compact_text(value).lower()
+    return any(token in action for token in ("downgrade", "down", "lower"))
+
+
+def grade_strength(value: str) -> int:
+    grade = _compact_text(value).lower()
+    if "strong buy" in grade or "conviction buy" in grade:
+        return 40
+    if "buy" in grade:
+        return 35
+    if "overweight" in grade or "outperform" in grade:
+        return 30
+    if "positive" in grade or "accumulate" in grade or re.search(r"\badd\b", grade):
+        return 20
+    return 0
+
+
+def action_strength(event: GradeEvent) -> int:
+    action = event.action.lower()
+    previous_positive = is_positive_grade(event.previous_grade)
+    if "upgrade" in action or action == "up":
+        return 55
+    if any(token in action for token in ("init", "start", "new")):
+        return 45
+    if not previous_positive and event.previous_grade:
+        return 40
+    if any(token in action for token in ("hold", "maintain", "reit")):
+        return 20
+    return 25
+
+
+def _deduplicate(events: Iterable[GradeEvent]) -> list[GradeEvent]:
+    result: list[GradeEvent] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for event in sorted(events, key=lambda item: item.published_at, reverse=True):
+        key = (
+            event.symbol,
+            _company_key(event.grading_company),
+            event.new_grade.lower(),
+            event.action.lower(),
+            event.published_at.isoformat(),
+        )
+        if key in seen:
             continue
-        compact = raw.replace(",", "").replace("_", "").strip()
-        match = re.fullmatch(r"(\d+(?:\.\d+)?)([kKmM]?)", compact)
-        if not match:
+        seen.add(key)
+        result.append(event)
+    return result
+
+
+def select_latest_positive_events(events: Iterable[GradeEvent]) -> tuple[date | None, list[GradeEvent]]:
+    valid = [event for event in _deduplicate(events) if event.symbol]
+    if not valid:
+        return None, []
+    latest_day = max(event.published_at.astimezone(US_EASTERN_TZ).date() for event in valid)
+    selected = [
+        event
+        for event in valid
+        if event.published_at.astimezone(US_EASTERN_TZ).date() == latest_day
+        and is_positive_grade(event.new_grade)
+        and not is_negative_action(event.action)
+    ]
+    return latest_day, selected
+
+
+def match_price_target(
+    event: GradeEvent,
+    targets: Iterable[PriceTargetEvent],
+) -> PriceTargetEvent | None:
+    company = _company_key(event.grading_company)
+    candidates: list[tuple[int, float, PriceTargetEvent]] = []
+    for target in targets:
+        if target.symbol != event.symbol or target.price_target is None:
             continue
-        number = float(match.group(1))
-        unit = match.group(2).lower()
-        multiplier = 1_000_000 if unit == "m" else 1_000 if unit == "k" else 1
-        value = int(number * multiplier)
-        if value > 0:
-            return value
-    return default
+        delta = abs((target.published_at - event.published_at).total_seconds())
+        if delta > 3 * 24 * 60 * 60:
+            continue
+        target_company = _company_key(target.analyst_company)
+        company_match = bool(
+            company
+            and target_company
+            and (company == target_company or company in target_company or target_company in company)
+        )
+        candidates.append((1 if company_match else 0, -delta, target))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    best = candidates[0]
+    # A symbol-only match is safe only when it was published very close to the
+    # grade event; otherwise it may belong to a different analyst action.
+    if best[0] == 0 and -best[1] > 6 * 60 * 60:
+        return None
+    return best[2]
 
 
-US_RATING_DEADLINE_SECONDS = _int_env("US_RATING_DEADLINE_SECONDS", 240, min_value=30)
-US_RATING_REQUEST_TIMEOUT_SECONDS = _int_env("US_RATING_REQUEST_TIMEOUT_SECONDS", 120, min_value=10)
-US_RATING_CONTEXT_LENGTH = _token_count_env("US_RATING_CONTEXT_LENGTH", "DASHBOARD_GROK_CONTEXT_LENGTH", default=128000)
-US_RATING_MAX_TOKENS = _token_count_env("US_RATING_MAX_TOKENS", default=4096)
-
-
-def _load_config():
-    import yaml
-    if not CONFIG_PATH.exists():
-        return {}
-    return yaml.safe_load(CONFIG_PATH.read_text()) or {}
-
-
-def _get_crossdesk_credentials():
-    env_base_url = os.environ.get("US_RATING_BASE_URL") or os.environ.get("DASHBOARD_GROK_BASE_URL") or os.environ.get("CROSSDESK_BASE_URL")
-    env_api_key = os.environ.get("US_RATING_API_KEY") or os.environ.get("DASHBOARD_GROK_API_KEY") or os.environ.get("CROSSDESK_API_KEY")
-    if env_base_url and env_api_key:
-        return env_base_url.rstrip("/"), env_api_key
-
-    cfg = _load_config()
-    for p in cfg.get("custom_providers", []):
-        if "crossdesk.ccwu.cc" in p.get("base_url", ""):
-            return p["base_url"].rstrip("/"), p["api_key"]
-    m = cfg.get("model", {})
-    return m.get("base_url", "").rstrip("/"), m.get("api_key", "")
-
-
-def _is_transient_error(err):
-    if isinstance(err, TimeoutError):
-        return True
-    if isinstance(err, HTTPError):
-        return err.code in {408, 429, 500, 502, 503, 504}
-    if isinstance(err, URLError):
-        return True
-    text = str(err).lower()
-    return any(s in text for s in ("timed out", "timeout", "temporarily", "connection reset", "empty stream", "ssl"))
-
-
-def _call_api(base_url, api_key, messages, max_tokens=US_RATING_MAX_TOKENS):
-    model_request = build_model_request(
-        base_url,
-        US_RATING_MODEL,
-        messages,
-        max_tokens=max_tokens,
-        api_mode=GROK_API_MODE,
-        tools=[{"type": "web_search"}],
-        reasoning_effort=US_RATING_REASONING_EFFORT,
-        stream=False,
+def _target_upside(
+    target: PriceTargetEvent | None,
+    quote: Quote | None,
+    event: GradeEvent,
+) -> float | None:
+    if target is None or target.price_target is None:
+        return None
+    reference_price = (
+        quote.price if quote and quote.price else target.price_when_posted or event.price_when_posted
     )
-    last_err = None
-    # Keep our own wall clock bounded so slow upstream model/web-search runs end
-    # as a clear cron failure instead of a stale dashboard.
-    deadline = time.monotonic() + max(30, US_RATING_DEADLINE_SECONDS)
-    for attempt in range(1, 4):
-        remaining = deadline - time.monotonic()
-        if remaining <= 5:
-            break
-        try:
-            timeout_seconds = min(max(10, US_RATING_REQUEST_TIMEOUT_SECONDS), max(10, remaining - 2))
-            parsed = request_model_complete(
-                model_request,
-                api_key,
-                timeout=timeout_seconds,
-                stream_mode=US_RATING_STREAM_MODE,
-                opener=urlopen,
-                ssl_context=_SSL_CONTEXT,
-            )
-            if str(parsed.content or "").strip():
-                return parsed.content
-            last_err = RuntimeError("API returned empty content")
-        except Exception as e:
-            last_err = e
-            if attempt < 3 and (deadline - time.monotonic()) > 8:
-                time.sleep(min(3 * attempt, max(0, deadline - time.monotonic() - 5)))
-    if last_err:
-        raise RuntimeError(f"API call failed after 3 attempts: {last_err}")
-    raise RuntimeError("API call did not complete before the local deadline")
+    if not reference_price:
+        return None
+    return (target.price_target / reference_price - 1.0) * 100.0
 
 
-def build_system_prompt():
-    return (
-        "[IMPORTANT: You are running as a scheduled cron job. "
-        "DELIVERY: Your final response will be stored in the local dashboard database. "
-        "Just produce the report body; the script handles database storage. "
-        'SILENT: If there is genuinely nothing new to report, respond with exactly "[SILENT]". '
-        "Never combine [SILENT] with content.]"
+def _event_score(
+    event: GradeEvent,
+    *,
+    cluster_size: int,
+    target: PriceTargetEvent | None,
+    quote: Quote | None,
+) -> float:
+    score = float(grade_strength(event.new_grade) + action_strength(event))
+    score += min(30, max(0, cluster_size - 1) * 10)
+    upside = _target_upside(target, quote, event)
+    if upside is not None:
+        if upside >= 20:
+            score += 25
+        elif upside >= 10:
+            score += 15
+        elif upside > 0:
+            score += 5
+    return score
+
+
+def rank_rating_groups(
+    events: Iterable[GradeEvent],
+    targets: Iterable[PriceTargetEvent],
+    quotes: dict[str, Quote],
+) -> list[tuple[str, list[GradeEvent], PriceTargetEvent | None, Quote | None]]:
+    grouped: dict[str, list[GradeEvent]] = defaultdict(list)
+    for event in events:
+        grouped[event.symbol].append(event)
+    ranked = []
+    target_list = list(targets)
+    for symbol, symbol_events in grouped.items():
+        symbol_events.sort(
+            key=lambda event: (grade_strength(event.new_grade), action_strength(event), event.published_at),
+            reverse=True,
+        )
+        representative = symbol_events[0]
+        quote = quotes.get(symbol)
+        target = match_price_target(representative, target_list)
+        score = _event_score(
+            representative,
+            cluster_size=len(symbol_events),
+            target=target,
+            quote=quote,
+        )
+        ranked.append((score, representative.published_at, symbol, symbol_events, target, quote))
+    ranked.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+    return [item[2:] for item in ranked]
+
+
+def _action_description(event: GradeEvent) -> str:
+    previous = _compact_text(event.previous_grade) or "未披露"
+    current = _compact_text(event.new_grade) or "未披露"
+    action = _compact_text(event.action) or "评级更新"
+    return f"{_compact_text(event.grading_company) or '未披露机构'}：{previous} → {current}（{action}）"
+
+
+def _format_target(
+    event: GradeEvent,
+    target: PriceTargetEvent | None,
+    quote: Quote | None,
+) -> str:
+    if target is None or target.price_target is None:
+        if quote and quote.price:
+            return f"本次 FMP 评级记录未附目标价；当前参考价 ${quote.price:.2f}"
+        return "本次 FMP 评级记录未附目标价"
+    parts = [f"${target.price_target:.2f}"]
+    reference_price = quote.price if quote and quote.price else target.price_when_posted or event.price_when_posted
+    if reference_price:
+        upside = (target.price_target / reference_price - 1.0) * 100.0
+        parts.append(f"参考价 ${reference_price:.2f}，潜在空间 {upside:+.1f}%")
+    return "；".join(parts)
+
+
+def _attention_type(events: list[GradeEvent]) -> str:
+    if len(events) >= 2:
+        return "短线催化 / 机构集中关注"
+    action = events[0].action.lower()
+    if "upgrade" in action or action == "up" or "init" in action:
+        return "短线催化"
+    return "中线趋势观察"
+
+
+def format_report(
+    latest_day: date | None,
+    ranked_groups: Iterable[
+        tuple[str, list[GradeEvent], PriceTargetEvent | None, Quote | None]
+    ],
+    *,
+    now: datetime,
+    max_results: int,
+) -> str:
+    local_dt = now.astimezone(CN_TZ)
+    title = f"牛牛大王，美股机构买入评级日报（{local_dt:%Y年%m月%d日}）"
+    groups = list(ranked_groups)[: max(1, max_results)]
+    if not groups:
+        source_day = latest_day.isoformat() if latest_day else "未知"
+        return (
+            f"{title}\n\n"
+            f"FMP 最新评级批次日期：{source_day}。"
+            "本批次没有符合本地买入倾向规则的机构评级。"
+        )
+
+    lines = [
+        title,
+        "",
+        (
+            f"数据源：Financial Modeling Prep（FMP）；评级批次：{latest_day.isoformat() if latest_day else '未知'}；"
+            f"本地规则筛选出 {len(groups)} 只股票。排序综合考虑评级强度、升级/新覆盖、机构集中度和可用目标价空间。"
+        ),
+        "",
+    ]
+    for symbol, events, target, quote in groups:
+        representative = events[0]
+        company_name = _compact_text(quote.name if quote and quote.name else symbol, limit=120)
+        firms = []
+        for event in events:
+            firm = _compact_text(event.grading_company) or "未披露机构"
+            if firm not in firms:
+                firms.append(firm)
+        firm_text = "、".join(firms[:4])
+        if len(firms) > 4:
+            firm_text += f"等 {len(firms)} 家"
+        action_text = "；".join(_action_description(event) for event in events[:3])
+        if len(events) > 3:
+            action_text += f"；另有 {len(events) - 3} 条同日买入倾向评级"
+        titles = []
+        for event in events:
+            news_title = _compact_text(event.news_title)
+            if news_title and news_title not in titles:
+                titles.append(news_title)
+        catalyst = "；".join(titles[:2]) or "FMP 记录了机构买入倾向评级，但未提供完整研报摘要"
+        lines.extend(
+            [
+                f"- {symbol} / {company_name}",
+                f"  机构/分析师：{firm_text}",
+                f"  评级动作：{action_text}",
+                f"  目标价：{_format_target(representative, target, quote)}",
+                f"  核心理由/催化剂：{catalyst}",
+                "  风险点：FMP 结构化评级不包含完整研报风险披露；评级可能滞后或发生修订，需结合基本面、估值与市场波动复核",
+                f"  适合关注类型：{_attention_type(events)}",
+                "",
+            ]
+        )
+    return "\n".join(lines).strip()
+
+
+def _remaining_timeout(deadline: float, *, max_retries: int) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 1:
+        raise FmpRatingsError("FMP 评级任务超过本地总时限")
+    retry_count = max(0, int(max_retries))
+    retry_sleep = sum(min(0.5 * (2**attempt), 2.0) for attempt in range(retry_count))
+    request_budget = max(1.0, remaining - retry_sleep) / (retry_count + 1)
+    return min(float(US_RATING_REQUEST_TIMEOUT_SECONDS), request_budget)
+
+
+def generate_report(
+    test_mode: bool = False,
+    *,
+    now: datetime | None = None,
+    opener=urlopen,
+) -> str:
+    if not FMP_API_KEY:
+        raise FmpRatingsError("请先配置 FMP API Key")
+    current = now or datetime.now(timezone.utc)
+    deadline = time.monotonic() + US_RATING_DEADLINE_SECONDS
+    feed_limit = 10 if test_mode else FMP_FEED_LIMIT
+    grade_retries = 2
+    grade_events = fetch_latest_grades(
+        FMP_API_BASE_URL,
+        FMP_API_KEY,
+        limit=feed_limit,
+        timeout=_remaining_timeout(deadline, max_retries=grade_retries),
+        max_retries=grade_retries,
+        opener=opener,
     )
+    latest_day, selected = select_latest_positive_events(grade_events)
+    if not selected:
+        return format_report(
+            latest_day,
+            [],
+            now=current,
+            max_results=2 if test_mode else FMP_RATING_MAX_RESULTS,
+        )
 
+    targets: list[PriceTargetEvent] = []
+    quotes: dict[str, Quote] = {}
+    optional_retries = 1
+    try:
+        targets = fetch_latest_price_targets(
+            FMP_API_BASE_URL,
+            FMP_API_KEY,
+            limit=feed_limit,
+            timeout=_remaining_timeout(deadline, max_retries=optional_retries),
+            max_retries=optional_retries,
+            opener=opener,
+        )
+    except FmpRatingsError as exc:
+        print(f"WARN: FMP 目标价补充不可用：{exc}", file=sys.stderr)
+    try:
+        quotes = fetch_batch_quotes(
+            FMP_API_BASE_URL,
+            FMP_API_KEY,
+            {event.symbol for event in selected},
+            timeout=_remaining_timeout(deadline, max_retries=optional_retries),
+            max_retries=optional_retries,
+            opener=opener,
+        )
+    except FmpRatingsError as exc:
+        print(f"WARN: FMP 行情补充不可用：{exc}", file=sys.stderr)
 
-def build_user_prompt():
-    beijing_now = datetime.now(timezone.utc).astimezone(CN_TZ)
-    date_str = beijing_now.strftime("%Y\u5e74%m\u6708%d\u65e5")  # 年月日
-
-    LQ = "\u201c"  # "
-    RQ = "\u201d"  # "
-
-    return (
-        f"\u4f60\u662f\u725b\u725b1\u53f7\u3002\u6bcf\u5929\u5317\u4eac\u65f6\u95f4 11:00 "
-        f"\u4e3a\u7528\u6237\uff08\u79f0\u547c{LQ}\u725b\u725b\u5927\u738b{RQ}\uff09"
-        f"\u6c47\u62a5\u8fc7\u53bb\u7ea624\u5c0f\u65f6/\u6700\u8fd1\u4e00\u4e2a\u7f8e\u80a1\u4ea4\u6613\u65e5\u4e2d\uff0c"
-        f"\u534e\u5c14\u8857\u673a\u6784/\u5206\u6790\u5e08\u5bf9\u7f8e\u80a1\u7ed9\u51fa\u4e70\u5165\u503e\u5411\u8bc4\u7ea7\u7684\u91cd\u70b9\u80a1\u7968\u3002\n\n"
-
-        f"\u76ee\u6807\uff1a\u7b5b\u9009{LQ}\u673a\u6784\u8bc4\u7ea7\u4e70\u5165\u7684\u7f8e\u80a1{RQ}\uff0c"
-        f"\u91cd\u70b9\u5173\u6ce8\uff1a\u65b0\u8986\u76d6 Buy/Overweight/Outperform\u3001"
-        f"\u4e0a\u8c03\u81f3\u4e70\u5165\u503e\u5411\u3001\u7ef4\u6301\u4e70\u5165\u4e14\u663e\u8457\u4e0a\u8c03\u76ee\u6807\u4ef7\u3001"
-        f"\u591a\u4e2a\u673a\u6784\u96c6\u4e2d\u770b\u591a\u3001\u6216\u5927\u884c/\u77e5\u540d\u5206\u6790\u5e08"
-        f"\u7ed9\u51fa\u9ad8\u7f6e\u4fe1\u5ea6\u4e70\u5165\u89c2\u70b9\u3002\n\n"
-
-        f"\u8bf7\u4f7f\u7528\u5b9e\u65f6\u7f51\u9875\u68c0\u7d22\uff0c\u4f18\u5148\u6765\u6e90\u5305\u62ec "
-        f"MarketBeat analyst ratings\u3001TipRanks\u3001TheFly\u3001"
-        f"Benzinga Analyst Ratings\u3001Investing.com analyst ratings\u3001"
-        f"CNBC/Reuters/MarketWatch/Yahoo Finance/Seeking Alpha "
-        f"\u7b49\u516c\u5f00\u4fe1\u606f\u3002\u4e0d\u8981\u7f16\u9020\u6570\u636e\uff1b\u5982\u679c\u6765\u6e90\u4e0d\u8db3\uff0c"
-        f"\u8bf7\u660e\u786e\u5199{LQ}\u672a\u68c0\u7d22\u5230\u8db3\u591f\u53ef\u9760\u6765\u6e90{RQ}\u3002\n\n"
-
-        f"\u8f93\u51fa\u4e2d\u6587\uff0c\u5199\u5165{LQ}\u4e70\u5165\u8bc4\u7ea7{RQ}dashboard \u5f52\u6863\u3002\n\n"
-
-        f"\u91cd\u8981\u8981\u6c42\uff1a\u5fc5\u987b\u662f\u5b8c\u6574\u65e5\u62a5\uff0c"
-        f"\u4e0d\u8981\u4e3a\u4e86\u7f29\u77ed\u800c\u7701\u7565\u5173\u952e\u5185\u5bb9\uff1b"
-        f"\u4f46\u4e0d\u8981\u8f93\u51fa\u4efb\u4f55 URL\u3001\u7f51\u9875\u94fe\u63a5\u3001"
-        f"Markdown \u94fe\u63a5\u6216\u88f8\u94fe\u63a5\u3002"
-        f"dashboard \u4e2d\u9700\u8981\u4fdd\u7559\u5b8c\u6574\u65e5\u62a5\uff0c\u4e0d\u8981\u727a\u7272\u5173\u952e\u5185\u5bb9\u3002\n\n"
-
-        f"\u4e25\u683c\u683c\u5f0f\u8981\u6c42\uff1a\u4e3a\u4e86\u8ba9 dashboard \u81ea\u52a8\u89e3\u6790\u4e3a\u8868\u683c\uff0c"
-        f"\u6bcf\u53ea\u80a1\u7968\u5fc5\u987b\u4f7f\u7528\u4e0b\u9762\u7684\u591a\u884c\u5b57\u6bb5\u5757\uff0c"
-        f"\u4e0d\u8981\u5199\u6210\u4e00\u884c\u957f\u53e5\uff0c"
-        f"\u4e0d\u8981\u7528{LQ}1. **DDOG\uff08Datadog\uff09** \u2014 ...{RQ}\u8fd9\u79cd\u683c\u5f0f\u3002\n\n"
-
-        f"\u6807\u9898\uff1a\u725b\u725b\u5927\u738b\uff0c\u7f8e\u80a1\u673a\u6784\u4e70\u5165\u8bc4\u7ea7\u65e5\u62a5\uff08{date_str}\uff09\n\n"
-
-        f"- TICKER / Company Name\n"
-        f"  \u673a\u6784/\u5206\u6790\u5e08\uff1a\u673a\u6784\u540d\u79f0 / \u5206\u6790\u5e08\u59d3\u540d\uff08\u5982\u6709\uff09\n"
-        f"  \u8bc4\u7ea7\u52a8\u4f5c\uff1a\u4f8b\u5982 \u4ece Hold \u4e0a\u8c03\u81f3 Buy / \u65b0\u8986\u76d6 Overweight / \u7ef4\u6301 Buy \u5e76\u4e0a\u8c03\u76ee\u6807\u4ef7\n"
-        f"  \u76ee\u6807\u4ef7\uff1a\u4f8b\u5982 300\u7f8e\u5143\uff1b\u5982\u65e0\u53ef\u9760\u76ee\u6807\u4ef7\u5199{LQ}\u672a\u62ab\u9732{RQ}\n"
-        f"  \u6838\u5fc3\u7406\u7531/\u50ac\u5316\u5242\uff1a\u5b8c\u6574\u8bf4\u660e\u770b\u591a\u903b\u8f91\n"
-        f"  \u98ce\u9669\u70b9\uff1a\u5b8c\u6574\u8bf4\u660e\u4e3b\u8981\u98ce\u9669\n"
-        f"  \u9002\u5408\u5173\u6ce8\u7c7b\u578b\uff1a\u77ed\u7ebf\u50ac\u5316 / \u4e2d\u7ebf\u8d8b\u52bf / \u957f\u671f\u914d\u7f6e\n\n"
-
-        f"\u6570\u91cf\uff1a\u5148\u7ed9 5-10 \u6761\u6700\u503c\u5f97\u5173\u6ce8\u7684\u80a1\u7968\uff0c"
-        f"\u6bcf\u6761\u90fd\u5fc5\u987b\u5305\u542b\u4ee5\u4e0a 6 \u4e2a\u5b57\u6bb5\u3002\n\n"
-
-        f"\u6700\u540e\u7ed9{LQ}\u725b\u725b1\u53f7\u7ed3\u8bba{RQ}\uff1a\u6309\u770b\u597d\u7a0b\u5ea6\u5206\u4e3a"
-        f"\u3010\u4f18\u5148\u8ddf\u8e2a\u3011\u3010\u89c2\u5bdf\u3011\u3010\u8c28\u614e\u3011\uff0c"
-        f"\u6bcf\u6863\u8bf4\u660e\u7406\u7531\u3002\n"
-
-        f"\u53c2\u8003\u6765\u6e90\u53ea\u5217\u6765\u6e90\u540d\u79f0\uff0c\u4f8b\u5982 MarketBeat\u3001TipRanks\u3001"
-        f"Benzinga\u3001TheFly\u3001Reuters \u7b49\uff1b"
-        f"\u4e0d\u8981\u8f93\u51fa\u4efb\u4f55 URL\u3001\u7f51\u9875\u94fe\u63a5\u3001Markdown \u94fe\u63a5\u6216\u88f8\u94fe\u63a5\u3002"
+    ranked = rank_rating_groups(selected, targets, quotes)
+    return format_report(
+        latest_day,
+        ranked,
+        now=current,
+        max_results=2 if test_mode else FMP_RATING_MAX_RESULTS,
     )
-
-
-def clean_report_content(content: str) -> str:
-    content = (content or "").strip()
-    if content.startswith("```"):
-        lines = content.split("\n")
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        content = "\n".join(lines).strip()
-    if content.startswith("[SILENT]") and len(content) > 20:
-        content = content[len("[SILENT]"):].strip()
-    return content
-
-
-def generate_report(test_mode: bool = False) -> str:
-    base_url, api_key = _get_crossdesk_credentials()
-    if not base_url or not api_key:
-        print(f"ERROR: crossdesk credentials not found in {CONFIG_PATH}", file=sys.stderr)
-        sys.exit(1)
-
-    if test_mode:
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant. Reply concisely."},
-            {"role": "user", "content": "List 2 recent US stock analyst upgrades, brief: - TICKER: action by firm"},
-        ]
-        max_tokens = 500
-    else:
-        messages = [
-            {"role": "system", "content": build_system_prompt()},
-            {"role": "user", "content": build_user_prompt()},
-        ]
-        max_tokens = US_RATING_MAX_TOKENS
-
-    return clean_report_content(_call_api(base_url, api_key, messages, max_tokens))
 
 
 def write_report_to_db(content: str, now: datetime | None = None) -> int:
@@ -332,7 +500,11 @@ def write_report_to_db(content: str, now: datetime | None = None) -> int:
         "matched": True,
         "kind": "cron_output",
         "delivery": {"mode": "dashboard_database_only", "job_id": JOB_ID},
-        "metadata": {"job_name": JOB_NAME, "run_key": run_key},
+        "metadata": {
+            "job_name": JOB_NAME,
+            "run_key": run_key,
+            "provider": "financial_modeling_prep",
+        },
     }
     count = push_history.upsert_many([message])
     if count != 1:
@@ -340,7 +512,7 @@ def write_report_to_db(content: str, now: datetime | None = None) -> int:
     return count
 
 
-def main():
+def main() -> None:
     test_mode = "--test" in sys.argv
     store_only = "--store-only" in sys.argv
 
@@ -351,13 +523,8 @@ def main():
         print(f"ERROR: {reason}", file=sys.stderr)
         sys.exit(1)
 
-    if not content:
-        reason = "API returned empty content"
-        print(f"ERROR: {reason}", file=sys.stderr)
-        sys.exit(1)
-
-    if content.strip() == "[SILENT]":
-        print("ERROR: API returned [SILENT] instead of a report", file=sys.stderr)
+    if not content.strip():
+        print("ERROR: FMP report is empty", file=sys.stderr)
         sys.exit(1)
 
     if not test_mode:
@@ -368,9 +535,8 @@ def main():
             print(f"ERROR: database write failed: {type(exc).__name__}: {exc}", file=sys.stderr)
             sys.exit(1)
 
-    if store_only:
-        return
-    print(content)
+    if not store_only:
+        print(content)
 
 
 if __name__ == "__main__":

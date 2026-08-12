@@ -852,7 +852,12 @@ class FastApiDashboardTests(unittest.TestCase):
             patch.object(
                 self.legacy,
                 "model_test_override_names",
-                return_value={"DASHBOARD_GROK_API_KEY"},
+                return_value={"A_SHARE_MODEL_SUMMARY_API_KEY"},
+            ),
+            patch.object(
+                self.legacy,
+                "data_source_test_override_names",
+                return_value={"FMP_API_BASE_URL", "FMP_API_KEY"},
             ),
             patch.object(
                 self.legacy,
@@ -866,6 +871,11 @@ class FastApiDashboardTests(unittest.TestCase):
             ) as model,
             patch.object(
                 self.legacy,
+                "send_data_source_connection_test",
+                return_value={"ok": True, "message": "data-source"},
+            ) as data_source,
+            patch.object(
+                self.legacy,
                 "send_notification_test",
                 return_value={"ok": True, "message": "notification"},
             ) as notification,
@@ -877,7 +887,16 @@ class FastApiDashboardTests(unittest.TestCase):
             )
             model_response = self.client.post(
                 "/api/admin/models/test",
-                content="target=grok-model&env__DASHBOARD_GROK_API_KEY=key&env__IGNORED=secret",
+                content="target=a-share-summary-model&env__A_SHARE_MODEL_SUMMARY_API_KEY=key&env__IGNORED=secret",
+                headers=action_headers,
+            )
+            data_source_response = self.client.post(
+                "/api/admin/data-sources/test",
+                content=(
+                    "target=fmp-ratings&"
+                    "env__FMP_API_BASE_URL=https%3A%2F%2Ffinancialmodelingprep.com%2Fstable&"
+                    "env__FMP_API_KEY=key&env__IGNORED=secret"
+                ),
                 headers=action_headers,
             )
             notification_response = self.client.post(
@@ -891,13 +910,21 @@ class FastApiDashboardTests(unittest.TestCase):
 
         self.assertEqual(iwencai_response.json()["message"], "iwencai")
         self.assertEqual(model_response.json()["message"], "model")
+        self.assertEqual(data_source_response.json()["message"], "data-source")
         self.assertEqual(notification_response.json()["message"], "notification")
         iwencai.assert_called_once_with(
             {"IWENCAI_BASE_URL": "https://example.test"}
         )
         model.assert_called_once_with(
-            "grok-model",
-            {"DASHBOARD_GROK_API_KEY": "key"},
+            "a-share-summary-model",
+            {"A_SHARE_MODEL_SUMMARY_API_KEY": "key"},
+        )
+        data_source.assert_called_once_with(
+            "fmp-ratings",
+            {
+                "FMP_API_BASE_URL": "https://financialmodelingprep.com/stable",
+                "FMP_API_KEY": "key",
+            },
         )
         notification.assert_called_once_with(
             "telegram",

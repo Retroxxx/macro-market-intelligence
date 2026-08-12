@@ -61,8 +61,8 @@ Compose 内置 NewsNow 的数据库和缓存位于独立 Docker volume `newsnow-
 
 | 用途 | 推荐模型 | 配置项 |
 |---|---|---|
-| 美股机构评级日报 | 具备实时网页搜索能力的模型；留空时复用 Grok | `US_RATING_MODEL`、`US_RATING_BASE_URL`、`US_RATING_API_KEY`、`US_RATING_STREAM_MODE`、`US_RATING_REASONING_EFFORT`、`US_RATING_MAX_TOKENS` |
-| A 股盘面总结增强 | 兼容 `/chat/completions` 的模型 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_STREAM_MODE`、`A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`；留空时复用 `DASHBOARD_GROK_*` |
+| 美股机构评级日报 | Financial Modeling Prep 结构化数据与本地确定性规则 | `FMP_API_BASE_URL`、`FMP_API_KEY`、`FMP_RATING_MAX_RESULTS` |
+| A 股与隔夜美股盘面总结 | OpenAI 兼容模型 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_STREAM_MODE`、`A_SHARE_MODEL_SUMMARY_REASONING_EFFORT` |
 | A 股候选股及龙虎榜连板/连榜股票消息面预检 | 同花顺问财 OpenAPI | `IWENCAI_NEWS_PRECHECK_ENABLED` 及 `IWENCAI_*` |
 | 选股后的买卖决策 | 推荐 DeepSeek，可用其他兼容模型 | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL`、`DASHBOARD_DECISION_STREAM_MODE`、`DASHBOARD_DECISION_REASONING_EFFORT` |
 | 综合决策参考 | 本地聚合，不需要额外模型 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`、`DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`、`DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
@@ -71,7 +71,7 @@ Compose 内置 NewsNow 的数据库和缓存位于独立 Docker volume `newsnow-
 
 综合决策参考会读取本地行情缓存、盘面消息历史和模拟账户状态，并把压缩后的摘要写入决策日志；它不新增模型密钥，但日志中可能包含候选消息面摘要，公开排障前仍需按运行数据策略检查。
 
-模型密钥只允许保存在 `.local-data/dashboard.env`、`.local-data/runtime/config.yaml` 或受控的系统环境变量中。提交前必须确认没有新增 `.env`、`*.key`、`*.token`、`*.secret`、数据库或备份文件。
+模型及 FMP 密钥只允许保存在 `.local-data/dashboard.env`、`.local-data/runtime/config.yaml` 或受控的系统环境变量中。提交前必须确认没有新增 `.env`、`*.key`、`*.token`、`*.secret`、数据库或备份文件。
 
 问财数据源使用 `IWENCAI_API_KEY`，同样只允许保存到 `.local-data/dashboard.env` 或受控系统环境变量。
 `IWENCAI_ENABLED` 默认关闭；问财数据仅作为研究快照和现有行情的补充，不得用不完整或缓存响应覆盖账户、成交和真实交易记录。

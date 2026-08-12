@@ -46,22 +46,14 @@ class ModelConnectivityTests(unittest.TestCase):
             [item["id"] for item in metadata],
             [
                 "decision-model",
-                "grok-model",
-                "us-rating-model",
                 "a-share-summary-model",
             ],
         )
         self.assertEqual(
             {item["group_slug"] for item in metadata},
-            {"decision-model", "us-market", "market-monitoring"},
+            {"decision-model", "market-monitoring"},
         )
         self.assertTrue(all("API_KEY" in " ".join(item["field_names"]) for item in metadata))
-        rating = next(item for item in metadata if item["id"] == "us-rating-model")
-        self.assertIn("US_RATING_MODEL", rating["field_names"])
-        self.assertIn("US_RATING_BASE_URL", rating["field_names"])
-        self.assertIn("US_RATING_API_KEY", rating["field_names"])
-        self.assertIn("US_RATING_REASONING_EFFORT", rating["field_names"])
-        self.assertIn("US_RATING_STREAM_MODE", rating["field_names"])
 
     def test_successful_decision_test_sends_one_small_authenticated_request(self):
         calls = []
@@ -141,7 +133,7 @@ class ModelConnectivityTests(unittest.TestCase):
         self.assertEqual(config.base_url, "https://provider.example/v1")
         self.assertEqual(config.api_key, "provider-key")
 
-    def test_summary_and_rating_targets_reuse_grok_values(self):
+    def test_summary_target_ignores_legacy_grok_values(self):
         values = {
             "DASHBOARD_GROK_MODEL": "shared-grok",
             "DASHBOARD_GROK_BASE_URL": "https://grok.example/v1",
@@ -150,52 +142,13 @@ class ModelConnectivityTests(unittest.TestCase):
         }
 
         summary = resolve_model_test_config("a-share-summary-model", values)
-        rating = resolve_model_test_config("us-rating-model", values)
-
-        self.assertEqual((summary.model, summary.base_url, summary.api_key, summary.api_mode), (
-            "shared-grok", "https://grok.example/v1", "grok-key", "auto",
-        ))
-        self.assertEqual((rating.model, rating.base_url, rating.api_key, rating.api_mode), (
-            "shared-grok", "https://grok.example/v1", "grok-key", "responses",
-        ))
-        self.assertEqual(summary.reasoning_effort, "")
-        self.assertEqual(rating.reasoning_effort, "")
-        self.assertEqual(summary.stream_mode, "auto")
-        self.assertEqual(rating.stream_mode, "auto")
-
-    def test_rating_target_prefers_complete_dedicated_configuration(self):
-        rating = resolve_model_test_config(
-            "us-rating-model",
-            {
-                "US_RATING_MODEL": "gpt-5-search",
-                "US_RATING_BASE_URL": "https://rating.example/v1",
-                "US_RATING_API_KEY": "rating-key",
-                "DASHBOARD_GROK_MODEL": "shared-grok",
-                "DASHBOARD_GROK_BASE_URL": "https://grok.example/v1",
-                "DASHBOARD_GROK_API_KEY": "grok-key",
-                "DASHBOARD_GROK_API_MODE": "auto",
-                "DASHBOARD_GROK_REASONING_EFFORT": "xhigh",
-            },
-        )
 
         self.assertEqual(
-            (rating.model, rating.base_url, rating.api_key, rating.api_mode),
-            ("gpt-5-search", "https://rating.example/v1", "rating-key", "auto"),
+            (summary.model, summary.base_url, summary.api_key, summary.api_mode),
+            ("", "", "", "auto"),
         )
-        self.assertEqual(rating.reasoning_effort, "")
-
-    def test_dedicated_effort_applies_when_model_credentials_reuse_grok(self):
-        rating = resolve_model_test_config(
-            "us-rating-model",
-            {
-                "DASHBOARD_GROK_MODEL": "shared-grok",
-                "DASHBOARD_GROK_REASONING_EFFORT": "xhigh",
-                "US_RATING_REASONING_EFFORT": "low",
-            },
-        )
-
-        self.assertEqual(rating.model, "shared-grok")
-        self.assertEqual(rating.reasoning_effort, "low")
+        self.assertEqual(summary.reasoning_effort, "")
+        self.assertEqual(summary.stream_mode, "auto")
 
     def test_known_model_typo_is_rejected_locally_without_network_request(self):
         calls = []

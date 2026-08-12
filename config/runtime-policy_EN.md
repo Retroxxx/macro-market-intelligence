@@ -61,8 +61,8 @@ Recommended usage:
 
 | Purpose | Recommended model | Settings |
 |---|---|---|
-| Daily U.S. institutional-rating report | A model with real-time web search; reuses Grok when left blank | `US_RATING_MODEL`, `US_RATING_BASE_URL`, `US_RATING_API_KEY`, `US_RATING_MAX_TOKENS` |
-| Enhanced A-share market summaries | A model compatible with `/chat/completions` | `A_SHARE_MODEL_SUMMARY_BASE_URL`, `A_SHARE_MODEL_SUMMARY_API_KEY`, `A_SHARE_MODEL_SUMMARY_MODEL`; reuse `DASHBOARD_GROK_*` when left empty |
+| Daily U.S. institutional-rating report | Financial Modeling Prep structured data and local deterministic rules | `FMP_API_BASE_URL`, `FMP_API_KEY`, `FMP_RATING_MAX_RESULTS` |
+| A-share and overnight U.S. market summaries | An OpenAI-compatible model | `A_SHARE_MODEL_SUMMARY_BASE_URL`, `A_SHARE_MODEL_SUMMARY_API_KEY`, `A_SHARE_MODEL_SUMMARY_MODEL` |
 | News prechecks for A-share candidates and dragon-tiger limit-up-streak/consecutive-listing stocks | Tonghuashun iWencai OpenAPI | `IWENCAI_NEWS_PRECHECK_ENABLED` and `IWENCAI_*` |
 | Buy and sell decisions after candidate screening | DeepSeek recommended; other compatible models may be used | `DASHBOARD_DECISION_BASE_URL`, `DASHBOARD_DECISION_API_KEY`, `DASHBOARD_DECISION_MODEL` |
 | Comprehensive decision reference | Local aggregation; no additional model required | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`, `DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`, `DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
@@ -71,7 +71,7 @@ The daily U.S. institutional-rating report is controlled by the `DASHBOARD_US_FE
 
 The comprehensive decision reference reads local market-data caches, market-message history, and simulated-account state, then writes a compressed summary to the decision log. It introduces no additional model keys, but the log may contain candidate-news summaries and must still be reviewed under this runtime-data policy before any public troubleshooting disclosure.
 
-Model keys may be stored only in `.local-data/dashboard.env`, `.local-data/runtime/config.yaml`, or controlled system environment variables. Before committing, confirm that no new `.env`, `*.key`, `*.token`, `*.secret`, database, or backup file has been added.
+Model and FMP keys may be stored only in `.local-data/dashboard.env`, `.local-data/runtime/config.yaml`, or controlled system environment variables. Before committing, confirm that no new `.env`, `*.key`, `*.token`, `*.secret`, database, or backup file has been added.
 
 The iWencai data source uses `IWENCAI_API_KEY`, which is subject to the same restriction and may only be stored in `.local-data/dashboard.env` or a controlled system environment variable.
 `IWENCAI_ENABLED` is disabled by default. iWencai data is a research snapshot and supplemental market source; incomplete or cached responses must never overwrite account, fill, or real trading records.

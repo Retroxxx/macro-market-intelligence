@@ -97,16 +97,16 @@ $env:NIUONE_LOCAL_DATA_DIR = Join-Path $env:TEMP "niuone-smoke"
 
 After testing, stop the process and delete `$env:TEMP\niuone-smoke` if needed.
 
-## Large Language Model Configuration
+## Model and Rating Data-Source Configuration
 
-NiuOne requires access to a large language model to run the complete workflow. Without model configuration, the local pages and some static views are available, but event collection, information retrieval, the daily U.S. institutional ratings report, and trading decisions cannot operate fully.
+NiuOne uses large language models for market summaries and trading decisions. The daily U.S. institutional ratings report no longer calls a model: it reads structured ratings, price targets, and quotes from Financial Modeling Prep (FMP), then applies local filtering, deduplication, aggregation, and ranking.
 
 Recommended configuration:
 
-| Scenario | Recommended model | Main configuration items |
+| Scenario | Recommended model or data source | Main configuration items |
 |---|---|---|
-| Daily U.S. institutional ratings report | A model with real-time search; reuses Grok when left empty | `US_RATING_MODEL`, `US_RATING_BASE_URL`, `US_RATING_API_KEY`, `US_RATING_STREAM_MODE`, `US_RATING_REASONING_EFFORT`, `US_RATING_MAX_TOKENS` |
-| Enhanced A-share market summary | An OpenAI-compatible model | `A_SHARE_MODEL_SUMMARY_BASE_URL`, `A_SHARE_MODEL_SUMMARY_API_KEY`, `A_SHARE_MODEL_SUMMARY_MODEL`, `A_SHARE_MODEL_SUMMARY_STREAM_MODE`, `A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`, `A_SHARE_MODEL_SUMMARY_MAX_TOKENS`; reuses `DASHBOARD_GROK_*` when left empty |
+| Daily U.S. institutional ratings report | Financial Modeling Prep (FMP) | `FMP_API_BASE_URL`, `FMP_API_KEY`, `FMP_RATING_MAX_RESULTS`, `DASHBOARD_US_RATING_CRON`, `US_RATING_DEADLINE_SECONDS`, `US_RATING_REQUEST_TIMEOUT_SECONDS` |
+| A-share and overnight U.S. market summaries | An OpenAI-compatible model | `A_SHARE_MODEL_SUMMARY_BASE_URL`, `A_SHARE_MODEL_SUMMARY_API_KEY`, `A_SHARE_MODEL_SUMMARY_MODEL`, `A_SHARE_MODEL_SUMMARY_STREAM_MODE`, `A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`, `A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
 | iWencai dragon-tiger research data and news precheck | Tonghuashun iWencai OpenAPI | `IWENCAI_ENABLED`, `IWENCAI_NEWS_PRECHECK_ENABLED`, `IWENCAI_BASE_URL`, `IWENCAI_API_KEY`, `IWENCAI_TIMEOUT_SECONDS`, `IWENCAI_MAX_RETRIES`, `IWENCAI_MAX_CONCURRENCY`, `IWENCAI_CACHE_TTL_SECONDS`, `IWENCAI_DRAGON_TIGER_CRON` |
 | Trading decisions after stock selection | DeepSeek recommended; other compatible models may be used | `DASHBOARD_DECISION_BASE_URL`, `DASHBOARD_DECISION_API_KEY`, `DASHBOARD_DECISION_MODEL`, `DASHBOARD_DECISION_STREAM_MODE`, `DASHBOARD_DECISION_REASONING_EFFORT` |
 | Trading-decision intelligence bundle | Aggregated locally; no additional model required | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`, `DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`, `DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
@@ -115,9 +115,8 @@ Reasoning effort remains manually editable and is omitted when left empty. Known
 
 **Market Flash** requires no model, API key, or service-URL configuration. Compose starts, stops, and restores the official NewsNow container together with NiuOne, while the Dashboard reads it over the private container network; users manage no separate port or process. NewsNow persists its state in the separate `newsnow-data` volume. The admin page provides search and multi-select access to the 12 current sources in the finance and business category, with CLS Telegraph, Jin10, and WallstreetCN Quick enabled by default. The Overview page shows the latest five items as a vertical list in its lower-right area and defaults to important items only; disabling **Show only important information in Overview** includes ordinary items without changing the full Market Flash page. Native `run.sh` / `run.bat` deployments also require no configuration and automatically use the public-service fallback when no container sidecar is running. The browser receives only the normalized same-origin `/api/realtime-news` response. Successful refreshes merge by ID into a bounded rolling history of 300 items by default, with priority retention for up to 50 important items; on upstream failure, the Dashboard reuses that saved history from `.local-data/runtime/news/realtime_news_latest.json` and marks it as cached.
 
-After startup, click the settings button on the page to manage models and task schedules. Every section that requires a model and API key includes **Test Model Connection**; it tests the current form values without saving them and reuses the saved secret when the API key input is empty.
-U.S. ratings settings are controlled by the “Enable NiuNiu U.S. Stocks” master switch. When disabled, those settings are collapsed and hidden and the U.S. ratings scheduled task is skipped.
-`DASHBOARD_GROK_API_MODE` defaults to `auto`: Grok 4.3/4.5, MiMo 2.5, and common Qwen Responses models use Responses, while other models use Chat Completions; set `responses` or `chat` to force a mode.
+After startup, click the settings button to manage models, data sources, and task schedules. Model sections include **Test Model Connection**, while **U.S. Institutional Ratings** includes **Test Data Source Connection**. Tests use current form values without saving them and reuse the saved secret when the API-key input is empty. The FMP key is sent in a request header and is not written to URLs or logs.
+U.S. ratings settings are controlled by the “Enable U.S. Institutional Ratings” master switch. When disabled, those settings are collapsed and hidden and the scheduled task is skipped. A primary ratings-feed failure fails the task so the scheduler can retry; optional price-target or quote failures only degrade those fields and do not overwrite an existing report.
 Each model scene's `*_STREAM_MODE` defaults to `auto`: it normally uses non-streaming and switches only when the gateway explicitly requires `stream=true`; set `stream` or `non_stream` to force either transport. Streamed content is assembled completely before validation and use.
 AI prompt refinement reuses the decision-model settings. Because that interactive flow displays output live in the browser, it remains streamed in `auto`; select `non_stream` to return one complete response instead.
 `*_CONTEXT_LENGTH` represents only the model context window and defaults to `128000`; `*_MAX_TOKENS` is the desired maximum output length and is mapped to a compatible Chat or Responses parameter. Both JSON and SSE responses are supported.

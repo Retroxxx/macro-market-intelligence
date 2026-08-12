@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Grok-assisted A-share market monitor summaries."""
+"""Model-assisted A-share market monitor summaries."""
 from __future__ import annotations
 
-import json
 import os
 import re
 import ssl
@@ -13,7 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 from core.model_api import build_model_request, request_model_complete
-from niuone_paths import get_dashboard_env_file, get_dashboard_home
+from niuone_paths import get_dashboard_env_file
 
 if __package__ == "app":
     from .reports.a_share.grok import (
@@ -34,7 +33,6 @@ else:
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DASHBOARD_HOME = get_dashboard_home(PROJECT_ROOT)
 _SSL_CONTEXT = ssl.create_default_context()
 _SSL_CONTEXT.check_hostname = False
 _SSL_CONTEXT.verify_mode = ssl.CERT_NONE
@@ -52,20 +50,6 @@ def load_dashboard_env() -> None:
         "A_SHARE_MODEL_SUMMARY_API_KEY",
         "A_SHARE_MODEL_SUMMARY_DEADLINE_SECONDS",
         "A_SHARE_MODEL_SUMMARY_REQUEST_TIMEOUT_SECONDS",
-        "A_SHARE_GROK_SUMMARY_ENABLED",
-        "A_SHARE_GROK_SUMMARY_MODEL",
-        "A_SHARE_GROK_SUMMARY_MAX_TOKENS",
-        "A_SHARE_GROK_SUMMARY_BASE_URL",
-        "A_SHARE_GROK_SUMMARY_API_KEY",
-        "A_SHARE_GROK_SUMMARY_DEADLINE_SECONDS",
-        "A_SHARE_GROK_SUMMARY_REQUEST_TIMEOUT_SECONDS",
-        "DASHBOARD_GROK_MODEL",
-        "DASHBOARD_GROK_STREAM_MODE",
-        "DASHBOARD_GROK_CONTEXT_LENGTH",
-        "DASHBOARD_GROK_BASE_URL",
-        "DASHBOARD_GROK_API_KEY",
-        "CROSSDESK_BASE_URL",
-        "CROSSDESK_API_KEY",
     }
     path = get_dashboard_env_file(PROJECT_ROOT)
     if not path.exists():
@@ -112,13 +96,10 @@ def _token_count_env(*names: str, default: int) -> int:
 
 A_SHARE_MODEL_SUMMARY_MODEL = (
     os.environ.get("A_SHARE_MODEL_SUMMARY_MODEL")
-    or os.environ.get("A_SHARE_GROK_SUMMARY_MODEL")
-    or os.environ.get("DASHBOARD_GROK_MODEL")
-    or "grok-4.20-multi-agent-xhigh"
+    or ""
 )
 A_SHARE_MODEL_SUMMARY_STREAM_MODE = (
     os.environ.get("A_SHARE_MODEL_SUMMARY_STREAM_MODE")
-    or os.environ.get("DASHBOARD_GROK_STREAM_MODE")
     or "auto"
 )
 A_SHARE_MODEL_SUMMARY_REASONING_EFFORT = (
@@ -127,68 +108,37 @@ A_SHARE_MODEL_SUMMARY_REASONING_EFFORT = (
 )
 A_SHARE_MODEL_SUMMARY_DEADLINE_SECONDS = _int_env(
     "A_SHARE_MODEL_SUMMARY_DEADLINE_SECONDS",
-    _int_env("A_SHARE_GROK_SUMMARY_DEADLINE_SECONDS", 60, min_value=15),
+    60,
     min_value=15,
 )
 A_SHARE_MODEL_SUMMARY_REQUEST_TIMEOUT_SECONDS = _int_env(
     "A_SHARE_MODEL_SUMMARY_REQUEST_TIMEOUT_SECONDS",
-    _int_env("A_SHARE_GROK_SUMMARY_REQUEST_TIMEOUT_SECONDS", 45, min_value=10),
+    45,
     min_value=10,
 )
 A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH = _token_count_env(
     "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH",
-    "DASHBOARD_GROK_CONTEXT_LENGTH",
     default=128000,
 )
 A_SHARE_MODEL_SUMMARY_MAX_TOKENS = _token_count_env(
     "A_SHARE_MODEL_SUMMARY_MAX_TOKENS",
-    "A_SHARE_GROK_SUMMARY_MAX_TOKENS",
     default=4096,
 )
+A_SHARE_MODEL_SUMMARY_BASE_URL = str(
+    os.environ.get("A_SHARE_MODEL_SUMMARY_BASE_URL") or ""
+).strip().rstrip("/")
+A_SHARE_MODEL_SUMMARY_API_KEY = str(
+    os.environ.get("A_SHARE_MODEL_SUMMARY_API_KEY") or ""
+).strip()
 
 
 def a_share_grok_enabled() -> bool:
-    raw = os.environ.get("A_SHARE_MODEL_SUMMARY_ENABLED")
-    if raw is None:
-        raw = os.environ.get("A_SHARE_GROK_SUMMARY_ENABLED", "1")
+    raw = os.environ.get("A_SHARE_MODEL_SUMMARY_ENABLED", "1")
     return str(raw).strip().lower() not in {"0", "false", "no", "off"}
 
 
-def _load_config() -> dict[str, Any]:
-    config_path = Path(os.environ.get("DASHBOARD_CONFIG") or str(DASHBOARD_HOME / "config.yaml")).expanduser()
-    try:
-        import yaml  # type: ignore
-
-        if config_path.exists():
-            return yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    except Exception:
-        return {}
-    return {}
-
-
 def _get_grok_credentials() -> tuple[str, str]:
-    env_base_url = (
-        os.environ.get("A_SHARE_MODEL_SUMMARY_BASE_URL")
-        or os.environ.get("A_SHARE_GROK_SUMMARY_BASE_URL")
-        or os.environ.get("DASHBOARD_GROK_BASE_URL")
-        or os.environ.get("CROSSDESK_BASE_URL")
-    )
-    env_api_key = (
-        os.environ.get("A_SHARE_MODEL_SUMMARY_API_KEY")
-        or os.environ.get("A_SHARE_GROK_SUMMARY_API_KEY")
-        or os.environ.get("DASHBOARD_GROK_API_KEY")
-        or os.environ.get("CROSSDESK_API_KEY")
-    )
-    if env_base_url and env_api_key:
-        return env_base_url.rstrip("/"), env_api_key
-
-    cfg = _load_config()
-    for provider in cfg.get("custom_providers", []) or []:
-        base_url = str(provider.get("base_url") or "")
-        if "crossdesk.ccwu.cc" in base_url or "grok" in str(provider.get("name") or "").lower():
-            return base_url.rstrip("/"), str(provider.get("api_key") or "")
-    model_cfg = cfg.get("model", {}) if isinstance(cfg.get("model"), dict) else {}
-    return str(model_cfg.get("base_url") or "").rstrip("/"), str(model_cfg.get("api_key") or "")
+    return A_SHARE_MODEL_SUMMARY_BASE_URL, A_SHARE_MODEL_SUMMARY_API_KEY
 
 
 def _is_transient_error(err: Exception) -> bool:
@@ -203,9 +153,11 @@ def _is_transient_error(err: Exception) -> bool:
 
 
 def call_grok_api(messages: list[dict[str, str]], *, max_tokens: int = A_SHARE_MODEL_SUMMARY_MAX_TOKENS) -> str:
+    if not A_SHARE_MODEL_SUMMARY_MODEL:
+        raise RuntimeError("model summary model not configured: set A_SHARE_MODEL_SUMMARY_MODEL")
     base_url, api_key = _get_grok_credentials()
     if not base_url or not api_key:
-        raise RuntimeError("model summary credentials not found: set A_SHARE_MODEL_SUMMARY_BASE_URL/API_KEY or DASHBOARD_GROK_BASE_URL/API_KEY")
+        raise RuntimeError("model summary credentials not found: set A_SHARE_MODEL_SUMMARY_BASE_URL/API_KEY")
     model_request = build_model_request(
         base_url,
         A_SHARE_MODEL_SUMMARY_MODEL,
@@ -262,9 +214,9 @@ def apply_grok_to_a_share_report(local_report: str, *, title: str, strict: bool 
         content = call_grok_api(build_a_share_grok_messages(local_report, title=title))
         parsed = parse_a_share_grok_content(content)
         if not parsed.get("summary"):
-            raise ValueError("A-share Grok summary missing summary")
+            raise ValueError("A-share model summary missing summary")
         if len(parsed.get("guidance_lines") or []) < 2:
-            raise ValueError("A-share Grok summary missing actionable guidance_lines")
+            raise ValueError("A-share model summary missing actionable guidance_lines")
         return render_grok_a_share_report(local_report, parsed, title=title)
     except Exception as exc:
         if strict:

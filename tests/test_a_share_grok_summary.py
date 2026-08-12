@@ -54,7 +54,7 @@ class AShareGrokSummaryTests(unittest.TestCase):
         self.assertEqual(mod.call_grok_api.__kwdefaults__["max_tokens"], 4096)
 
     def test_call_grok_api_omits_temperature_by_default(self):
-        mod = load_module()
+        mod = load_module_with_env({"A_SHARE_MODEL_SUMMARY_MODEL": "summary-test"})
         captured = {}
 
         class Resp:
@@ -90,6 +90,7 @@ class AShareGrokSummaryTests(unittest.TestCase):
 
     def test_call_grok_api_sends_configured_reasoning_effort(self):
         mod = load_module_with_env({
+            "A_SHARE_MODEL_SUMMARY_MODEL": "summary-test",
             "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT": "high",
         })
         captured = {}
@@ -117,6 +118,7 @@ class AShareGrokSummaryTests(unittest.TestCase):
 
     def test_call_grok_api_can_force_stream_transport(self):
         mod = load_module_with_env({
+            "A_SHARE_MODEL_SUMMARY_MODEL": "summary-test",
             "A_SHARE_MODEL_SUMMARY_STREAM_MODE": "stream",
         })
         captured = {}
@@ -184,6 +186,20 @@ class AShareGrokSummaryTests(unittest.TestCase):
         self.assertEqual(result, "ok")
         self.assertEqual(captured["url"], "https://dashscope.example/v1/responses")
         self.assertEqual(captured["payload"]["reasoning"], {"effort": "max"})
+
+    def test_model_summary_does_not_fall_back_to_legacy_grok_settings(self):
+        mod = load_module_with_env({
+            "A_SHARE_MODEL_SUMMARY_MODEL": "",
+            "A_SHARE_MODEL_SUMMARY_BASE_URL": "",
+            "A_SHARE_MODEL_SUMMARY_API_KEY": "",
+            "A_SHARE_GROK_SUMMARY_MODEL": "legacy-summary",
+            "DASHBOARD_GROK_MODEL": "legacy-grok",
+            "DASHBOARD_GROK_BASE_URL": "https://legacy.example/v1",
+            "DASHBOARD_GROK_API_KEY": "legacy-key",
+        })
+
+        self.assertEqual(mod.A_SHARE_MODEL_SUMMARY_MODEL, "")
+        self.assertEqual(mod._get_grok_credentials(), ("", ""))
 
     def test_parse_accepts_json_fence(self):
         mod = load_module()

@@ -252,16 +252,16 @@ class UsMarketSummaryTests(unittest.TestCase):
         self.assertIn("主备数据源暂不可用", payload["refresh_error"])
         self.assertIs(mod._SECTOR_CACHE["data"], cached)
 
-    def test_context_length_does_not_set_grok_max_tokens_default(self):
-        mod = load_module_with_env({"US_MARKET_SUMMARY_CONTEXT_LENGTH": "128K"})
+    def test_context_length_does_not_set_model_max_tokens_default(self):
+        mod = load_module_with_env({"A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH": "128K"})
 
         self.assertEqual(mod.US_MARKET_SUMMARY_CONTEXT_LENGTH, 128000)
         self.assertEqual(mod.US_MARKET_SUMMARY_MAX_TOKENS, 4096)
         self.assertEqual(mod._call_grok_api.__kwdefaults__["max_tokens"], 4096)
 
-    def test_max_tokens_env_sets_grok_output_tokens(self):
+    def test_max_tokens_env_sets_model_output_tokens(self):
         mod = load_module_with_env({
-            "US_MARKET_SUMMARY_CONTEXT_LENGTH": "128K",
+            "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH": "128K",
             "US_MARKET_SUMMARY_MAX_TOKENS": "4096",
         })
 
@@ -269,8 +269,8 @@ class UsMarketSummaryTests(unittest.TestCase):
         self.assertEqual(mod.US_MARKET_SUMMARY_MAX_TOKENS, 4096)
         self.assertEqual(mod._call_grok_api.__kwdefaults__["max_tokens"], 4096)
 
-    def test_grok_api_omits_temperature_by_default(self):
-        mod = load_module()
+    def test_summary_model_api_omits_temperature_by_default(self):
+        mod = load_module_with_env({"A_SHARE_MODEL_SUMMARY_MODEL": "summary-test"})
         captured = {}
 
         class Resp:
@@ -304,9 +304,10 @@ class UsMarketSummaryTests(unittest.TestCase):
         self.assertEqual(captured["headers"]["User-agent"], "NiuOne/1.0")
         self.assertEqual(captured["headers"]["Accept"], "application/json")
 
-    def test_grok_api_sends_configured_reasoning_effort(self):
+    def test_summary_model_api_sends_configured_reasoning_effort(self):
         mod = load_module_with_env({
-            "DASHBOARD_GROK_REASONING_EFFORT": "max",
+            "A_SHARE_MODEL_SUMMARY_MODEL": "summary-test",
+            "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT": "max",
         })
         captured = {}
 
@@ -331,9 +332,10 @@ class UsMarketSummaryTests(unittest.TestCase):
 
         self.assertEqual(captured["payload"]["reasoning_effort"], "max")
 
-    def test_grok_api_can_force_stream_transport(self):
+    def test_summary_model_api_can_force_stream_transport(self):
         mod = load_module_with_env({
-            "DASHBOARD_GROK_STREAM_MODE": "stream",
+            "A_SHARE_MODEL_SUMMARY_MODEL": "summary-test",
+            "A_SHARE_MODEL_SUMMARY_STREAM_MODE": "stream",
         })
         captured = {}
 
@@ -370,11 +372,10 @@ class UsMarketSummaryTests(unittest.TestCase):
         self.assertTrue(captured["payload"]["stream"])
         self.assertIn("text/event-stream", captured["accept"])
 
-    def test_grok_api_auto_selects_qwen_responses(self):
+    def test_summary_model_api_auto_selects_qwen_responses(self):
         mod = load_module_with_env({
-            "US_MARKET_SUMMARY_MODEL": "qwen3.8-max",
-            "DASHBOARD_GROK_MODEL": "qwen3.8-max",
-            "DASHBOARD_GROK_REASONING_EFFORT": "xhigh",
+            "A_SHARE_MODEL_SUMMARY_MODEL": "qwen3.8-max",
+            "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT": "xhigh",
         })
         captured = {}
 
@@ -401,6 +402,35 @@ class UsMarketSummaryTests(unittest.TestCase):
         self.assertEqual(result, "ok")
         self.assertEqual(captured["url"], "https://dashscope.example/v1/responses")
         self.assertEqual(captured["payload"]["reasoning"], {"effort": "xhigh"})
+
+    def test_overnight_summary_uses_only_shared_market_summary_settings(self):
+        mod = load_module_with_env({
+            "A_SHARE_MODEL_SUMMARY_MODEL": "shared-summary-model",
+            "A_SHARE_MODEL_SUMMARY_BASE_URL": "https://summary.example/v1/",
+            "A_SHARE_MODEL_SUMMARY_API_KEY": "summary-key",
+            "DASHBOARD_GROK_MODEL": "legacy-grok",
+            "DASHBOARD_GROK_BASE_URL": "https://legacy.example/v1",
+            "DASHBOARD_GROK_API_KEY": "legacy-key",
+        })
+
+        self.assertEqual(mod.US_MARKET_SUMMARY_MODEL, "shared-summary-model")
+        self.assertEqual(
+            mod._get_grok_credentials(),
+            ("https://summary.example/v1", "summary-key"),
+        )
+
+    def test_overnight_summary_does_not_fall_back_to_legacy_grok_settings(self):
+        mod = load_module_with_env({
+            "A_SHARE_MODEL_SUMMARY_MODEL": "",
+            "A_SHARE_MODEL_SUMMARY_BASE_URL": "",
+            "A_SHARE_MODEL_SUMMARY_API_KEY": "",
+            "DASHBOARD_GROK_MODEL": "legacy-grok",
+            "DASHBOARD_GROK_BASE_URL": "https://legacy.example/v1",
+            "DASHBOARD_GROK_API_KEY": "legacy-key",
+        })
+
+        self.assertEqual(mod.US_MARKET_SUMMARY_MODEL, "")
+        self.assertEqual(mod._get_grok_credentials(), ("", ""))
 
     def test_previous_us_session_date_uses_friday_on_monday(self):
         mod = load_module()

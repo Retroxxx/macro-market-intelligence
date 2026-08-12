@@ -138,6 +138,7 @@ class NiuoneCronSchedulerTests(unittest.TestCase):
         self.assertTrue(scheduler.job_enabled(us_job, {"DASHBOARD_US_FEATURES_ENABLED": "1"}))
         self.assertTrue(scheduler.job_enabled(us_job, {"DASHBOARD_US_FEATURES_ENABLED": "true"}))
         self.assertTrue(scheduler.job_enabled(cn_job, {}))
+        self.assertEqual(us_job.default_expr, "0 6 * * *")
         self.assertEqual(us_job.command, ("us_rating_report.py", "--store-only"))
 
     def test_us_market_summary_runs_at_8_on_weekdays(self):

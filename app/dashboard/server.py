@@ -52,6 +52,12 @@ from dashboard.iwencai_connectivity import (
     iwencai_test_metadata,
     test_iwencai_connection,
 )
+from dashboard.data_source_connectivity import (
+    FMP_TEST_FIELD_NAMES,
+    data_source_test_metadata,
+    data_source_test_override_names,
+    test_data_source_connection,
+)
 from dashboard.model_connectivity import (
     MODEL_TEST_TARGET_BY_ID,
     ResolvedModelTestConfig,
@@ -106,6 +112,10 @@ from app.dashboard.market_breadth_recovery import plan_market_breadth_recovery
 from market_data.iwencai_client import (
     DEFAULT_BASE_URL as IWENCAI_DEFAULT_BASE_URL,
     normalize_base_url as normalize_iwencai_base_url,
+)
+from market_data.fmp_ratings import (
+    FmpRatingsError,
+    normalize_base_url as normalize_fmp_base_url,
 )
 from market_data.eastmoney_turnover import (
     fetch_market_turnover_estimate,
@@ -542,6 +552,7 @@ RATE_LIMIT_ADMIN = int(os.environ.get("DASHBOARD_RATE_LIMIT_ADMIN", "90") or "90
 RATE_LIMIT_ADMIN_LOGIN = int(os.environ.get("DASHBOARD_RATE_LIMIT_ADMIN_LOGIN", "10") or "10")
 RATE_LIMIT_NOTIFICATION_TEST = int(os.environ.get("DASHBOARD_NOTIFICATION_TEST_RATE_LIMIT", "10") or "10")
 RATE_LIMIT_MODEL_TEST = int(os.environ.get("DASHBOARD_MODEL_TEST_RATE_LIMIT", "10") or "10")
+RATE_LIMIT_DATA_SOURCE_TEST = int(os.environ.get("DASHBOARD_DATA_SOURCE_TEST_RATE_LIMIT", "10") or "10")
 RATE_LIMIT_IWENCAI_TEST = int(os.environ.get("DASHBOARD_IWENCAI_TEST_RATE_LIMIT", "10") or "10")
 MODEL_TEST_TIMEOUT_SECONDS = max(
     5,
@@ -549,6 +560,7 @@ MODEL_TEST_TIMEOUT_SECONDS = max(
 )
 MODEL_TEST_MAX_CONCURRENCY = 2
 MODEL_TEST_SEMAPHORE = threading.BoundedSemaphore(MODEL_TEST_MAX_CONCURRENCY)
+DATA_SOURCE_TEST_SEMAPHORE = threading.BoundedSemaphore(2)
 PROMPT_REFINEMENT_MAX_CONCURRENCY = max(
     1,
     min(2, int(os.environ.get("DASHBOARD_PROMPT_REFINEMENT_MAX_CONCURRENCY", "1") or "1")),
@@ -828,24 +840,12 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_TELEGRAM_BOT_TOKEN", "label": "Telegram Bot Token", "group": "交易通知", "kind": "secret", "default": "", "effect": "runtime"},
     {"name": "DASHBOARD_TELEGRAM_CHAT_ID", "label": "Telegram Chat ID", "group": "交易通知", "kind": "text", "default": "", "effect": "runtime"},
 
-    {"name": "DASHBOARD_US_FEATURES_ENABLED", "label": "开启牛牛美股", "group": "牛牛美股", "kind": "bool", "default": "0", "effect": "next_run"},
-    {"name": "US_RATING_MODEL", "label": "美股评级模型", "group": "牛牛美股", "kind": "text", "default": "", "effect": "next_run"},
-    {"name": "US_RATING_STREAM_MODE", "label": "美股评级流式模式", "group": "牛牛美股", "kind": "stream_mode", "default": "auto", "effect": "next_run"},
-    {"name": "US_RATING_REASONING_EFFORT", "label": "美股评级思考强度", "group": "牛牛美股", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
-    {"name": "US_RATING_BASE_URL", "label": "美股评级 API Base URL", "group": "牛牛美股", "kind": "text", "default": "", "effect": "next_run"},
-    {"name": "US_RATING_API_KEY", "label": "美股评级 API Key", "group": "牛牛美股", "kind": "secret", "default": "", "effect": "next_run"},
-    {"name": "US_RATING_CONTEXT_LENGTH", "label": "美股评级上下文长度", "group": "牛牛美股", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
-    {"name": "US_RATING_MAX_TOKENS", "label": "美股评级最大输出长度", "group": "牛牛美股", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
+    {"name": "DASHBOARD_US_FEATURES_ENABLED", "label": "开启美股机构评级", "group": "美股机构评级", "kind": "bool", "default": "0", "effect": "next_run"},
+    {"name": "FMP_API_BASE_URL", "label": "FMP API 地址", "group": "美股机构评级", "kind": "text", "default": "https://financialmodelingprep.com/stable", "effect": "next_run"},
+    {"name": "FMP_API_KEY", "label": "FMP API Key", "group": "美股机构评级", "kind": "secret", "default": "", "effect": "next_run"},
+    {"name": "FMP_RATING_MAX_RESULTS", "label": "每日报告最多股票数", "group": "美股机构评级", "kind": "int", "default": "10", "effect": "next_run", "min": "1", "max": "50"},
     {"name": "CROSSDESK_BASE_URL", "label": "Crossdesk Base URL", "group": "上游模型覆盖", "kind": "text", "default": "", "effect": "next_run"},
     {"name": "CROSSDESK_API_KEY", "label": "Crossdesk API Key", "group": "上游模型覆盖", "kind": "secret", "default": "", "effect": "next_run"},
-    {"name": "DASHBOARD_GROK_MODEL", "label": "Grok 模型", "group": "牛牛美股", "kind": "text", "default": "grok-4.20-multi-agent-xhigh", "effect": "next_run"},
-    {"name": "DASHBOARD_GROK_STREAM_MODE", "label": "Grok 流式模式", "group": "牛牛美股", "kind": "stream_mode", "default": "auto", "effect": "next_run"},
-    {"name": "DASHBOARD_GROK_REASONING_EFFORT", "label": "Grok 思考强度", "group": "牛牛美股", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
-    {"name": "DASHBOARD_GROK_API_MODE", "label": "Grok 搜索工具接口模式", "group": "牛牛美股", "kind": "api_mode", "default": "auto", "effect": "next_run"},
-    {"name": "DASHBOARD_GROK_CONTEXT_LENGTH", "label": "Grok 模型上下文长度", "group": "牛牛美股", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
-    {"name": "DASHBOARD_GROK_MAX_TOKENS", "label": "Grok 最大输出长度", "group": "牛牛美股", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
-    {"name": "DASHBOARD_GROK_BASE_URL", "label": "Grok API 地址", "group": "牛牛美股", "kind": "text", "default": "", "effect": "next_run"},
-    {"name": "DASHBOARD_GROK_API_KEY", "label": "Grok API 密钥", "group": "牛牛美股", "kind": "secret", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_MODEL", "label": "买卖决策模型", "group": "买卖决策模型", "kind": "text", "default": "deepseek-v4-pro", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_STREAM_MODE", "label": "买卖决策流式模式", "group": "买卖决策模型", "kind": "stream_mode", "default": "auto", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_REASONING_EFFORT", "label": "买卖决策思考强度", "group": "买卖决策模型", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
@@ -858,18 +858,18 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_MARKET_MIDDAY_CRON", "label": "午盘监控时间", "group": "盘面监控生产时间点", "kind": "cron_time", "default": "40 11 * * 1-5", "effect": "next_run"},
     {"name": "DASHBOARD_MARKET_CLOSE_CRON", "label": "盘后监控时间", "group": "盘面监控生产时间点", "kind": "cron_time", "default": "10 15 * * 1-5", "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_ENABLED", "label": "A股盘面模型总结", "group": "盘面监控生产时间点", "kind": "bool", "default": "1", "effect": "next_run", "bool_no_default": "1"},
-    {"name": "A_SHARE_MODEL_SUMMARY_MODEL", "label": "A股盘面总结模型", "group": "盘面监控生产时间点", "kind": "text", "default": "", "effect": "next_run"},
-    {"name": "A_SHARE_MODEL_SUMMARY_STREAM_MODE", "label": "A股盘面总结流式模式", "group": "盘面监控生产时间点", "kind": "stream_mode", "default": "auto", "effect": "next_run"},
-    {"name": "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT", "label": "A股盘面总结思考强度", "group": "盘面监控生产时间点", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
-    {"name": "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH", "label": "A股盘面总结上下文长度", "group": "盘面监控生产时间点", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
+    {"name": "A_SHARE_MODEL_SUMMARY_MODEL", "label": "盘面总结模型（A股与隔夜美股）", "group": "盘面监控生产时间点", "kind": "text", "default": "", "effect": "next_run"},
+    {"name": "A_SHARE_MODEL_SUMMARY_STREAM_MODE", "label": "盘面总结流式模式", "group": "盘面监控生产时间点", "kind": "stream_mode", "default": "auto", "effect": "next_run"},
+    {"name": "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT", "label": "盘面总结思考强度", "group": "盘面监控生产时间点", "kind": "reasoning_effort", "default": "", "effect": "next_run"},
+    {"name": "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH", "label": "盘面总结上下文长度", "group": "盘面监控生产时间点", "kind": "context_length", "default": DEFAULT_MODEL_CONTEXT_LENGTH, "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_MAX_TOKENS", "label": "A股盘面总结最大输出长度", "group": "盘面监控生产时间点", "kind": "max_tokens", "default": DEFAULT_MODEL_MAX_TOKENS, "effect": "next_run"},
-    {"name": "A_SHARE_MODEL_SUMMARY_BASE_URL", "label": "A股盘面总结 API地址", "group": "盘面监控生产时间点", "kind": "text", "default": "", "effect": "next_run"},
-    {"name": "A_SHARE_MODEL_SUMMARY_API_KEY", "label": "A股盘面总结 API密钥", "group": "盘面监控生产时间点", "kind": "secret", "default": "", "effect": "next_run"},
+    {"name": "A_SHARE_MODEL_SUMMARY_BASE_URL", "label": "盘面总结 API地址", "group": "盘面监控生产时间点", "kind": "text", "default": "", "effect": "next_run"},
+    {"name": "A_SHARE_MODEL_SUMMARY_API_KEY", "label": "盘面总结 API密钥", "group": "盘面监控生产时间点", "kind": "secret", "default": "", "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_DEADLINE_SECONDS", "label": "A股模型总结总超时秒数", "group": "盘面监控生产时间点", "kind": "int", "default": "60", "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_REQUEST_TIMEOUT_SECONDS", "label": "A股模型总结单次超时秒数", "group": "盘面监控生产时间点", "kind": "int", "default": "45", "effect": "next_run"},
-    {"name": "DASHBOARD_US_RATING_CRON", "label": "美股买入评级时间", "group": "牛牛美股", "kind": "cron_time", "default": "0 11 * * *", "effect": "next_run"},
-    {"name": "US_RATING_DEADLINE_SECONDS", "label": "美股评级总超时秒数", "group": "牛牛美股", "kind": "int", "default": "240", "effect": "next_run"},
-    {"name": "US_RATING_REQUEST_TIMEOUT_SECONDS", "label": "美股评级单次请求超时秒数", "group": "牛牛美股", "kind": "int", "default": "120", "effect": "next_run"},
+    {"name": "DASHBOARD_US_RATING_CRON", "label": "美股买入评级时间", "group": "美股机构评级", "kind": "cron_time", "default": "0 6 * * *", "effect": "next_run"},
+    {"name": "US_RATING_DEADLINE_SECONDS", "label": "美股评级总超时秒数", "group": "美股机构评级", "kind": "int", "default": "120", "effect": "next_run"},
+    {"name": "US_RATING_REQUEST_TIMEOUT_SECONDS", "label": "FMP 单次请求超时秒数", "group": "美股机构评级", "kind": "int", "default": "30", "effect": "next_run"},
     {"name": "DASHBOARD_INDICES_TTL_SECONDS", "label": "指数行情更新间隔（秒）", "group": "行情与资金流设置", "kind": "int", "default": "60", "effect": "runtime", "min": "1"},
     {"name": "DASHBOARD_INDUSTRY_FLOW_PLAYBACK_SPEED", "label": "资金流默认播放速度", "group": "行情与资金流设置", "kind": "playback_speed", "default": "0.5", "effect": "runtime"},
     {"name": "DASHBOARD_INDUSTRY_FLOW_SIDE_LIMIT", "label": "资金流每侧行业数量", "group": "行情与资金流设置", "kind": "int", "default": "10", "effect": "runtime", "min": "1", "max": "10"},
@@ -885,16 +885,7 @@ ENV_CONFIG_BY_NAME = {item["name"]: item for item in ENV_CONFIG_SCHEMA}
 
 REASONING_EFFORT_MODEL_NAMES: dict[str, tuple[str, ...]] = {
     "DASHBOARD_DECISION_REASONING_EFFORT": ("DASHBOARD_DECISION_MODEL",),
-    "DASHBOARD_GROK_REASONING_EFFORT": ("DASHBOARD_GROK_MODEL",),
-    "US_RATING_REASONING_EFFORT": (
-        "US_RATING_MODEL",
-        "DASHBOARD_GROK_MODEL",
-    ),
-    "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT": (
-        "A_SHARE_MODEL_SUMMARY_MODEL",
-        "A_SHARE_GROK_SUMMARY_MODEL",
-        "DASHBOARD_GROK_MODEL",
-    ),
+    "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT": ("A_SHARE_MODEL_SUMMARY_MODEL",),
 }
 
 ADMIN_VISIBLE_ENV_NAMES = [
@@ -926,22 +917,10 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "NEWSNOW_MAX_RETRIES",
     "NEWSNOW_MAX_CONCURRENCY",
     "DASHBOARD_US_FEATURES_ENABLED",
-    "US_RATING_MODEL",
-    "US_RATING_STREAM_MODE",
-    "US_RATING_REASONING_EFFORT",
-    "US_RATING_BASE_URL",
-    "US_RATING_API_KEY",
-    "DASHBOARD_GROK_MODEL",
-    "DASHBOARD_GROK_STREAM_MODE",
-    "DASHBOARD_GROK_REASONING_EFFORT",
-    "DASHBOARD_GROK_API_MODE",
-    "DASHBOARD_GROK_CONTEXT_LENGTH",
-    "DASHBOARD_GROK_MAX_TOKENS",
-    "DASHBOARD_GROK_BASE_URL",
-    "DASHBOARD_GROK_API_KEY",
+    "FMP_API_BASE_URL",
+    "FMP_API_KEY",
+    "FMP_RATING_MAX_RESULTS",
     "DASHBOARD_US_RATING_CRON",
-    "US_RATING_CONTEXT_LENGTH",
-    "US_RATING_MAX_TOKENS",
     "US_RATING_DEADLINE_SECONDS",
     "US_RATING_REQUEST_TIMEOUT_SECONDS",
     "DASHBOARD_DECISION_MODEL",
@@ -1058,7 +1037,7 @@ TRADER_RUNTIME_ENV_NAMES = {
 }
 ENV_GROUP_ORDER = [
     "财经快讯",
-    "牛牛美股",
+    "美股机构评级",
     "买卖决策模型",
     "交易规则与风控",
     "交易通知",
@@ -6394,7 +6373,7 @@ CRON_TIME_CONFIGS = {
 }
 ADMIN_GROUP_NOTES = {
     "财经快讯": "通过 NewsNow 聚合财联社电报、金十数据和华尔街见闻快讯。可选择是否将重要快讯写入买卖决策证据；交易日 15:00 后及休市日信息归入下一交易日。无需 API Key 或服务地址配置；Compose 部署会随牛牛1号自动启动内置实例，来源抓取失败时继续展示最近一次成功缓存并标记陈旧。",
-    "牛牛美股": "集中管理美股买入评级和隔夜美股盘面总结使用的 Grok 配置。长度默认：上下文 128000 tokens，最大输出 4096 tokens；关闭时隐藏评级相关设置，隔夜美股总结仍会读取已配置的 Grok 参数。",
+    "美股机构评级": "通过 Financial Modeling Prep（FMP）结构化数据生成机构买入评级日报，不调用大模型。关闭时隐藏评级相关设置并跳过评级任务；隔夜美股总结仍使用“盘面监控生产时间点”中的盘面总结模型。",
     "问财数据源": "统一管理龙虎榜与可选消息面预检。问财官方公告、新闻和事件技能负责检索；最近 3 天证据经身份校验和去重后，由“买卖决策模型”判断利好、利空或中性。无有效证据直接记为中性；模型失败时标记判断不可用，不回退关键词规则。",
     "买卖决策模型": "推荐使用 deepseek-v4-pro；也可填写其他 OpenAI 兼容模型服务，已知 Qwen Responses 型号会在 auto 逻辑下自动选择 Responses API。长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
     "交易规则与风控": "约束买卖决策必须遵守的交易纪律、持仓数量、仓位比例、现金缓冲与盘面控仓规则。交易纪律 Prompt 会直接写入决策模型的必须遵守段。",
@@ -6402,7 +6381,7 @@ ADMIN_GROUP_NOTES = {
     "选股与买卖设置": "配置选股范围、候选数量和北京时间交易时点；板块分类固定使用东方财富概念与行业。",
     "综合决策参考": "为买卖决策汇总指数、板块、资金流向、热门股票等参考数据。缓存秒数控制数据复用周期，单类参考数据上限可设置为 1～8。",
     "选股与交易策略": "选择一套独立策略；基础策略、Z哥、李大霄、板块潮汐、牛牛战法和预设文字策略的候选、买入、卖出、仓位与 Prompt 规则互不混用。",
-    "盘面监控生产时间点": "直接填写北京时间 HH:MM；隔夜美股总结默认交易日 08:00 生成，A 股盘面监控在交易时段触发；长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
+    "盘面监控生产时间点": "直接填写北京时间 HH:MM；隔夜美股总结默认交易日 08:00 生成，并与 A 股竞价、午盘、盘后总结共用本组模型、地址和密钥，不再读取旧 Grok 配置。长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
     "行情与资金流设置": "统一管理公开快照、指数刷新和行业资金流动画。播放速度、每侧行业数量、采样间隔及上午/下午采样窗口均支持运行时保存后生效；时间使用北京时间 HH:MM，默认 09:25～11:31、13:00～15:01。",
     "关于": "查看项目作者、源代码仓库、开源许可和版本信息，并控制首页是否在打开或重新加载时自动检测新版本。",
 }
@@ -6463,8 +6442,8 @@ ADMIN_SETTING_GROUPS: tuple[dict[str, str], ...] = (
     },
     {
         "slug": "us-market",
-        "name": "牛牛美股",
-        "summary": "配置美股功能、Grok 接入与评级任务。",
+        "name": "美股机构评级",
+        "summary": "配置 FMP 评级数据源、本地筛选数量与定时任务。",
         "icon": "美股",
     },
     {
@@ -6556,21 +6535,9 @@ def removed_notification_config_names(channel_ids: set[str] | list[str] | tuple[
 
 
 US_FEATURE_GATED_NAMES = {
-    "US_RATING_MODEL",
-    "US_RATING_STREAM_MODE",
-    "US_RATING_REASONING_EFFORT",
-    "US_RATING_BASE_URL",
-    "US_RATING_API_KEY",
-    "US_RATING_CONTEXT_LENGTH",
-    "US_RATING_MAX_TOKENS",
-    "DASHBOARD_GROK_MODEL",
-    "DASHBOARD_GROK_STREAM_MODE",
-    "DASHBOARD_GROK_REASONING_EFFORT",
-    "DASHBOARD_GROK_API_MODE",
-    "DASHBOARD_GROK_CONTEXT_LENGTH",
-    "DASHBOARD_GROK_MAX_TOKENS",
-    "DASHBOARD_GROK_BASE_URL",
-    "DASHBOARD_GROK_API_KEY",
+    "FMP_API_BASE_URL",
+    "FMP_API_KEY",
+    "FMP_RATING_MAX_RESULTS",
     "DASHBOARD_US_RATING_CRON",
     "US_RATING_DEADLINE_SECONDS",
     "US_RATING_REQUEST_TIMEOUT_SECONDS",
@@ -6760,6 +6727,15 @@ def validate_business_updates(updates: dict[str, str]) -> None:
                 normalize_newsnow_endpoint(value)
         elif name == "NEWSNOW_SOURCES":
             parse_newsnow_source_ids(value)
+        elif name == "FMP_API_BASE_URL":
+            try:
+                normalize_fmp_base_url(value)
+            except FmpRatingsError as exc:
+                raise ValueError(str(exc)) from exc
+        elif name == "FMP_RATING_MAX_RESULTS" and str(value or "").strip():
+            number = int(value)
+            if number < 1 or number > 50:
+                raise ValueError("FMP_RATING_MAX_RESULTS 必须在 1 到 50 之间")
         elif name in {
             "NEWSNOW_MAX_ITEMS",
             "NEWSNOW_MAX_IMPORTANT_ITEMS",
@@ -6911,8 +6887,13 @@ def validate_business_updates(updates: dict[str, str]) -> None:
             if int(value) < 0:
                 raise ValueError(f"{name} 必须大于等于 0")
         elif name in {"US_RATING_DEADLINE_SECONDS", "US_RATING_REQUEST_TIMEOUT_SECONDS"} and str(value or "").strip():
-            if int(value) <= 0:
-                raise ValueError(f"{name} 必须大于 0")
+            number = int(value)
+            minimum, maximum = {
+                "US_RATING_DEADLINE_SECONDS": (30, 600),
+                "US_RATING_REQUEST_TIMEOUT_SECONDS": (5, 120),
+            }[name]
+            if number < minimum or number > maximum:
+                raise ValueError(f"{name} 必须在 {minimum} 到 {maximum} 之间")
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") in {"max_tokens", "context_length"}:
             normalize_context_length_update(value)
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "reasoning_effort":
@@ -7166,7 +7147,6 @@ def model_test_provider_fallbacks() -> dict[str, dict[str, str]]:
     providers = cfg.get("custom_providers", []) if isinstance(cfg, dict) else []
     providers = providers if isinstance(providers, list) else []
     crossdesk: dict[str, str] = {}
-    grok: dict[str, str] = {}
     for raw_provider in providers:
         if not isinstance(raw_provider, dict):
             continue
@@ -7184,25 +7164,10 @@ def model_test_provider_fallbacks() -> dict[str, dict[str, str]]:
         ).lower()
         if not crossdesk and "crossdesk" in identity:
             crossdesk = provider
-        if not grok and (
-            "grok" in str(raw_provider.get("name") or "").lower()
-            or "crossdesk.ccwu.cc" in provider["base_url"].lower()
-        ):
-            grok = provider
-
-    raw_model = cfg.get("model", {}) if isinstance(cfg, dict) else {}
-    model_provider = {
-        "base_url": str(raw_model.get("base_url") or "").strip(),
-        "api_key": str(raw_model.get("api_key") or "").strip(),
-    } if isinstance(raw_model, dict) else {}
-    if not all(model_provider.values()):
-        model_provider = {}
 
     return {
         "decision-model": crossdesk,
-        "grok-model": crossdesk,
-        "us-rating-model": crossdesk or model_provider,
-        "a-share-summary-model": grok or crossdesk or model_provider,
+        "a-share-summary-model": {},
     }
 
 
@@ -7266,6 +7231,59 @@ def send_model_connection_test(
         return test_model_connection(target_id, settings, **kwargs)
     finally:
         MODEL_TEST_SEMAPHORE.release()
+
+
+def data_source_test_settings_snapshot(
+    overrides: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Resolve saved FMP settings plus unsaved form values without exposing secrets."""
+
+    settings = {
+        name: str(ENV_CONFIG_BY_NAME.get(name, {}).get("default") or "").strip()
+        for name in FMP_TEST_FIELD_NAMES
+    }
+    file_values = parse_env_file()
+    for name in FMP_TEST_FIELD_NAMES:
+        if name in file_values:
+            settings[name] = str(file_values[name])
+        if name in os.environ:
+            settings[name] = str(os.environ[name])
+    for name, raw_value in (overrides or {}).items():
+        if name not in FMP_TEST_FIELD_NAMES:
+            continue
+        value = str(raw_value or "").strip()
+        if is_secret_config_key(name) and not value:
+            continue
+        settings[name] = value
+    return settings
+
+
+def send_data_source_connection_test(
+    target_id: str,
+    overrides: dict[str, str] | None = None,
+    *,
+    opener=None,
+) -> dict[str, Any]:
+    """Run one bounded FMP connectivity test under a small concurrency cap."""
+
+    allowed_names = data_source_test_override_names(target_id)
+    if not allowed_names:
+        return {"ok": False, "target": "", "error": "不支持的数据源测试目标"}
+    if not DATA_SOURCE_TEST_SEMAPHORE.acquire(blocking=False):
+        return {
+            "ok": False,
+            "target": target_id,
+            "error": "当前数据源测试较多，请稍后重试",
+            "error_code": "busy",
+        }
+    try:
+        settings = data_source_test_settings_snapshot(overrides)
+        kwargs: dict[str, Any] = {"timeout": MODEL_TEST_TIMEOUT_SECONDS}
+        if opener is not None:
+            kwargs["opener"] = opener
+        return test_data_source_connection(target_id, settings, **kwargs)
+    finally:
+        DATA_SOURCE_TEST_SEMAPHORE.release()
 
 
 def prompt_strategy_store() -> PromptStrategyStore:
@@ -7805,10 +7823,10 @@ def business_config_fallback_value(
     *,
     crossdesk_provider: dict[str, str] | None = None,
 ) -> tuple[str, str]:
-    if name in {"DASHBOARD_GROK_BASE_URL", "DASHBOARD_DECISION_BASE_URL"}:
+    if name == "DASHBOARD_DECISION_BASE_URL":
         provider = crossdesk_provider if crossdesk_provider is not None else crossdesk_provider_values()
         return provider.get("base_url", ""), "config.yaml" if provider.get("base_url") else "default"
-    if name in {"DASHBOARD_GROK_API_KEY", "DASHBOARD_DECISION_API_KEY"}:
+    if name == "DASHBOARD_DECISION_API_KEY":
         provider = crossdesk_provider if crossdesk_provider is not None else crossdesk_provider_values()
         return provider.get("api_key", ""), "config.yaml" if provider.get("api_key") else "default"
     return "", "default"
@@ -8010,6 +8028,7 @@ def build_admin_config_payload() -> dict[str, Any]:
         ],
         "notification_general_names": list(NOTIFICATION_GENERAL_CONFIG_NAMES),
         "model_tests": model_test_metadata(),
+        "data_source_tests": data_source_test_metadata(),
         "reasoning_effort_capabilities": reasoning_effort_capability_catalog(),
         "iwencai_test": iwencai_test_metadata(),
         "ui": {

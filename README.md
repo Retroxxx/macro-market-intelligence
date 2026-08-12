@@ -136,7 +136,7 @@ NiuOne 可以运行在个人电脑或服务器上，配置和研究数据由用�
 | `/dragon-tiger` | 按交易日查看龙虎榜席位、连板/连榜及消息预检 | 需启用并配置问财；消息预检模型可选 |
 | `/market-monitor` | A 股竞价/午盘/盘后与隔夜美股摘要 | 需长期运行调度器；模型增强可选 |
 | `/realtime-news` | NewsNow 聚合的可选财经新闻来源；总览同步展示 5 条并可仅保留重要信息 | 无需 API Key；Compose 默认随附内置 NewsNow，管理页可搜索并多选财经商业来源 |
-| `/us-ratings` | 美股机构评级 | 需开启“牛牛美股”并配置相应模型 |
+| `/us-ratings` | 美股机构评级 | 需开启“美股机构评级”并配置 FMP API Key |
 | `/admin` | 配置、连接测试、版本与运行状态 | 始终需要管理员认证 |
 
 策略细节见[策略研究说明](docs/strategies/README.md)，代码结构和扩展约定见 [app 模块结构](docs/APP_ARCHITECTURE.md)。

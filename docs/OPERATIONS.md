@@ -74,25 +74,24 @@ http://127.0.0.1:8787/
 
 设置页末尾的“关于”分组展示项目作者、GitHub 仓库、Apache License 2.0、当前版本和 Docker Hub 最新发行版本，并可点击“检查更新”跳过服务端缓存、主动重新查询。“开启自动检测新版本”默认启用并在运行时生效，也可在 `dashboard.env` 中设置 `DASHBOARD_AUTO_VERSION_CHECK_ENABLED=0` 关闭。更新弹窗的“此版本不再提醒”仅保存在当前浏览器；手动点击首页版本号仍可复查，且更高版本发布后会重新提醒。
 
-## 3. 模型配置
+## 3. 模型与评级数据源配置
 
-NiuOne 需要大模型驱动完整交易决策工作流。美股机构评级日报可使用独立的实时网页搜索模型，留空时复用 Grok；A 股盘面总结增强可使用任意兼容 `/chat/completions` 的模型；A 股候选股及龙虎榜连板/连榜股票的消息面证据由问财检索，并复用买卖决策模型判断方向；选股后的买卖决策可配置兼容模型，推荐使用 DeepSeek。
+NiuOne 需要大模型驱动完整交易决策工作流。美股机构评级日报不调用模型，改用 Financial Modeling Prep（FMP）结构化评级、目标价和行情数据，并在本地执行买入倾向筛选、去重、机构聚类与排序；A 股竞价、午盘、盘后总结与隔夜美股总结共用盘面总结模型，不再读取旧 Grok 配置；A 股候选股及龙虎榜连板/连榜股票的消息面证据由问财检索，并复用买卖决策模型判断方向；选股后的买卖决策可配置兼容模型，推荐使用 DeepSeek。
 
 核心配置项：
 
 | 场景 | 配置项 |
 |---|---|
-| 牛牛美股总开关 | `DASHBOARD_US_FEATURES_ENABLED` |
-| Grok API | `DASHBOARD_GROK_BASE_URL`、`DASHBOARD_GROK_API_KEY`、`DASHBOARD_GROK_MODEL`、`DASHBOARD_GROK_API_MODE`、`DASHBOARD_GROK_STREAM_MODE`、`DASHBOARD_GROK_REASONING_EFFORT`、`DASHBOARD_GROK_CONTEXT_LENGTH` |
-| A 股盘面模型总结单独覆盖 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_STREAM_MODE`、`A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`、`A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
+| 美股机构评级总开关 | `DASHBOARD_US_FEATURES_ENABLED` |
+| 美股机构评级数据源 | `FMP_API_BASE_URL`、`FMP_API_KEY`、`FMP_RATING_MAX_RESULTS`、`DASHBOARD_US_RATING_CRON`、`US_RATING_DEADLINE_SECONDS`、`US_RATING_REQUEST_TIMEOUT_SECONDS` |
+| A 股与隔夜美股盘面总结 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_STREAM_MODE`、`A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`、`A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
 | 问财内置数据源与消息面预检 | `IWENCAI_ENABLED`、`IWENCAI_NEWS_PRECHECK_ENABLED`、`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_TIMEOUT_SECONDS`、`IWENCAI_MAX_RETRIES`、`IWENCAI_MAX_CONCURRENCY`、`IWENCAI_CACHE_TTL_SECONDS`、`IWENCAI_DRAGON_TIGER_CRON` |
 | 买卖决策 API | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL`、`DASHBOARD_DECISION_STREAM_MODE`、`DASHBOARD_DECISION_REASONING_EFFORT` |
 | 买卖决策情报包 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`、`DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`、`DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 | 买卖决策交易纪律 | `DASHBOARD_TRADE_DISCIPLINE_TEXT`；为空时使用内置默认纪律，填写后进入模型 prompt 的“必须遵守”段 |
 | 模拟账户节奏与仓位参考 | `DASHBOARD_MAX_OPEN_POSITIONS`、`DASHBOARD_MAX_NEW_BUYS_PER_DECISION`、`DASHBOARD_MAX_SINGLE_POSITION_PCT`、`DASHBOARD_MAX_TOTAL_POSITION_PCT`、`DASHBOARD_MIN_CASH_RESERVE_PCT`；默认作为模型参考，Z 哥和板块潮汐等注册硬限制策略会在模拟执行层取全局与策略限制的更严格值 |
-| 美股评级单独覆盖 | `US_RATING_MODEL`、`US_RATING_BASE_URL`、`US_RATING_API_KEY`、`US_RATING_STREAM_MODE`、`US_RATING_REASONING_EFFORT`、`US_RATING_MAX_TOKENS` |
 
-完成管理员认证后，优先通过页面上的设置按钮进入设置页维护。所有需要模型和 API Key 的分组都提供“测试模型连接”按钮；测试使用页面当前填写值但不会自动保存，API Key 输入框留空时会复用已保存密钥。美股评级相关设置由“开启牛牛美股”总开关控制；关闭时设置页会隐藏这些项并跳过美股评级定时任务。也可以直接编辑 `.local-data/dashboard.env`，保存后按配置影响范围重启或等待下一轮任务读取。
+完成管理员认证后，优先通过页面上的设置按钮进入设置页维护。模型分组提供“测试模型连接”，美股机构评级分组提供“测试数据源连接”；测试使用页面当前填写值但不会自动保存，API Key 输入框留空时会复用已保存密钥。美股评级相关设置由“开启美股机构评级”总开关控制；关闭时设置页会隐藏这些项并跳过美股评级定时任务。FMP API Key 通过请求头发送，不会进入请求 URL 或日志。评级主数据失败时任务明确失败并由调度器重试；目标价或行情补充失败时只降级对应字段，不覆盖已有日报。也可以直接编辑 `.local-data/dashboard.env`，保存后等待下一轮任务读取。
 各场景的 `*_REASONING_EFFORT` 可填写模型或网关支持的枚举值，留空时不发送思考强度参数。下表中的已知官方模型会在保存、连接测试和运行请求前执行本地校验；表外自定义模型或网关别名仍可自由填写。连接测试使用当前未保存值；成功只表示网关接受当前请求，不代表上游一定执行了对应强度。不支持参数或值非法时会给出针对性提示，并且运行时不会静默删除参数重试。
 
 各场景的 `*_STREAM_MODE` 支持 `auto`、`stream`、`non_stream`。默认 `auto` 保持非流式请求；当网关明确返回必须设置 `stream=true` 时自动以流式重试。`stream` 强制流式，`non_stream` 强制非流式。后台任务即使使用流式传输，也会先拼接完整内容，再执行 JSON 校验、落盘和交易决策。
@@ -127,7 +126,6 @@ NiuOne 需要大模型驱动完整交易决策工作流。美股机构评级日�
 | OpenAI `gpt-5` | `minimal`、`low`、`medium`、`high` | 同填写值 | 官方模型页未注明 |
 
 来源：[Qwen Responses](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)、[Qwen Chat](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)、[Qwen 深度思考](https://help.aliyun.com/zh/model-studio/deep-thinking)、[MiniMax Responses](https://platform.minimax.io/docs/api-reference/responses-create)、[MiniMax Chat](https://platform.minimax.io/docs/api-reference/text-chat-openai)、[DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)、[智谱深度思考](https://docs.bigmodel.cn/cn/guide/capabilities/thinking)、[小米 MiMo Responses](https://mimo.mi.com/docs/zh-CN/api/chat/responses)、[xAI Grok 4.3](https://docs.x.ai/developers/models/grok-4.3)、[xAI Reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning)、[OpenAI GPT-5.6](https://developers.openai.com/api/docs/models/gpt-5.6-sol) 及各型号官方模型页。Claude、Gemini 等原生 API 使用不同的思考控制字段，不在这个 OpenAI 兼容表中；如果兼容网关提供同名字段，作为表外自定义值处理。
-`DASHBOARD_GROK_API_MODE` 可设为 `auto`、`responses` 或 `chat`。默认 `auto` 会为 Grok 4.3/4.5、MiMo 2.5 和表中常用 Qwen Responses 型号选择 Responses API，其他模型保持 Chat Completions；兼容网关可显式选择对应模式。
 `*_CONTEXT_LENGTH` 仅表示模型上下文窗口，默认 `128000`；`*_MAX_TOKENS` 表示期望的最大输出长度，调用层会按接口映射为 `max_tokens` 或 `max_output_tokens`。已知不接受 Responses 输出长度参数的 GPT-5.6 网关别名会省略该参数，其他网关若明确返回不支持也会自动去参重试一次。模型响应同时兼容 JSON 和 SSE，即使网关在 `stream=false` 时仍强制返回 SSE。
 `IWENCAI_NEWS_PRECHECK_ENABLED` 默认关闭，并位于“问财数据源”设置分组。开启后复用 `IWENCAI_*` 检索配置和 `DASHBOARD_DECISION_*` 买卖决策模型配置。问财官方 `announcement-search`、`news-search` 和 `hithink-event-query` 负责检索，公告、新闻和带日期的事件结果限制在最近 3 天并跨来源去重。存在有效证据时由买卖决策模型输出结构化利好、利空或中性判断；没有证据时直接记为中性。模型未配置、超时或输出不可解析时标记判断不可用，不回退关键词规则。每个问财技能独立记录状态，行情或资金流永远不能替代消息。旧 `DASHBOARD_NEWS_*` 配置不再读取。
 
