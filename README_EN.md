@@ -133,7 +133,7 @@ Primary pages and dependencies:
 | `/practice` | Simulated account, candidates, market summary, model decisions, equity curve, and trading calendar | Model decisions require `DASHBOARD_DECISION_*` |
 | `/niuone-mainline` | Full-market today/structural theme rankings, cross-session mainlines, effective coverage, representative stocks, and an Eastmoney live cross-check | No key; market sources must be reachable |
 | `/indices`, `/industry-flow` | Indices, sectors, active stocks, industry main-fund flow, market sentiment, and turnover | No key; market sources must be reachable |
-| `/dragon-tiger` | Dated Dragon-Tiger seats, limit-up/consecutive-list signals, and news prechecks | Enable and configure iWencai; news-precheck model is optional |
+| `/dragon-tiger` | Dated Dragon-Tiger seats, limit-up/consecutive-list signals, and news prechecks | Enable iWencai retrieval and configure the trading-decision model for judgment |
 | `/market-monitor` | A-share auction/midday/close and overnight U.S. summaries | Keep the scheduler running; model enhancement is optional |
 | `/realtime-news` | NewsNow aggregation for selectable financial-news sources; Overview shows five items with an important-only option | No API key; Compose bundles NewsNow and the admin page exposes finance and business sources as searchable multi-select options |
 | `/us-ratings` | U.S. institutional ratings | Enable “NiuNiu U.S. Stocks” and configure the relevant model |

@@ -152,12 +152,19 @@ class NiuoneCronSchedulerTests(unittest.TestCase):
     def test_iwencai_dragon_tiger_runs_at_18_on_weekdays_when_enabled(self):
         scheduler = load_scheduler_module()
         job = next(job for job in scheduler.JOBS if job.env_name == "IWENCAI_DRAGON_TIGER_CRON")
-
-        self.assertEqual(job.default_expr, "0 18 * * 1-5")
-        self.assertEqual(job.command, ("iwencai_dragon_tiger_snapshot.py",))
-        self.assertEqual(scheduler.normalize_job_expr(job, "18:00"), "0 18 * * 1-5")
-        self.assertFalse(scheduler.job_enabled(job, {}))
-        self.assertTrue(scheduler.job_enabled(job, {"IWENCAI_ENABLED": "1"}))
+        original_enabled = scheduler.os.environ.get("IWENCAI_ENABLED")
+        try:
+            scheduler.os.environ["IWENCAI_ENABLED"] = "1"
+            self.assertEqual(job.default_expr, "0 18 * * 1-5")
+            self.assertEqual(job.command, ("iwencai_dragon_tiger_snapshot.py",))
+            self.assertEqual(scheduler.normalize_job_expr(job, "18:00"), "0 18 * * 1-5")
+            self.assertFalse(scheduler.job_enabled(job, {}))
+            self.assertTrue(scheduler.job_enabled(job, {"IWENCAI_ENABLED": "1"}))
+        finally:
+            if original_enabled is None:
+                scheduler.os.environ.pop("IWENCAI_ENABLED", None)
+            else:
+                scheduler.os.environ["IWENCAI_ENABLED"] = original_enabled
 
     def test_iwencai_startup_catch_up_runs_only_when_source_is_enabled(self):
         scheduler = load_scheduler_module()

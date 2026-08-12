@@ -22,6 +22,7 @@ from dashboard.apis.iwencai_service import (  # noqa: E402
     write_dragon_tiger_snapshot,
 )
 from reports.a_share import iwencai_dragon_tiger_snapshot as snapshot_job  # noqa: E402
+from market_data.news_precheck import IWENCAI_NEWS_SOURCE_VERSION  # noqa: E402
 
 
 def _payload(trade_date: str, code: str) -> dict[str, object]:
@@ -49,8 +50,11 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
                     "news_precheck": {
                         "checked": True,
                         "available": True,
-                        "tone": "neutral",
-                        "summary": "连板样本暂无重大消息",
+                    "tone": "neutral",
+                    "summary": "连板样本暂无重大消息",
+                    "provider": "同花顺问财",
+                    "source_mode": "iwencai",
+                    "source_version": IWENCAI_NEWS_SOURCE_VERSION,
                     },
                 },
                 {
@@ -62,8 +66,11 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
                     "news_precheck": {
                         "checked": True,
                         "available": True,
-                        "tone": "positive",
-                        "summary": "连榜样本出现利好消息",
+                    "tone": "positive",
+                    "summary": "连榜样本出现利好消息",
+                    "provider": "同花顺问财",
+                    "source_mode": "iwencai",
+                    "source_version": IWENCAI_NEWS_SOURCE_VERSION,
                     },
                 },
             ]
@@ -84,8 +91,9 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
             })
             self.assertTrue(write_dragon_tiger_snapshot(path, payload))
 
-            first, first_saved = snapshot_job.backfill_snapshot_news(path, env={})
-            second, second_saved = snapshot_job.backfill_snapshot_news(path, env={})
+            env = {"IWENCAI_NEWS_PRECHECK_ENABLED": "1"}
+            first, first_saved = snapshot_job.backfill_snapshot_news(path, env=env)
+            second, second_saved = snapshot_job.backfill_snapshot_news(path, env=env)
 
             self.assertTrue(first_saved)
             self.assertFalse(second_saved)
@@ -120,6 +128,9 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
                         "tone": "neutral",
                         "tone_label": "中性",
                         "summary": "暂无重大消息（中性）",
+                        "provider": "同花顺问财",
+                        "source_mode": "iwencai",
+                        "source_version": IWENCAI_NEWS_SOURCE_VERSION,
                     }
                     result["limit_up_news_candidate_count"] = 1
                     result["limit_up_news_checked_codes"] = ["920117.BJ"]
@@ -137,8 +148,9 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
                     return result
 
                 snapshot_job.enrich_consecutive_dragon_tiger_news = fake_enrich
-                first, first_saved = snapshot_job.backfill_snapshot_news(path, env={})
-                second, second_saved = snapshot_job.backfill_snapshot_news(path, env={})
+                env = {"IWENCAI_NEWS_PRECHECK_ENABLED": "1"}
+                first, first_saved = snapshot_job.backfill_snapshot_news(path, env=env)
+                second, second_saved = snapshot_job.backfill_snapshot_news(path, env=env)
             finally:
                 snapshot_job.enrich_consecutive_dragon_tiger_news = original_enrich
 
@@ -147,7 +159,7 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
             self.assertEqual(calls, ["2026-07-24"])
             self.assertEqual(first["items"][0]["news_precheck"]["tone_label"], "中性")
 
-    def test_complete_snapshot_locally_repairs_unclassified_news_once(self):
+    def test_complete_snapshot_never_locally_repairs_unclassified_news(self):
         with tempfile.TemporaryDirectory(prefix="niuone-dragon-tiger-") as tmp:
             path = Path(tmp) / "iwencai_dragon_tiger_latest.json"
             payload = _payload("2026-07-24", "000595.SZ")
@@ -163,18 +175,22 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
                     "summary": "股东增持构成重大利好，无其他利空或中性消息。",
                     "fetched_at": "2026-07-26T18:35:49+08:00",
                     "error": "unclassified_response",
+                    "provider": "同花顺问财",
+                    "source_mode": "iwencai",
+                    "source_version": IWENCAI_NEWS_SOURCE_VERSION,
                 },
             })
             self.assertTrue(write_dragon_tiger_snapshot(path, payload))
 
-            first, first_saved = snapshot_job.backfill_snapshot_news(path, env={})
-            second, second_saved = snapshot_job.backfill_snapshot_news(path, env={})
+            env = {"IWENCAI_NEWS_PRECHECK_ENABLED": "1"}
+            first, first_saved = snapshot_job.backfill_snapshot_news(path, env=env)
+            second, second_saved = snapshot_job.backfill_snapshot_news(path, env=env)
 
             self.assertTrue(first_saved)
             self.assertFalse(second_saved)
-            self.assertEqual(first["items"][0]["news_precheck"]["tone_label"], "利好")
-            self.assertTrue(first["items"][0]["news_precheck"]["repaired_locally"])
-            self.assertTrue(second["items"][0]["news_precheck"]["available"])
+            self.assertEqual(first["items"][0]["news_precheck"]["tone_label"], "未识别")
+            self.assertNotIn("repaired_locally", first["items"][0]["news_precheck"])
+            self.assertFalse(second["items"][0]["news_precheck"]["available"])
 
     def test_backfill_queries_pending_snapshot_once_and_stops_after_completion(self):
         with tempfile.TemporaryDirectory(prefix="niuone-dragon-tiger-") as tmp:
@@ -202,6 +218,9 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
                         "checked": True,
                         "available": True,
                         "summary": "周五消息面已补检（中性）",
+                        "provider": "同花顺问财",
+                        "source_mode": "iwencai",
+                        "source_version": IWENCAI_NEWS_SOURCE_VERSION,
                     }
                     result["limit_up_news_complete"] = True
                     result["limit_up_news_candidate_count"] = 1
@@ -219,8 +238,9 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
                     return result
 
                 snapshot_job.enrich_consecutive_dragon_tiger_news = fake_enrich
-                first, first_saved = snapshot_job.backfill_snapshot_news(path, env={})
-                second, second_saved = snapshot_job.backfill_snapshot_news(path, env={})
+                env = {"IWENCAI_NEWS_PRECHECK_ENABLED": "1"}
+                first, first_saved = snapshot_job.backfill_snapshot_news(path, env=env)
+                second, second_saved = snapshot_job.backfill_snapshot_news(path, env=env)
             finally:
                 snapshot_job.enrich_consecutive_dragon_tiger_news = original_enrich
 
@@ -306,20 +326,14 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
             self.assertEqual(payload["continuous_list_count"], 1)
             self.assertEqual(payload["items"][0]["consecutive_list_days"], 2)
             self.assertTrue(payload["items"][0]["consecutive_listed"])
-            self.assertEqual(
-                payload["items"][0]["news_precheck"]["error"],
-                "news_precheck_not_configured",
-            )
+            self.assertNotIn("news_precheck", payload["items"][0])
             latest = read_dragon_tiger_snapshot(path, trade_date="2026-07-16")
-            self.assertEqual(latest["limit_up_news_pending_codes"], ["000001.SZ"])
-            self.assertFalse(latest["limit_up_news_complete"])
+            self.assertEqual(latest["limit_up_news_pending_codes"], [])
+            self.assertTrue(latest["limit_up_news_complete"])
             self.assertEqual(latest["continuous_news_checked_codes"], [])
-            self.assertEqual(latest["continuous_news_pending_codes"], ["000001.SZ"])
-            self.assertFalse(latest["continuous_news_complete"])
-            self.assertEqual(
-                latest["continuous_news_started_at"],
-                "2026-07-16T18:00:00+08:00",
-            )
+            self.assertEqual(latest["continuous_news_pending_codes"], [])
+            self.assertTrue(latest["continuous_news_complete"])
+            self.assertNotIn("continuous_news_started_at", latest)
 
     def test_refresh_persists_core_list_before_later_fetch_stage_is_interrupted(self):
         with tempfile.TemporaryDirectory(prefix="niuone-dragon-tiger-") as tmp:
@@ -369,6 +383,9 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
                     "checked": True,
                     "available": True,
                     "summary": "已保存消息",
+                    "provider": "同花顺问财",
+                    "source_mode": "iwencai",
+                    "source_version": IWENCAI_NEWS_SOURCE_VERSION,
                 },
             })
             self.assertTrue(write_dragon_tiger_snapshot(path, complete))
@@ -498,6 +515,9 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
                     "checked": True,
                     "available": True,
                     "summary": "已保存消息",
+                    "provider": "同花顺问财",
+                    "source_mode": "iwencai",
+                    "source_version": IWENCAI_NEWS_SOURCE_VERSION,
                 },
             })
             self.assertTrue(write_dragon_tiger_snapshot(path, complete))
@@ -522,7 +542,10 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
                 snapshot_job.trading_day_status = lambda *_args, **_kwargs: {
                     "previous_trading_day": "2026-07-15",
                 }
-                _payload_result, saved = snapshot_job.refresh_snapshot(path, env={})
+                _payload_result, saved = snapshot_job.refresh_snapshot(
+                    path,
+                    env={"IWENCAI_NEWS_PRECHECK_ENABLED": "1"},
+                )
             finally:
                 snapshot_job.fetch_dragon_tiger = original_fetch
                 snapshot_job.trading_day_status = original_calendar
@@ -603,7 +626,10 @@ class IwencaiDragonTigerSnapshotTests(unittest.TestCase):
                     return result
 
                 snapshot_job.enrich_consecutive_dragon_tiger_news = fake_enrich
-                payload, saved = snapshot_job.refresh_snapshot(path, env={})
+                payload, saved = snapshot_job.refresh_snapshot(
+                    path,
+                    env={"IWENCAI_NEWS_PRECHECK_ENABLED": "1"},
+                )
             finally:
                 snapshot_job.fetch_dragon_tiger = original_fetch
                 snapshot_job.enrich_consecutive_dragon_tiger_news = original_enrich

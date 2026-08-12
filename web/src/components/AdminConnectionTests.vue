@@ -28,7 +28,8 @@ const modelTests = computed(() => (
 ))
 const iwencaiTest = computed(() => {
   const test = props.config.iwencai_test || {}
-  return test.group_slug === props.slug ? test : null
+  if (test.group_slug === props.slug) return test
+  return null
 })
 const reasoningCapabilities = computed(() => (
   Array.isArray(props.config.reasoning_effort_capabilities)
@@ -120,7 +121,7 @@ function effortMappings(capability) {
       <div class="model-test-row">
         <div class="model-test-copy">
           <div class="model-test-label">{{ iwencaiTest.label || '问财接口' }}</div>
-          <div class="model-test-description">{{ iwencaiTest.description || '验证问财网关地址和 API Key。' }}</div>
+          <div class="model-test-description">{{ iwencaiTest.description || '验证问财行情接口；开启预检时同时验证三个消息面技能。' }}</div>
         </div>
         <div class="model-test-action">
           <button

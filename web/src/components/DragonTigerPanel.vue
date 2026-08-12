@@ -190,11 +190,12 @@ function rawContinuousNewsSummary(item) {
   const record = item?.news_precheck
   const summary = String(record?.summary || '').trim()
   if (record?.available === true && summary) return summary
-  if (record?.error === 'news_precheck_not_configured') return '消息面预检模型尚未配置，连板/连榜标记不受影响。'
-  if (record?.error === 'news_precheck_incomplete') return '消息面预检模型配置不完整，连板/连榜标记不受影响。'
+  if (record?.error === 'news_precheck_not_configured') return '消息面预检数据源尚未配置，连板/连榜标记不受影响。'
+  if (record?.error === 'news_precheck_incomplete') return '消息面预检数据源配置不完整，连板/连榜标记不受影响。'
+  if (record?.error === 'news_precheck_disabled') return '消息面预检未开启，连板/连榜标记不受影响。'
   if (record?.error === 'pending_news_precheck') return '该股票尚待消息面检索，将在本次龙虎榜拉取流程中处理。'
   if (record?.error === 'daily_query_limit') return '本次达到消息面查询上限，将在后续快照中补充。'
-  if (record?.checked === true) return '消息面预检模型本次未返回可用摘要。'
+  if (record?.checked === true) return '消息面预检数据源本次未返回可用摘要。'
   return '暂无消息面预检摘要。'
 }
 
@@ -279,9 +280,10 @@ function continuousNewsSource(item) {
   const sourceScope = Array.isArray(item?.news_precheck?.source_scope)
     ? item.news_precheck.source_scope
     : []
-  return sourceScope.includes('xueqiu') && sourceScope.includes('x')
-    ? '公开检索：公告/财经媒体 · 雪球 · X · 最近 3 天'
-    : '公开检索：最近 3 天'
+  if (sourceScope.includes('announcement-search') || sourceScope.includes('news-search')) {
+    return '同花顺问财：公告 · 新闻 · 事件 · 最近 3 天'
+  }
+  return '同花顺问财：最近 3 天'
 }
 
 function hideContinuousTooltip() {

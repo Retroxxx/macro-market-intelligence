@@ -134,7 +134,9 @@ def job_enabled(job: Job, env_values: dict[str, str]) -> bool:
     if job.env_name == "DASHBOARD_US_RATING_CRON":
         return us_features_enabled(env_values)
     if job.env_name == "IWENCAI_DRAGON_TIGER_CRON":
-        raw = env_values.get("IWENCAI_ENABLED") or os.environ.get("IWENCAI_ENABLED") or "0"
+        # Callers pass the fully resolved dashboard.env mapping. Do not leak a
+        # separately inherited process value into explicit test/runtime snapshots.
+        raw = env_values.get("IWENCAI_ENABLED") or "0"
         return str(raw).strip().lower() in {"1", "true", "yes", "on"}
     return True
 

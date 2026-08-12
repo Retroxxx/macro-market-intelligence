@@ -76,7 +76,7 @@ http://127.0.0.1:8787/
 
 ## 3. 模型配置
 
-NiuOne 需要大模型驱动完整工作流。美股机构评级日报可使用独立的实时网页搜索模型，留空时复用 Grok；A 股盘面总结增强可使用任意兼容 `/chat/completions` 的模型；A 股候选股及龙虎榜连板/连榜股票的消息面预检使用独立配置、具备实时搜索能力的模型；选股后的买卖决策可配置兼容模型，推荐使用 DeepSeek。
+NiuOne 需要大模型驱动完整交易决策工作流。美股机构评级日报可使用独立的实时网页搜索模型，留空时复用 Grok；A 股盘面总结增强可使用任意兼容 `/chat/completions` 的模型；A 股候选股及龙虎榜连板/连榜股票的消息面证据由问财检索，并复用买卖决策模型判断方向；选股后的买卖决策可配置兼容模型，推荐使用 DeepSeek。
 
 核心配置项：
 
@@ -85,8 +85,7 @@ NiuOne 需要大模型驱动完整工作流。美股机构评级日报可使用�
 | 牛牛美股总开关 | `DASHBOARD_US_FEATURES_ENABLED` |
 | Grok API | `DASHBOARD_GROK_BASE_URL`、`DASHBOARD_GROK_API_KEY`、`DASHBOARD_GROK_MODEL`、`DASHBOARD_GROK_API_MODE`、`DASHBOARD_GROK_STREAM_MODE`、`DASHBOARD_GROK_REASONING_EFFORT`、`DASHBOARD_GROK_CONTEXT_LENGTH` |
 | A 股盘面模型总结单独覆盖 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_STREAM_MODE`、`A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`、`A_SHARE_MODEL_SUMMARY_MAX_TOKENS` |
-| 消息面预检 API | `DASHBOARD_NEWS_BASE_URL`、`DASHBOARD_NEWS_API_KEY`、`DASHBOARD_NEWS_MODEL`、`DASHBOARD_NEWS_API_MODE`、`DASHBOARD_NEWS_STREAM_MODE`、`DASHBOARD_NEWS_REASONING_EFFORT`、`DASHBOARD_NEWS_MAX_TOKENS`、`DASHBOARD_NEWS_CONCURRENCY` |
-| 问财内置数据源 | `IWENCAI_ENABLED`、`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_TIMEOUT_SECONDS`、`IWENCAI_MAX_RETRIES`、`IWENCAI_MAX_CONCURRENCY`、`IWENCAI_CACHE_TTL_SECONDS`、`IWENCAI_DRAGON_TIGER_CRON` |
+| 问财内置数据源与消息面预检 | `IWENCAI_ENABLED`、`IWENCAI_NEWS_PRECHECK_ENABLED`、`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_TIMEOUT_SECONDS`、`IWENCAI_MAX_RETRIES`、`IWENCAI_MAX_CONCURRENCY`、`IWENCAI_CACHE_TTL_SECONDS`、`IWENCAI_DRAGON_TIGER_CRON` |
 | 买卖决策 API | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL`、`DASHBOARD_DECISION_STREAM_MODE`、`DASHBOARD_DECISION_REASONING_EFFORT` |
 | 买卖决策情报包 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`、`DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`、`DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 | 买卖决策交易纪律 | `DASHBOARD_TRADE_DISCIPLINE_TEXT`；为空时使用内置默认纪律，填写后进入模型 prompt 的“必须遵守”段 |
@@ -129,13 +128,12 @@ NiuOne 需要大模型驱动完整工作流。美股机构评级日报可使用�
 
 来源：[Qwen Responses](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)、[Qwen Chat](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)、[Qwen 深度思考](https://help.aliyun.com/zh/model-studio/deep-thinking)、[MiniMax Responses](https://platform.minimax.io/docs/api-reference/responses-create)、[MiniMax Chat](https://platform.minimax.io/docs/api-reference/text-chat-openai)、[DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)、[智谱深度思考](https://docs.bigmodel.cn/cn/guide/capabilities/thinking)、[小米 MiMo Responses](https://mimo.mi.com/docs/zh-CN/api/chat/responses)、[xAI Grok 4.3](https://docs.x.ai/developers/models/grok-4.3)、[xAI Reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning)、[OpenAI GPT-5.6](https://developers.openai.com/api/docs/models/gpt-5.6-sol) 及各型号官方模型页。Claude、Gemini 等原生 API 使用不同的思考控制字段，不在这个 OpenAI 兼容表中；如果兼容网关提供同名字段，作为表外自定义值处理。
 `DASHBOARD_GROK_API_MODE` 可设为 `auto`、`responses` 或 `chat`。默认 `auto` 会为 Grok 4.3/4.5、MiMo 2.5 和表中常用 Qwen Responses 型号选择 Responses API，其他模型保持 Chat Completions；兼容网关可显式选择对应模式。
-`DASHBOARD_NEWS_API_MODE` 同样可设为 `auto`、`responses` 或 `chat`。默认 `auto` 会为 Grok 4.3/4.5、MiMo 2.5、表中常用 Qwen Responses 型号和 GPT-5 系列搜索模型使用带 `web_search` 工具的 Responses API；Grok Responses 预检模型还会加入 `x_search`，其他模型通过 `web_search` 检索可公开索引的雪球/X 页面，不会改用 `DASHBOARD_GROK_*`。
 `*_CONTEXT_LENGTH` 仅表示模型上下文窗口，默认 `128000`；`*_MAX_TOKENS` 表示期望的最大输出长度，调用层会按接口映射为 `max_tokens` 或 `max_output_tokens`。已知不接受 Responses 输出长度参数的 GPT-5.6 网关别名会省略该参数，其他网关若明确返回不支持也会自动去参重试一次。模型响应同时兼容 JSON 和 SSE，即使网关在 `stream=false` 时仍强制返回 SSE。
-消息面预检默认最多并发检查 5 只候选股；如果上游出现限流或 403/429，可将 `DASHBOARD_NEWS_CONCURRENCY` 降为 `2` 或 `1`。旧快照中的 `unclassified_response` 若能从已保存摘要唯一判断“利好/利空/中性”，补检流程会在本地修复标签并保留原查询时间，不新增模型请求；仍有歧义时保持未识别。
+`IWENCAI_NEWS_PRECHECK_ENABLED` 默认关闭，并位于“问财数据源”设置分组。开启后复用 `IWENCAI_*` 检索配置和 `DASHBOARD_DECISION_*` 买卖决策模型配置。问财官方 `announcement-search`、`news-search` 和 `hithink-event-query` 负责检索，公告、新闻和带日期的事件结果限制在最近 3 天并跨来源去重。存在有效证据时由买卖决策模型输出结构化利好、利空或中性判断；没有证据时直接记为中性。模型未配置、超时或输出不可解析时标记判断不可用，不回退关键词规则。每个问财技能独立记录状态，行情或资金流永远不能替代消息。旧 `DASHBOARD_NEWS_*` 配置不再读取。
 
-问财数据源默认关闭。“问财数据源”设置分组提供“测试问财接口”按钮，会使用页面当前地址和密钥发送一次轻量只读查询，不保存配置或改写龙虎榜快照。启用并配置 API Key 后，Dashboard 提供固定用途的
-`/api/iwencai/dragon-tiger?date=YYYY-MM-DD&page=1&limit=100` 龙虎榜接口；接口不接受任意自然语言问句，
-单页最多 100 只股票，并复用 Dashboard 限流和缓存。返回结果按股票代码去重，`sector` 提供所属行业，`limit_up_reason` 和 `limit_up_reason_category` 分别提供问财归纳的涨停原因及原因类别，重复榜单记录保留在 `details` 中。每日快照会与前一 A 股交易日的滚动快照比较；同一股票连续出现时写入 `consecutive_listed`、`consecutive_list_days` 和最多 10 个 `consecutive_list_dates`，缺失相邻快照时安全重置，不跨数据缺口推测。主体榜单和行业完成后先原子保存核心阶段，席位查询后升级为详情阶段，消息增强后升级为最终阶段；同一交易日的重试只能前进或保持阶段，不能用较低阶段覆盖已有完整数据。消息面预检批次使用 `IWENCAI_DRAGON_TIGER_CRON` 配置的龙虎榜计划查询时间作为起始时间，不使用上游响应的 `generated_at`；龙虎榜成功返回后，快照中尚未检索且满足连板（`limit_up_streak >= 2`）或连续上榜（`consecutive_listed = true` 且 `consecutive_list_days >= 2`）任一条件的股票使用 `DASHBOARD_NEWS_*` 配置查询最近 3 天消息，最多保持 5 路并发。公告、交易所披露和主流财经媒体用于事实核验，雪球与 X/Twitter 仅作为单独的市场舆情，不得把未核实帖子写成公司事实。每只股票的 `news_precheck.checked` 以及汇总字段 `limit_up_news_checked_codes`、`limit_up_news_pending_codes` 会持久化；旧的 `continuous_news_*` 字段作为兼容别名保留。调度器启动时会追补最近应有的交易日快照；同日仍处核心阶段时继续刷新席位和消息。新交易日拉取优先持久化主体榜单；若新查询失败或为空，仍在展示的旧快照才随后补检消息。全部完成后，后续同日拉取不会重复调用模型。模型未配置或失败不影响主榜快照，也不会回退到 `DASHBOARD_GROK_*`。`seats` 保留买卖前五的机构专用、普通营业部及问财明确标注的游资/量化席位，并记录同一营业部可能同时出现的 `buy_rank`、`sell_rank` 和金额；`institution_seats` 继续提供机构子集以兼容现有消费者。
+问财数据源默认关闭。“问财数据源”设置分组提供“测试问财接口”按钮，会使用页面当前地址和密钥执行只读验证，不保存配置或改写龙虎榜快照：始终测试行情技能，若页面已开启消息面预检则同时测试公告、新闻和事件三个技能。启用并配置 API Key 后，Dashboard 提供固定用途的
+`/api/iwencai/dragon-tiger?date=YYYY-MM-DD&page=1&limit=100` 龙虎榜接口；接口不接受任意自然语言问句。
+单页最多 100 只股票，并复用 Dashboard 限流和缓存。返回结果按股票代码去重，`sector` 提供所属行业，`limit_up_reason` 和 `limit_up_reason_category` 分别提供问财归纳的涨停原因及原因类别，重复榜单记录保留在 `details` 中。每日快照会与前一 A 股交易日的滚动快照比较；同一股票连续出现时写入 `consecutive_listed`、`consecutive_list_days` 和最多 10 个 `consecutive_list_dates`，缺失相邻快照时安全重置。开启消息面预检后，符合条件的股票通过问财三个技能检查最近 3 天信息，再由买卖决策模型判断方向；每只股票的检索/判断版本和状态会持久化，同日完成后不重复查询，版本升级会自动使旧缓存失效。任何检索或模型判断失败均不影响龙虎榜主体快照。
 问财响应属于研究数据快照，发生超时、计数不一致或上游失败时会返回明确状态，不会覆盖账户、成交或其他真实交易记录。Dashboard 的 `/dragon-tiger` 栏目可按交易日实时查询；当日数据以及下一次成功查询前仍在滚动快照中的最近数据无需密码，更早日期必须输入管理员密码并建立有效会话。当日实时回源为空时，接口继续返回最近成功快照，避免零点后在新榜单生成前把页面替换为空状态。所有非当日响应均不进入公共或 CDN 缓存，确保新数据覆盖后旧日期立即恢复保护。只有与最新快照日期一致的请求会在回源前直接复用本地数据，其他日期不持久化。Cron 默认在 A 股交易日北京时间
 18:00 更新 `.local-data/runtime/cron/output/iwencai_dragon_tiger_latest.json`。该文件只保留最近一次非空成功查询，下一次成功查询会原子覆盖它，并清理旧版本生成的 `iwencai_dragon_tiger/YYYY-MM-DD.json` 归档；空结果或主榜失败继续保留上一份有效快照。席位明细失败不会阻断股票榜单；查询日期未变化时，当前快照中的有效席位记录不会被缺失结果覆盖。
 

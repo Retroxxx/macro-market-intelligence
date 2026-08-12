@@ -40,9 +40,11 @@ from core.model_api import (
     request_model_complete,
 )
 from market_data.news_precheck import (
+    NewsPrecheckConfig,
+    cached_news_record_matches_source,
+    fetch_candidate_news_records,
     format_cached_news_record,
     format_cached_news_records,
-    news_search_tools,
 )
 from market_data.tencent_kline_cache import merge_live_quote, quote_trade_date
 from niuone_paths import get_dashboard_env_file, get_dashboard_home
@@ -271,17 +273,13 @@ REALTIME_NEWS_CACHE_FILE = DASHBOARD_HOME / "news" / "realtime_news_latest.json"
 
 def load_dashboard_env() -> None:
     allowed = {
-        "DASHBOARD_NEWS_MODEL",
-        "DASHBOARD_NEWS_STREAM_MODE",
-        "DASHBOARD_NEWS_REASONING_EFFORT",
-        "DASHBOARD_NEWS_API_MODE",
-        "DASHBOARD_NEWS_CONTEXT_LENGTH",
-        "DASHBOARD_NEWS_MAX_TOKENS",
-        "DASHBOARD_NEWS_BASE_URL",
-        "DASHBOARD_NEWS_API_KEY",
-        "DASHBOARD_NEWS_TIMEOUT",
-        "DASHBOARD_NEWS_MAX_RETRIES",
-        "DASHBOARD_NEWS_CONCURRENCY",
+        "IWENCAI_NEWS_PRECHECK_ENABLED",
+        "IWENCAI_ENABLED",
+        "IWENCAI_BASE_URL",
+        "IWENCAI_API_KEY",
+        "IWENCAI_TIMEOUT_SECONDS",
+        "IWENCAI_MAX_RETRIES",
+        "IWENCAI_MAX_CONCURRENCY",
         "DASHBOARD_DECISION_MODEL",
         "DASHBOARD_DECISION_STREAM_MODE",
         "DASHBOARD_DECISION_REASONING_EFFORT",
@@ -479,14 +477,6 @@ DECISION_REASONING_EFFORT = os.environ.get("DASHBOARD_DECISION_REASONING_EFFORT"
 DECISION_CONTEXT_LENGTH = env_token_count("DASHBOARD_DECISION_CONTEXT_LENGTH", 128000)
 DECISION_MAX_TOKENS = env_int("DASHBOARD_DECISION_MAX_TOKENS", 4096)
 DECISION_REQUEST_TIMEOUT = env_int("DASHBOARD_DECISION_TIMEOUT", 180)
-NEWS_PRECHECK_REQUEST_TIMEOUT = max(5, env_int("DASHBOARD_NEWS_TIMEOUT", 45))
-NEWS_PRECHECK_MAX_RETRIES = max(1, env_int("DASHBOARD_NEWS_MAX_RETRIES", 1))
-NEWS_PRECHECK_CONCURRENCY = max(1, min(5, env_int("DASHBOARD_NEWS_CONCURRENCY", 5)))
-NEWS_PRECHECK_API_MODE = os.environ.get("DASHBOARD_NEWS_API_MODE") or "auto"
-NEWS_PRECHECK_STREAM_MODE = os.environ.get("DASHBOARD_NEWS_STREAM_MODE") or "auto"
-NEWS_PRECHECK_REASONING_EFFORT = os.environ.get("DASHBOARD_NEWS_REASONING_EFFORT") or ""
-NEWS_PRECHECK_CONTEXT_LENGTH = env_token_count("DASHBOARD_NEWS_CONTEXT_LENGTH", 128000)
-NEWS_PRECHECK_MAX_TOKENS = env_token_count("DASHBOARD_NEWS_MAX_TOKENS", 4096)
 PROVIDER_DISPLAY_NAME = "Crossdesk.ccwu.cc"
 CROSSDESK_PROVIDER_NAME = "Crossdesk.ccwu.cc"
 TRADE_LOG_LIMIT = 200
@@ -7461,24 +7451,12 @@ def api_call_with_retry(base_url: str, api_key: str, payload: dict, max_retries:
     raise last_err
 
 
-def load_news_precheck_config() -> tuple[str, str, str] | None:
-    base_url = os.environ.get("DASHBOARD_NEWS_BASE_URL", "").strip()
-    api_key = os.environ.get("DASHBOARD_NEWS_API_KEY", "").strip()
-    model = os.environ.get("DASHBOARD_NEWS_MODEL", "").strip()
-    if not any((base_url, api_key, model)):
-        return None
-    missing = [
-        label
-        for label, value in (
-            ("DASHBOARD_NEWS_BASE_URL", base_url),
-            ("DASHBOARD_NEWS_API_KEY", api_key),
-            ("DASHBOARD_NEWS_MODEL", model),
-        )
-        if not value
-    ]
-    if missing:
-        raise RuntimeError("消息面预检配置不完整：" + "、".join(missing))
-    return base_url.rstrip("/"), api_key, model
+def load_news_precheck_config() -> NewsPrecheckConfig | None:
+    try:
+        return NewsPrecheckConfig.from_mapping(os.environ)
+    except ValueError as exc:
+        detail = str(exc).split(":", 1)[-1]
+        raise RuntimeError("消息面预检配置不完整：" + detail) from exc
 
 
 def compact_portfolio_for_decision(portfolio: dict[str, Any]) -> dict[str, Any]:
@@ -7564,135 +7542,52 @@ def compact_portfolio_for_decision(portfolio: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def format_candidate_label(candidate: dict[str, Any]) -> str:
-    code = str(candidate.get("code") or "").strip()
-    name = str(candidate.get("name") or "").strip()
-    return " ".join(part for part in [code, name] if part).strip() or "未知股票"
-
-
-def build_single_candidate_news_prompt(candidate: dict[str, Any]) -> str:
-    label = format_candidate_label(candidate)
-    return f"""搜索以下A股最近3天的重大消息与市场舆情，只针对这一只股票：
-{label}
-
-请交叉核验公司公告或交易所披露、主流财经媒体、雪球与X/Twitter公开内容。
-公告和主流财经媒体用于确认事实；雪球和X只用于概括市场观点，不得把未经证实的帖子当作公司事实。无法访问某个平台或没有可核验内容时写“未见显著讨论”，不要编造。
-
-格式：
-- 代码 名称：事件：核心事实；影响：直接影响；舆情：雪球和X的代表性倾向或未见显著讨论（利好/利空/中性）
-如没有明确重大消息，输出：
-- 代码 名称：事件：未发现明确重大消息；影响：暂无；舆情：雪球和X未见显著讨论（中性）
-不要输出帖子原文、用户名、引用编号、链接、来源列表、检索日期、检索过程或 Markdown。"""
-
-
-def request_single_candidate_news_precheck(
-    candidate: dict[str, Any],
-    *,
-    base_url: str,
-    api_key: str,
-    model: str,
-) -> str:
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": build_single_candidate_news_prompt(candidate)}],
-        "max_tokens": NEWS_PRECHECK_MAX_TOKENS,
-    }
-    if NEWS_PRECHECK_REASONING_EFFORT:
-        payload["reasoning_effort"] = NEWS_PRECHECK_REASONING_EFFORT
-    return request_chat_content(
-        base_url,
-        api_key,
-        payload,
-        model,
-        max_retries=NEWS_PRECHECK_MAX_RETRIES,
-        timeout=NEWS_PRECHECK_REQUEST_TIMEOUT,
-        api_mode=NEWS_PRECHECK_API_MODE,
-        stream_mode=NEWS_PRECHECK_STREAM_MODE,
-        tools=news_search_tools(model, NEWS_PRECHECK_API_MODE),
-    ).strip()
-
-
-def format_news_precheck_error(candidate: dict[str, Any], exc: Exception) -> str:
-    detail = clip_text(f"{type(exc).__name__}: {exc}", 160)
-    return f"- {format_candidate_label(candidate)}：消息面预检失败（{detail}）"
-
-
 def check_candidate_news_precheck(candidates: list[dict[str, Any]]) -> str:
-    """并发搜索 top5 候选股的最新消息面，返回结构化摘要。
+    """Retrieve through iWencai and judge with the decision model for top candidates.
 
     Returns: 格式化的消息面文本，供决策 prompt 使用。
     """
     top_candidates = [c for c in candidates[:5] if isinstance(c, dict)]
     if not top_candidates:
         return ""
+    news_config = load_news_precheck_config()
+    if news_config is None:
+        return ""
     cached_records = [candidate.get("news_precheck") for candidate in top_candidates]
+    source_mode = "iwencai"
     cached_count = sum(
         1
         for record in cached_records
-        if isinstance(record, dict) and record.get("checked") is True
+        if cached_news_record_matches_source(record, source_mode, news_config.model)
     )
     if cached_count == len(top_candidates):
         return format_cached_news_records(cached_records)
 
-    news_config = load_news_precheck_config()
-    if news_config is None:
-        available_cache = [
-            record
-            for record in cached_records
-            if isinstance(record, dict) and record.get("checked") is True
-        ]
-        return format_cached_news_records(available_cache)
-    base_url, api_key, model = news_config
-
-    def fetch(candidate: dict[str, Any]) -> str:
-        return request_single_candidate_news_precheck(
-            candidate,
-            base_url=base_url,
-            api_key=api_key,
-            model=model,
+    missing_candidates = [
+        top_candidates[idx]
+        for idx in range(len(top_candidates))
+        if not cached_news_record_matches_source(
+            cached_records[idx], source_mode, news_config.model
         )
-
-    results: list[str] = [
-        format_cached_news_record(record)
-        if isinstance(record, dict) and record.get("checked") is True
-        else ""
+    ]
+    fresh_records = fetch_candidate_news_records(
+        missing_candidates,
+        news_config,
+        max_candidates=len(missing_candidates),
+    )
+    fresh_iter = iter(fresh_records)
+    combined_records = [
+        record
+        if cached_news_record_matches_source(record, source_mode, news_config.model)
+        else next(fresh_iter, {})
         for record in cached_records
     ]
-    failures: list[str] = []
-    success_count = cached_count
-    missing_indices = [idx for idx, result in enumerate(results) if not result]
-    workers = min(NEWS_PRECHECK_CONCURRENCY, len(missing_indices))
-    if workers <= 1:
-        for idx in missing_indices:
-            candidate = top_candidates[idx]
-            try:
-                results[idx] = fetch(candidate)
-                success_count += 1
-            except Exception as exc:
-                failures.append(format_news_precheck_error(candidate, exc))
-                results[idx] = failures[-1]
-    else:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-            future_by_index = {
-                pool.submit(fetch, top_candidates[idx]): idx
-                for idx in missing_indices
-            }
-            for future in concurrent.futures.as_completed(future_by_index):
-                idx = future_by_index[future]
-                candidate = top_candidates[idx]
-                try:
-                    results[idx] = future.result()
-                    success_count += 1
-                except Exception as exc:
-                    failures.append(format_news_precheck_error(candidate, exc))
-                    results[idx] = failures[-1]
-
-    if failures and success_count == 0:
-        raise RuntimeError("全部股票消息面预检失败：" + "；".join(failures[:3]))
-
-    content = "\n".join(item.strip() for item in results if item and item.strip()).strip()
-    source_label = "扫描缓存 + 实时补齐" if cached_count else "实时搜索"
-    return f"【消息面预检（{source_label}，并发{workers}）】\n{content}"
+    lines = [
+        format_cached_news_record(record)
+        for record in combined_records
+        if isinstance(record, dict) and record
+    ]
+    return "【消息面预检（同花顺问财）】\n" + "\n".join(lines) if lines else ""
 
 
 def current_strategy_source() -> str:

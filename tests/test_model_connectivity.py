@@ -45,7 +45,6 @@ class ModelConnectivityTests(unittest.TestCase):
         self.assertEqual(
             [item["id"] for item in metadata],
             [
-                "news-precheck",
                 "decision-model",
                 "grok-model",
                 "us-rating-model",
@@ -54,7 +53,7 @@ class ModelConnectivityTests(unittest.TestCase):
         )
         self.assertEqual(
             {item["group_slug"] for item in metadata},
-            {"news-precheck", "decision-model", "us-market", "market-monitoring"},
+            {"decision-model", "us-market", "market-monitoring"},
         )
         self.assertTrue(all("API_KEY" in " ".join(item["field_names"]) for item in metadata))
         rating = next(item for item in metadata if item["id"] == "us-rating-model")
@@ -125,32 +124,6 @@ class ModelConnectivityTests(unittest.TestCase):
         payload = json.loads(requests[0].data.decode("utf-8"))
         self.assertTrue(payload["stream"])
         self.assertIn("强制流式", result["message"])
-
-    def test_news_test_uses_operational_responses_mode_and_search_tool(self):
-        requests = []
-
-        def opener(request, timeout=0):
-            requests.append(request)
-            return _Response()
-
-        result = run_model_connection_test(
-            "news-precheck",
-            {
-                "DASHBOARD_NEWS_MODEL": "gpt-5-search",
-                "DASHBOARD_NEWS_BASE_URL": "https://search.example/v1",
-                "DASHBOARD_NEWS_API_KEY": "search-key",
-                "DASHBOARD_NEWS_API_MODE": "auto",
-                "DASHBOARD_NEWS_REASONING_EFFORT": "high",
-            },
-            opener=opener,
-        )
-
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["api_mode"], "responses")
-        payload = json.loads(requests[0].data.decode("utf-8"))
-        self.assertEqual(payload["tools"], [{"type": "web_search"}])
-        self.assertNotIn("messages", payload)
-        self.assertEqual(payload["reasoning"], {"effort": "high"})
 
     def test_complete_provider_fallback_is_not_mixed_with_partial_override(self):
         config = resolve_model_test_config(
@@ -306,9 +279,9 @@ class ModelConnectivityTests(unittest.TestCase):
         self.assertIn("请留空后重试", unsupported["error"])
 
     def test_failures_are_actionable_and_do_not_expose_provider_bodies(self):
-        missing = run_model_connection_test("news-precheck", {})
+        missing = run_model_connection_test("decision-model", {})
         self.assertFalse(missing["ok"])
-        self.assertIn("模型", missing["error"])
+        self.assertIn("API 地址", missing["error"])
         self.assertIn("API Key", missing["error"])
 
         def unauthorized(request, timeout=0):

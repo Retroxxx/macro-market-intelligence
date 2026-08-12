@@ -306,7 +306,9 @@ async function runIwencaiTest() {
   if (iwencaiStatus.state === 'busy') return
   const body = new URLSearchParams()
   ;(props.config.iwencai_test?.field_names || []).forEach(name => {
-    body.set(`env__${name}`, formFieldValue(name))
+    if (form.value?.elements.namedItem(`env__${name}`)) {
+      body.set(`env__${name}`, formFieldValue(name))
+    }
   })
   iwencaiStatus.state = 'busy'
   iwencaiStatus.message = '正在连接问财接口...'

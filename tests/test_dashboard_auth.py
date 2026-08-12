@@ -7469,7 +7469,7 @@ process.stdout.write(JSON.stringify({{
         item_names = {item['name'] for item in payload['items']}
 
         self.assertEqual(handler.status, 200)
-        self.assertEqual(len(payload['groups']), 15)
+        self.assertEqual(len(payload['groups']), 14)
         self.assertEqual(item_names, set(dashboard.ADMIN_VISIBLE_ENV_NAMES))
         self.assertNotIn('X_WATCHLIST_HANDLES', item_names)
         self.assertFalse(any(name.startswith('X_WATCHLIST_') for name in item_names))
@@ -7490,7 +7490,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('<AdminEnvInput', ADMIN_FRONTEND)
         self.assertEqual(
             [item['id'] for item in payload['model_tests']],
-            ['news-precheck', 'decision-model', 'grok-model', 'us-rating-model', 'a-share-summary-model'],
+            ['decision-model', 'grok-model', 'us-rating-model', 'a-share-summary-model'],
         )
         self.assertIn("fetch('/api/admin/models/test'", ADMIN_FRONTEND)
         self.assertEqual(payload['iwencai_test']['group_slug'], 'iwencai')
@@ -7526,7 +7526,7 @@ process.stdout.write(JSON.stringify({{
             self.assertEqual(route.status, 200)
             self.assertIn('<div id="app">', route.wfile.getvalue().decode('utf-8'))
 
-        self.assertEqual(len(groups), 15)
+        self.assertEqual(len(groups), 14)
         self.assertEqual(len(slugs), len(set(slugs)))
         self.assertEqual(slugs[:2], ['access-control', 'notifications'])
         self.assertEqual(slugs[-1], 'about')
@@ -7534,7 +7534,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn(':to="`/admin/settings/${group.slug}`"', ADMIN_FRONTEND)
         self.assertIn('保存本组设置', ADMIN_FRONTEND)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 19)
-        self.assertEqual(len(dashboard.admin_setting_group_env_names('iwencai')), 8)
+        self.assertEqual(len(dashboard.admin_setting_group_env_names('iwencai')), 9)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 10)
         self.assertEqual(
             dashboard.admin_setting_group_env_names('about'),
@@ -7658,8 +7658,8 @@ process.stdout.write(JSON.stringify({{
         original_values = {
             name: dashboard.os.environ.get(name)
             for name in (
-                'DASHBOARD_NEWS_MODEL',
-                'DASHBOARD_NEWS_API_KEY',
+                'IWENCAI_ENABLED',
+                'IWENCAI_NEWS_PRECHECK_ENABLED',
                 'DASHBOARD_GROK_MODEL',
             )
         }
@@ -7667,18 +7667,17 @@ process.stdout.write(JSON.stringify({{
             for name in original_values:
                 dashboard.os.environ.pop(name, None)
             dashboard.DASHBOARD_ENV_FILE.write_text(
-                'DASHBOARD_NEWS_MODEL=old-news\nDASHBOARD_GROK_MODEL=old-grok\n',
+                'IWENCAI_ENABLED=1\nIWENCAI_NEWS_PRECHECK_ENABLED=0\nDASHBOARD_GROK_MODEL=old-grok\n',
                 encoding='utf-8',
             )
             dashboard.os.environ['DASHBOARD_GROK_MODEL'] = 'process-grok'
-            dashboard.os.environ['DASHBOARD_NEWS_API_KEY'] = 'process-news-secret'
             body = urllib.parse.urlencode({
-                'env__DASHBOARD_NEWS_MODEL': 'new-news',
-                'env__DASHBOARD_NEWS_API_KEY': '',
+                'env__IWENCAI_ENABLED': '1',
+                'env__IWENCAI_NEWS_PRECHECK_ENABLED': '1',
                 'env__DASHBOARD_GROK_MODEL': 'cross-group-attempt',
             }).encode('utf-8')
             handler = FakeHandler(
-                path='/api/admin/config/env/news-precheck',
+                path='/api/admin/config/env/iwencai',
                 method='POST',
                 headers={
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -7695,7 +7694,6 @@ process.stdout.write(JSON.stringify({{
                 include_container_overrides=False,
             )
             runtime_grok = dashboard.os.environ.get('DASHBOARD_GROK_MODEL')
-            runtime_news_secret = dashboard.os.environ.get('DASHBOARD_NEWS_API_KEY')
         finally:
             for name, value in original_values.items():
                 if value is None:
@@ -7704,12 +7702,11 @@ process.stdout.write(JSON.stringify({{
                     dashboard.os.environ[name] = value
 
         self.assertEqual(handler.status, 200)
-        self.assertEqual(result['group']['slug'], 'news-precheck')
-        self.assertEqual(result['changed_names'], ['DASHBOARD_NEWS_MODEL'])
-        self.assertEqual(stored['DASHBOARD_NEWS_MODEL'], 'new-news')
+        self.assertEqual(result['group']['slug'], 'iwencai')
+        self.assertEqual(result['changed_names'], ['IWENCAI_NEWS_PRECHECK_ENABLED'])
+        self.assertEqual(stored['IWENCAI_NEWS_PRECHECK_ENABLED'], '1')
         self.assertEqual(stored['DASHBOARD_GROK_MODEL'], 'old-grok')
         self.assertEqual(runtime_grok, 'process-grok')
-        self.assertEqual(runtime_news_secret, 'process-news-secret')
 
         missing = FakeHandler(
             path='/api/admin/config/env/not-a-group',
@@ -7916,7 +7913,6 @@ process.stdout.write(JSON.stringify({{
         for name in [
             'US_RATING_CONTEXT_LENGTH',
             'DASHBOARD_GROK_CONTEXT_LENGTH',
-            'DASHBOARD_NEWS_CONTEXT_LENGTH',
             'DASHBOARD_DECISION_CONTEXT_LENGTH',
             'A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH',
         ]:
@@ -7928,7 +7924,6 @@ process.stdout.write(JSON.stringify({{
             'DASHBOARD_DECISION_MAX_TOKENS',
             'US_RATING_MAX_TOKENS',
             'DASHBOARD_GROK_MAX_TOKENS',
-            'DASHBOARD_NEWS_MAX_TOKENS',
             'US_MARKET_SUMMARY_MAX_TOKENS',
             'A_SHARE_MODEL_SUMMARY_MAX_TOKENS',
         ]:
@@ -7952,7 +7947,6 @@ process.stdout.write(JSON.stringify({{
     def test_reasoning_effort_settings_validate_known_models_and_keep_custom_free_form(self):
         names = {
             'DASHBOARD_DECISION_REASONING_EFFORT',
-            'DASHBOARD_NEWS_REASONING_EFFORT',
             'DASHBOARD_GROK_REASONING_EFFORT',
             'US_RATING_REASONING_EFFORT',
             'A_SHARE_MODEL_SUMMARY_REASONING_EFFORT',
@@ -8004,10 +7998,6 @@ process.stdout.write(JSON.stringify({{
             'DASHBOARD_DECISION_MODEL': 'glm-4.7',
             'DASHBOARD_DECISION_REASONING_EFFORT': 'enabled',
         })
-        dashboard.validate_business_updates({
-            'DASHBOARD_NEWS_MODEL': 'mimo-v2.5-pro',
-            'DASHBOARD_NEWS_REASONING_EFFORT': 'high',
-        })
         payload = dashboard.build_admin_config_payload()
         self.assertGreaterEqual(len(payload['reasoning_effort_capabilities']), 10)
         payload_items = {item['name']: item for item in payload['items']}
@@ -8028,7 +8018,6 @@ process.stdout.write(JSON.stringify({{
     def test_each_model_configuration_exposes_a_validated_stream_mode(self):
         names = {
             'DASHBOARD_DECISION_STREAM_MODE',
-            'DASHBOARD_NEWS_STREAM_MODE',
             'DASHBOARD_GROK_STREAM_MODE',
             'US_RATING_STREAM_MODE',
             'A_SHARE_MODEL_SUMMARY_STREAM_MODE',
@@ -8062,6 +8051,21 @@ process.stdout.write(JSON.stringify({{
         self.assertTrue(all(payload_items[name]['kind'] == 'stream_mode' for name in names))
         self.assertIn("kind === 'stream_mode'", ADMIN_FRONTEND)
         self.assertIn('如果网关明确要求 stream=true', ADMIN_FRONTEND)
+
+    def test_news_precheck_switch_lives_in_iwencai_group(self):
+        item = next(
+            item
+            for item in dashboard.ENV_CONFIG_SCHEMA
+            if item['name'] == 'IWENCAI_NEWS_PRECHECK_ENABLED'
+        )
+
+        self.assertEqual(item['group'], '问财数据源')
+        self.assertEqual(item['kind'], 'bool')
+        self.assertEqual(item['default'], '0')
+        self.assertEqual(item['effect'], 'next_run')
+        self.assertNotIn('消息面预检', {entry['group'] for entry in dashboard.ENV_CONFIG_SCHEMA})
+        self.assertFalse(any(name.startswith('DASHBOARD_NEWS_') for name in dashboard.ADMIN_VISIBLE_ENV_NAMES))
+        self.assertNotIn("kind === 'news_precheck_source'", ADMIN_FRONTEND)
 
     def test_niuone_forward_cohort_start_requires_iso_date(self):
         item = next(
@@ -8288,10 +8292,7 @@ process.stdout.write(JSON.stringify({{
                 'DASHBOARD_US_FEATURES_ENABLED': '1',
                 'DASHBOARD_GROK_MODEL': 'grok-new',
                 'DASHBOARD_GROK_CONTEXT_LENGTH': '1M',
-                'DASHBOARD_NEWS_MODEL': 'search-model',
-                'DASHBOARD_NEWS_CONTEXT_LENGTH': '128K',
-                'DASHBOARD_NEWS_BASE_URL': 'https://news.example/v1',
-                'DASHBOARD_NEWS_API_KEY': 'news-secret',
+                'IWENCAI_NEWS_PRECHECK_ENABLED': '1',
                 'DASHBOARD_PRACTICE_SCHEDULE_TIMES': '09:25, 10:00, 14:50',
                 'DASHBOARD_US_MARKET_SUMMARY_CRON': '08:01',
                 'DASHBOARD_US_RATING_CRON': '10:30',
@@ -8317,10 +8318,7 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(parsed['DASHBOARD_US_FEATURES_ENABLED'], '1')
         self.assertEqual(parsed['DASHBOARD_GROK_MODEL'], 'grok-new')
         self.assertEqual(parsed['DASHBOARD_GROK_CONTEXT_LENGTH'], '1000000')
-        self.assertEqual(parsed['DASHBOARD_NEWS_MODEL'], 'search-model')
-        self.assertEqual(parsed['DASHBOARD_NEWS_CONTEXT_LENGTH'], '128000')
-        self.assertEqual(parsed['DASHBOARD_NEWS_BASE_URL'], 'https://news.example/v1')
-        self.assertEqual(parsed['DASHBOARD_NEWS_API_KEY'], 'news-secret')
+        self.assertEqual(parsed['IWENCAI_NEWS_PRECHECK_ENABLED'], '1')
         self.assertEqual(parsed['DASHBOARD_PRACTICE_SCHEDULE_TIMES'], '09:25,10:00,14:50')
         self.assertEqual(parsed['DASHBOARD_US_MARKET_SUMMARY_CRON'], '1 8 * * 1-5')
         self.assertEqual(parsed['DASHBOARD_US_RATING_CRON'], '30 10 * * *')
@@ -8347,7 +8345,7 @@ process.stdout.write(JSON.stringify({{
                 '    api_key: provider-secret\n',
                 encoding='utf-8',
             )
-            for name in ['DASHBOARD_GROK_BASE_URL', 'DASHBOARD_DECISION_BASE_URL', 'DASHBOARD_NEWS_BASE_URL']:
+            for name in ['DASHBOARD_GROK_BASE_URL', 'DASHBOARD_DECISION_BASE_URL']:
                 dashboard.os.environ.pop(name, None)
             payload = dashboard.build_admin_config_payload()
         finally:
@@ -8365,10 +8363,6 @@ process.stdout.write(JSON.stringify({{
             self.assertEqual(item['default'], '')
             self.assertEqual(item['file_value'], '')
             self.assertEqual(item['effective'], 'https://crossdesk.example/v1')
-        news_item = by_name['DASHBOARD_NEWS_BASE_URL']
-        self.assertEqual(news_item['default'], '')
-        self.assertEqual(news_item['file_value'], '')
-        self.assertEqual(news_item['effective'], '')
 
     def test_env_config_write_preserves_blank_secret_and_quotes_values(self):
         original_env_file = dashboard.DASHBOARD_ENV_FILE
@@ -8548,10 +8542,7 @@ process.stdout.write(JSON.stringify({{
                 'env__DASHBOARD_US_FEATURES_ENABLED': '1',
                 'env__DASHBOARD_GROK_MODEL': 'grok-test',
                 'env__DASHBOARD_GROK_CONTEXT_LENGTH': '1M',
-                'env__DASHBOARD_NEWS_MODEL': 'search-model',
-                'env__DASHBOARD_NEWS_CONTEXT_LENGTH': '1M',
-                'env__DASHBOARD_NEWS_BASE_URL': 'https://news.example/v1',
-                'env__DASHBOARD_NEWS_API_KEY': 'news-secret',
+                'env__IWENCAI_NEWS_PRECHECK_ENABLED': '1',
                 'env__DASHBOARD_DECISION_CONTEXT_LENGTH': '256K',
                 'env__DASHBOARD_PRACTICE_SCHEDULE_TIMES': ['', '09:25', '10:00', '', '14:50'],
                 'env__DASHBOARD_INDICES_TTL_SECONDS': '20',
@@ -8619,10 +8610,8 @@ process.stdout.write(JSON.stringify({{
         self.assertTrue(response['changed'])
         self.assertGreater(response['changed_count'], 0)
         self.assertIn('config', response)
-        self.assertNotIn('news-secret', response_text)
         config_by_name = {item['name']: item for item in response['config']['items']}
-        self.assertEqual(config_by_name['DASHBOARD_NEWS_API_KEY']['current_state'], '已设置')
-        self.assertEqual(config_by_name['DASHBOARD_NEWS_API_KEY']['file_value'], '')
+        self.assertEqual(config_by_name['IWENCAI_NEWS_PRECHECK_ENABLED']['current_state'], '1')
         self.assertEqual(config_by_name['DASHBOARD_GROK_CONTEXT_LENGTH']['current_state'], '1000000')
         self.assertEqual(config_by_name['DASHBOARD_TELEGRAM_CHAT_ID']['current_state'], '已设置')
         self.assertNotEqual(config_by_name['DASHBOARD_TELEGRAM_CHAT_ID']['current_state'], telegram_chat_id)
@@ -8637,10 +8626,7 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(parsed['DASHBOARD_US_FEATURES_ENABLED'], '1')
         self.assertEqual(parsed['DASHBOARD_GROK_MODEL'], 'grok-test')
         self.assertEqual(parsed['DASHBOARD_GROK_CONTEXT_LENGTH'], '1000000')
-        self.assertEqual(parsed['DASHBOARD_NEWS_MODEL'], 'search-model')
-        self.assertEqual(parsed['DASHBOARD_NEWS_CONTEXT_LENGTH'], '1000000')
-        self.assertEqual(parsed['DASHBOARD_NEWS_BASE_URL'], 'https://news.example/v1')
-        self.assertEqual(parsed['DASHBOARD_NEWS_API_KEY'], 'news-secret')
+        self.assertEqual(parsed['IWENCAI_NEWS_PRECHECK_ENABLED'], '1')
         self.assertEqual(parsed['DASHBOARD_DECISION_CONTEXT_LENGTH'], '256000')
         self.assertEqual(parsed['DASHBOARD_PRACTICE_SCHEDULE_TIMES'], '09:25,10:00,14:50')
         self.assertEqual(parsed['DASHBOARD_INDICES_TTL_SECONDS'], '20')
@@ -8678,7 +8664,7 @@ process.stdout.write(JSON.stringify({{
             dashboard.DASHBOARD_ENV_FILE = self.tmp_path / 'dashboard.env'
             dashboard.DASHBOARD_ENV_FILE.write_text(
                 'DASHBOARD_GROK_CONTEXT_LENGTH=1000000\n'
-                'DASHBOARD_NEWS_API_KEY=news-secret\n',
+                'IWENCAI_NEWS_PRECHECK_ENABLED=1\n',
                 encoding='utf-8',
             )
             dashboard.RATE_LIMIT_ADMIN = 100
@@ -8687,7 +8673,7 @@ process.stdout.write(JSON.stringify({{
             )
             body = urllib.parse.urlencode({
                 'env__DASHBOARD_GROK_CONTEXT_LENGTH': '1M',
-                'env__DASHBOARD_NEWS_API_KEY': '',
+                'env__IWENCAI_NEWS_PRECHECK_ENABLED': '1',
             }).encode('utf-8')
             handler = FakeHandler(
                 path='/api/admin/config/env',
@@ -8717,10 +8703,8 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(restart_calls, [])
         self.assertFalse(response['changed'])
         self.assertIn('config', response)
-        self.assertNotIn('news-secret', response_text)
         config_by_name = {item['name']: item for item in response['config']['items']}
-        self.assertEqual(config_by_name['DASHBOARD_NEWS_API_KEY']['current_state'], '已设置')
-        self.assertEqual(config_by_name['DASHBOARD_NEWS_API_KEY']['file_value'], '')
+        self.assertEqual(config_by_name['IWENCAI_NEWS_PRECHECK_ENABLED']['current_state'], '1')
         self.assertEqual(config_by_name['DASHBOARD_GROK_CONTEXT_LENGTH']['current_state'], '1000000')
         self.assertEqual(response['restart']['skipped'], 'unchanged')
 

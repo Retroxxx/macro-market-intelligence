@@ -19,7 +19,10 @@ from dashboard.apis.iwencai_service import (
     read_dragon_tiger_snapshot,
     write_dragon_tiger_snapshot,
 )
-from market_data.news_precheck import repair_cached_news_record
+from market_data.news_precheck import (
+    NewsPrecheckConfig,
+    cached_news_record_matches_source,
+)
 from a_share_calendar import trading_day_status
 from niuone_paths import get_dashboard_home
 
@@ -84,27 +87,27 @@ def _news_precheck_items(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return candidates
 
 
-def _pending_news_items(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+def _pending_news_items(
+    payload: Mapping[str, Any],
+    *,
+    judgment_model: str = "",
+) -> list[Mapping[str, Any]]:
     return [
         item
         for item in _news_precheck_items(payload)
-        if not isinstance(item.get("news_precheck"), Mapping)
-        or item.get("news_precheck", {}).get("checked") is not True
+        if not cached_news_record_matches_source(
+            item.get("news_precheck"),
+            "iwencai",
+            judgment_model,
+        )
     ]
 
 
-def _locally_repairable_news_items(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    repairable: list[Mapping[str, Any]] = []
-    for item in _news_precheck_items(payload):
-        record = item.get("news_precheck")
-        if not isinstance(record, Mapping):
-            continue
-        if repair_cached_news_record(record) != dict(record):
-            repairable.append(item)
-    return repairable
-
-
-def _news_tracking_is_current(payload: Mapping[str, Any]) -> bool:
+def _news_tracking_is_current(
+    payload: Mapping[str, Any],
+    *,
+    judgment_model: str = "",
+) -> bool:
     candidates = _news_precheck_items(payload)
     checked_codes: list[str] = []
     pending_codes: list[str] = []
@@ -112,7 +115,7 @@ def _news_tracking_is_current(payload: Mapping[str, Any]) -> bool:
     for item in candidates:
         code = str(item.get("code") or item.get("name") or "").strip()
         record = item.get("news_precheck")
-        if isinstance(record, Mapping) and record.get("checked") is True:
+        if cached_news_record_matches_source(record, "iwencai", judgment_model):
             if code:
                 checked_codes.append(code)
             if record.get("available") is True:
@@ -148,10 +151,20 @@ def backfill_snapshot_news(
     snapshot = read_dragon_tiger_snapshot(path)
     if snapshot is None or not _news_precheck_items(snapshot):
         return snapshot, False
+    values = os.environ if env is None else env
+    enabled = str(
+        values.get("IWENCAI_NEWS_PRECHECK_ENABLED") or "0"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return snapshot, False
+    try:
+        config = NewsPrecheckConfig.from_mapping(values)
+    except ValueError:
+        config = None
+    judgment_model = config.model if config is not None else ""
     if (
-        not _pending_news_items(snapshot)
-        and not _locally_repairable_news_items(snapshot)
-        and _news_tracking_is_current(snapshot)
+        not _pending_news_items(snapshot, judgment_model=judgment_model)
+        and _news_tracking_is_current(snapshot, judgment_model=judgment_model)
     ):
         return snapshot, False
     updated = enrich_consecutive_dragon_tiger_news(

@@ -63,7 +63,7 @@ Compose 内置 NewsNow 的数据库和缓存位于独立 Docker volume `newsnow-
 |---|---|---|
 | 美股机构评级日报 | 具备实时网页搜索能力的模型；留空时复用 Grok | `US_RATING_MODEL`、`US_RATING_BASE_URL`、`US_RATING_API_KEY`、`US_RATING_STREAM_MODE`、`US_RATING_REASONING_EFFORT`、`US_RATING_MAX_TOKENS` |
 | A 股盘面总结增强 | 兼容 `/chat/completions` 的模型 | `A_SHARE_MODEL_SUMMARY_BASE_URL`、`A_SHARE_MODEL_SUMMARY_API_KEY`、`A_SHARE_MODEL_SUMMARY_MODEL`、`A_SHARE_MODEL_SUMMARY_STREAM_MODE`、`A_SHARE_MODEL_SUMMARY_REASONING_EFFORT`；留空时复用 `DASHBOARD_GROK_*` |
-| A 股候选股及龙虎榜连板/连榜股票消息面预检 | 具备实时搜索能力的模型 | `DASHBOARD_NEWS_BASE_URL`、`DASHBOARD_NEWS_API_KEY`、`DASHBOARD_NEWS_MODEL`、`DASHBOARD_NEWS_API_MODE`、`DASHBOARD_NEWS_STREAM_MODE`、`DASHBOARD_NEWS_REASONING_EFFORT` |
+| A 股候选股及龙虎榜连板/连榜股票消息面预检 | 同花顺问财 OpenAPI | `IWENCAI_NEWS_PRECHECK_ENABLED` 及 `IWENCAI_*` |
 | 选股后的买卖决策 | 推荐 DeepSeek，可用其他兼容模型 | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL`、`DASHBOARD_DECISION_STREAM_MODE`、`DASHBOARD_DECISION_REASONING_EFFORT` |
 | 综合决策参考 | 本地聚合，不需要额外模型 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`、`DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`、`DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 
@@ -75,8 +75,9 @@ Compose 内置 NewsNow 的数据库和缓存位于独立 Docker volume `newsnow-
 
 问财数据源使用 `IWENCAI_API_KEY`，同样只允许保存到 `.local-data/dashboard.env` 或受控系统环境变量。
 `IWENCAI_ENABLED` 默认关闭；问财数据仅作为研究快照和现有行情的补充，不得用不完整或缓存响应覆盖账户、成交和真实交易记录。
+`IWENCAI_NEWS_PRECHECK_ENABLED=1` 启用消息面预检：系统组合调用问财官方 `announcement-search`、`news-search` 和 `hithink-event-query` 检索证据，不包含雪球/X 舆情。公告和新闻走 `/v1/comprehensive/search`，结构化事件走 `/v1/query2data`；结果按股票身份及最近 3 天过滤并跨来源去重。存在有效证据时，必须复用 `DASHBOARD_DECISION_*` 买卖决策模型判断利好、利空或中性；无有效证据时直接记为中性，不调用模型。模型未配置、超时或输出不可解析时标记判断不可用，不得回退关键词匹配。每个问财技能独立保留成功、证据数和非敏感错误码；不得把价格或资金流当作消息证据。旧 `DASHBOARD_NEWS_*` 配置不再读取。
 龙虎榜任务默认在 A 股交易日北京时间 18:00 更新；只保留最近一次非空成功响应，并在下一次成功查询后原子替换。失败或空结果必须继续保留上一份有效数据。升级前生成的交易日归档会在下一次成功更新后清理；买卖前五席位明细单独失败时，仅在查询日期相同时保留当前快照中已有的机构、营业部及其他有效席位记录。
-连续上榜只能由相邻 A 股交易日的成功滚动快照确认；缺失中间快照时必须重置，不能跨数据缺口推测。消息面预检批次以 `IWENCAI_DRAGON_TIGER_CRON` 配置的本次龙虎榜计划查询时间为起点，不使用上游响应的 `generated_at`；龙虎榜成功返回后查询该交易日尚未执行过预检的连板股票（`limit_up_streak >= 2`）或连续上榜股票（`consecutive_listed = true` 且 `consecutive_list_days >= 2`），最多保持 5 路并发。预检交叉核验公告、交易所披露和主流财经媒体，并把雪球与 X/Twitter 的公开内容单独归类为市场舆情，不得把未经证实的帖子写成公司事实；消息面模型支持 Grok Responses 时可直接使用 `x_search`，其他模型通过 `web_search` 检索可公开索引的雪球/X 页面，仍不得读取或回退到 `DASHBOARD_GROK_*`。调度器启动时会追补最近应有的交易日快照；同日仍处于核心阶段的快照会继续刷新席位与消息增强。新交易日拉取优先落盘主体榜单，不让旧快照补检消耗核心阶段预算；只有新查询失败或为空、旧快照仍被保留时，才随后补检该旧快照。快照按股票保存已检索和待检索状态，全部完成后同日后续拉取不得重复调用模型。已有 `unclassified_response` 若可从保存的摘要中唯一识别结论，可在补检阶段本地修复标签并保留原查询时间，不得为此再次调用模型；仍有歧义时保持原状态。模型未配置、限流、超时或解析失败不得阻断或清空龙虎榜主数据。快照和公开 API 只保存结构化摘要、情绪标签、查询时间、检索状态与非敏感错误码，不保存模型密钥、帖子原文或完整上游响应。
+连续上榜只能由相邻 A 股交易日的成功滚动快照确认；缺失中间快照时必须重置，不能跨数据缺口推测。消息面预检批次以 `IWENCAI_DRAGON_TIGER_CRON` 配置的本次龙虎榜计划查询时间为起点，不使用上游响应的 `generated_at`；开启后，龙虎榜成功返回会查询尚未预检的连板或连续上榜股票。快照按股票保存已检索和待检索状态，全部完成后同日不得重复查询问财。开关关闭、配置缺失、限流、超时或解析失败不得阻断或清空龙虎榜主数据。快照和公开 API 只保存结构化摘要、情绪标签、查询时间、检索状态与非敏感错误码，不保存密钥或完整上游响应。
 龙虎榜当日数据以及下一次成功查询前仍在滚动快照中的最近数据保持公开；查询更早日期时必须先建立有效管理员会话。当日实时回源为空时，接口必须回退到最近成功快照，不得在新数据生成前把页面替换为空状态。所有非当日响应均不得使用公共或 CDN 缓存，确保滚动快照更新后旧日期立即恢复保护。
 
 ## 本地副本和测试

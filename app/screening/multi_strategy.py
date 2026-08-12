@@ -1023,16 +1023,23 @@ def fetch_sector_tide_news_precheck(
         active_config = config or NewsPrecheckConfig.from_mapping({
             name: dashboard_env_value(name) or ""
             for name in (
-                "DASHBOARD_NEWS_BASE_URL",
-                "DASHBOARD_NEWS_API_KEY",
-                "DASHBOARD_NEWS_MODEL",
-                "DASHBOARD_NEWS_API_MODE",
-                "DASHBOARD_NEWS_STREAM_MODE",
-                "DASHBOARD_NEWS_REASONING_EFFORT",
-                "DASHBOARD_NEWS_TIMEOUT",
-                "DASHBOARD_NEWS_MAX_RETRIES",
-                "DASHBOARD_NEWS_CONCURRENCY",
-                "DASHBOARD_NEWS_MAX_TOKENS",
+                "IWENCAI_NEWS_PRECHECK_ENABLED",
+                "IWENCAI_ENABLED",
+                "IWENCAI_BASE_URL",
+                "IWENCAI_API_KEY",
+                "IWENCAI_TIMEOUT_SECONDS",
+                "IWENCAI_MAX_RETRIES",
+                "IWENCAI_MAX_CONCURRENCY",
+                "DASHBOARD_DECISION_MODEL",
+                "DASHBOARD_DECISION_BASE_URL",
+                "DASHBOARD_DECISION_API_KEY",
+                "DASHBOARD_DECISION_STREAM_MODE",
+                "DASHBOARD_DECISION_REASONING_EFFORT",
+                "DASHBOARD_DECISION_TIMEOUT",
+                "DASHBOARD_DECISION_MAX_TOKENS",
+                "CROSSDESK_BASE_URL",
+                "CROSSDESK_API_KEY",
+                "DASHBOARD_CONFIG",
             )
         })
     except ValueError as exc:

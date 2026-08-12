@@ -46,28 +46,6 @@ class ModelTestTarget:
 
 MODEL_TEST_TARGETS: tuple[ModelTestTarget, ...] = (
     ModelTestTarget(
-        id="news-precheck",
-        group_slug="news-precheck",
-        label="消息面预检模型",
-        description="按当前接口模式验证模型和搜索工具接口。",
-        model_names=("DASHBOARD_NEWS_MODEL",),
-        base_url_names=("DASHBOARD_NEWS_BASE_URL",),
-        api_key_names=("DASHBOARD_NEWS_API_KEY",),
-        api_mode_names=("DASHBOARD_NEWS_API_MODE",),
-        stream_mode_names=("DASHBOARD_NEWS_STREAM_MODE",),
-        reasoning_effort_names=("DASHBOARD_NEWS_REASONING_EFFORT",),
-        override_names=(
-            "DASHBOARD_NEWS_MODEL",
-            "DASHBOARD_NEWS_BASE_URL",
-            "DASHBOARD_NEWS_API_KEY",
-            "DASHBOARD_NEWS_API_MODE",
-            "DASHBOARD_NEWS_STREAM_MODE",
-            "DASHBOARD_NEWS_REASONING_EFFORT",
-        ),
-        default_api_mode="auto",
-        tool_type="web_search",
-    ),
-    ModelTestTarget(
         id="decision-model",
         group_slug="decision-model",
         label="买卖决策模型",
