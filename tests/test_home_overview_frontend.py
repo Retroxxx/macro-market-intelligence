@@ -122,6 +122,7 @@ const indices = module.overviewIndices({{
 }});
 const viewportModes = [
   module.overviewViewportMode(1920, 1080),
+  module.overviewViewportMode(1280, 800),
   module.overviewViewportMode(1024, 650),
   module.overviewViewportMode(900, 500),
   module.overviewViewportMode(700, 800),
@@ -273,6 +274,7 @@ console.log(JSON.stringify({{
             payload["viewportModes"],
             [
                 {"layout": "wide", "density": "comfortable"},
+                {"layout": "compact", "density": "comfortable"},
                 {"layout": "compact", "density": "compact"},
                 {"layout": "compact", "density": "ultra-compact"},
                 {"layout": "mobile", "density": "comfortable"},
@@ -398,11 +400,20 @@ console.log(JSON.stringify({{
         self.assertIn("document.body.classList.add('overview-terminal-open')", component)
         self.assertIn("document.body.classList.remove('overview-terminal-open')", component)
         self.assertIn("--overview-viewport-height", component)
-        self.assertIn("max-height: 900px", component)
+        self.assertIn("min-width: 0;\n  width: 100%;", component)
+        self.assertIn(
+            "min-height: var(--overview-viewport-height, calc(100dvh - 148px));",
+            component,
+        )
+        self.assertNotIn(
+            "\n    height: var(--overview-viewport-height, calc(100dvh - 148px));",
+            component,
+        )
+        self.assertNotIn("max-height: 900px", component)
         self.assertIn(':data-layout="viewportMode.layout"', component)
         self.assertIn(':data-density="viewportMode.density"', component)
         self.assertIn(
-            ':data-mainline-layout="viewportMode.layout === \'wide\' && viewportMode.density === \'comfortable\' ? \'full\' : mainlinePanelMode"',
+            ':data-mainline-layout="viewportMode.layout !== \'wide\' || viewportMode.density === \'comfortable\' ? \'full\' : mainlinePanelMode"',
             component,
         )
         self.assertIn("mainlineResizeObserver.observe(mainlinePanel.value)", component)
@@ -455,6 +466,9 @@ console.log(JSON.stringify({{
         self.assertNotIn("overview-theme-score", component)
         self.assertNotIn("overview-theme-breadth", component)
         self.assertIn(".overview-theme-leader-toggle svg { color: var(--overview-mainline-accent); }", component)
+        self.assertIn("justify-content: space-between;\n  justify-self: stretch;", component)
+        self.assertIn("max-width: 100%;\n  min-width: 0;\n  padding: 3px 7px;\n  width: 100%;", component)
+        self.assertIn("flex: 1 1 auto; min-width: 0; overflow: hidden;", component)
         for mainline_tone in (
             "--overview-mainline-accent: #46627c;",
             "--overview-mainline-secondary: #4f5d69;",
@@ -498,19 +512,33 @@ console.log(JSON.stringify({{
         for readable_terminal_text in (
             ".overview-kpi-label { font-size: 9px; }",
             ".overview-index-tile time { font-size: 9px; }",
-            ".overview-theme-table-head { font-size: 9px; padding: 0 1px 3px; }",
+            ".overview-theme-table-head { font-size: 9px; height: 17px; line-height: 1; padding: 0 5px; }",
             ".overview-theme-lifecycle { font-size: 9px; padding-left: 4px; }",
             ".overview-theme-meta { font-size: 9px; }",
-            ".overview-candidate-table-head { font-size: 9px; padding: 0 5px 3px; }",
+            ".overview-candidate-table-head { box-shadow: inset 0 1px 0 var(--overview-border-strong); font-size: 9px; height: 17px; line-height: 1; padding: 0 5px; }",
             ".overview-flow-row { flex: 1 1 0; font-size: 9px; min-height: 20px; }",
         ):
             self.assertIn(readable_terminal_text, component)
+        self.assertIn(".overview-theme-row { min-height: 25px; padding: 3px 5px; }", component)
+        self.assertIn(
+            ".overview-theme-ranking { border-inline: 0; border-radius: 0; display: flex; flex-direction: column; min-height: 0; }",
+            component,
+        )
+        self.assertIn(
+            ".overview-theme-ranking > h4 { align-items: center; display: flex; flex: 0 0 21px; font-size: 10px; line-height: 1; padding: 0 6px; }",
+            component,
+        )
+        self.assertIn('.overview-theme-ranking > h4 > span { transform: translateY(.75px); }', component)
+        self.assertIn(
+            ".overview-theme-table-head > span,\n  .overview-candidate-table-head > span { transform: translateY(.75px); }",
+            component,
+        )
         self.assertNotIn(
             ':global(html[data-theme="dark"]) .overview-page',
             component,
         )
         self.assertIn("@media (min-width: 721px)", component)
-        self.assertIn(
+        self.assertNotIn(
             ':global(html:not([data-theme="tongdaxin"]) body.overview-terminal-open) { overflow: hidden; }',
             component,
         )
@@ -624,11 +652,11 @@ console.log(JSON.stringify({{
             component,
         )
         self.assertIn(
-            '"market market market market market indices indices indices flow flow"\n'
-            '      "mainline mainline mainline mainline candidate candidate news news news news";',
+            '"market market market market market market market market market market market market market market market market market market market market indices indices indices indices indices indices indices indices indices indices indices indices flow flow flow flow flow flow flow flow"\n'
+            '      "mainline mainline mainline mainline mainline mainline mainline mainline mainline mainline mainline mainline mainline mainline mainline candidate candidate candidate candidate candidate candidate candidate candidate candidate news news news news news news news news news news news news news news news news";',
             component,
         )
-        self.assertIn("grid-template-columns: repeat(10, minmax(0, 1fr));", component)
+        self.assertIn("grid-template-columns: repeat(40, minmax(0, 1fr));", component)
         self.assertIn('.overview-page[data-layout="wide"] .overview-right-bottom { display: contents; }', component)
         self.assertIn('.overview-page[data-layout="wide"] .overview-candidate-panel { grid-area: candidate; }', component)
         self.assertIn('.overview-page[data-layout="wide"] .overview-news-panel { grid-area: news; }', component)
@@ -644,8 +672,12 @@ console.log(JSON.stringify({{
             "grid-template-columns: minmax(90px, 1fr) minmax(46px, 1fr) minmax(0, 1fr) minmax(42px, 1fr);",
             component,
         )
-        self.assertIn(".overview-candidate-panel { container-type: inline-size; }", component)
+        self.assertIn(
+            ".overview-candidate-panel,\n.overview-mainline-panel { container-type: inline-size; }",
+            component,
+        )
         self.assertIn("@container (min-width: 420px)", component)
+        self.assertIn("@container (max-width: 400px)", component)
         self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr)) max-content;", component)
         self.assertIn("grid-template-columns: subgrid;", component)
         self.assertIn('.overview-page[data-layout="wide"] .overview-candidate-wide-only { display: block; }', component)
@@ -677,6 +709,32 @@ console.log(JSON.stringify({{
         self.assertIn("props.moneyFlow.displaying_previous_trading_day", market_overview)
         self.assertIn("上一交易日资金", market_overview)
         self.assertIn("@media (max-width: 720px)", component)
+        self.assertIn('grid-template-columns: repeat(2, minmax(0, 1fr));', component)
+        self.assertIn('grid-template-columns: repeat(6, minmax(0, 1fr));', component)
+        self.assertIn('.overview-kpi:nth-last-child(-n + 2) { grid-column: span 3; }', component)
+        self.assertIn('flex-basis: 52px;\n    min-height: 52px;', component)
+        self.assertIn('height: clamp(280px, 78vw, 420px);', component)
+        self.assertIn('grid-auto-rows: minmax(24px, 1fr);', component)
+        self.assertIn('"mainline mainline"\n      "bottom bottom";', component)
+        self.assertIn(
+            "grid-template-columns: minmax(288px, .72fr) minmax(0, 1.45fr);",
+            component,
+        )
+        self.assertIn(
+            "grid-template-columns: minmax(94px, 1.05fr) minmax(82px, .9fr) minmax(52px, .65fr);",
+            component,
+        )
+        self.assertIn('.overview-kpi:last-child { grid-column: 1 / -1; }', component)
+        self.assertIn('align-self: stretch;\n    height: auto;', component)
+        self.assertIn(
+            "const viewportWidth = window.innerWidth\n"
+            "    || document.documentElement.clientWidth\n"
+            "    || visualViewport?.width",
+            component,
+        )
+        self.assertIn('.overview-page[data-layout="compact"] .overview-flow-columns { flex: none; }', component)
+        self.assertIn('.overview-page[data-layout="compact"] .overview-flow-row { flex: none; min-height: 22px; }', component)
+        self.assertIn('grid-template-rows: repeat(2, minmax(64px, auto));', component)
         self.assertIn(
             ".overview-terminal-grid,\n"
             "  .overview-primary-grid,\n"

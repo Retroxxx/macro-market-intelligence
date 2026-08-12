@@ -43,7 +43,7 @@ export function overviewViewportMode(width, height) {
 
   const layout = hasWidth && viewportWidth <= 720
     ? 'mobile'
-    : hasWidth && viewportWidth < 1180
+    : hasWidth && viewportWidth < 1320
       ? 'compact'
       : 'wide'
   const density = hasHeight && viewportHeight < 560
