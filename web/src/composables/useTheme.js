@@ -10,15 +10,6 @@ function isTongdaxinTheme(value) {
   return value === 'tongdaxin' || value === 'tongdaxin-light'
 }
 
-function storedTheme() {
-  try {
-    const value = localStorage.getItem(THEME_STORAGE_KEY) || ''
-    return SUPPORTED_THEMES.has(value) ? value : ''
-  } catch (error) {
-    return ''
-  }
-}
-
 function documentTheme() {
   const value = document.documentElement.dataset.theme || ''
   if (
@@ -57,15 +48,11 @@ const theme = ref(initialTheme)
 const standardTheme = ref(
   STANDARD_THEMES.has(initialTheme)
     ? initialTheme
-    : (storedStandardTheme() || 'dark'),
+    : (storedStandardTheme() || 'light'),
 )
 const cornerStyle = ref(documentCornerStyle())
 
 export function useTheme() {
-  const mediaQuery = typeof window.matchMedia === 'function'
-    ? window.matchMedia('(prefers-color-scheme: dark)')
-    : null
-
   function applyTheme(nextTheme, persist = false) {
     const normalized = SUPPORTED_THEMES.has(nextTheme) ? nextTheme : 'light'
     theme.value = normalized
@@ -132,10 +119,6 @@ export function useTheme() {
     applyTheme(nextTheme === 'tongdaxin-light' ? 'tongdaxin-light' : 'tongdaxin', true)
   }
 
-  function handleSystemTheme(event) {
-    if (!storedTheme()) applyTheme(event.matches ? 'dark' : 'light')
-  }
-
   function handleStorage(event) {
     if (
       event.key === THEME_STORAGE_KEY
@@ -160,12 +143,10 @@ export function useTheme() {
   onMounted(() => {
     applyTheme(documentTheme())
     applyCornerStyle(storedCornerStyle() || documentCornerStyle())
-    mediaQuery?.addEventListener?.('change', handleSystemTheme)
     window.addEventListener('storage', handleStorage)
   })
 
   onBeforeUnmount(() => {
-    mediaQuery?.removeEventListener?.('change', handleSystemTheme)
     window.removeEventListener('storage', handleStorage)
   })
 

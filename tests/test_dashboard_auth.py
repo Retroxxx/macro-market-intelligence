@@ -4306,6 +4306,17 @@ console.log(JSON.stringify([
             backtest_page,
         )
 
+    def test_dashboard_defaults_to_light_theme_without_a_saved_preference(self):
+        theme_composable = (
+            ROOT / 'web' / 'src' / 'composables' / 'useTheme.js'
+        ).read_text(encoding='utf-8')
+        index_html = (ROOT / 'web' / 'index.html').read_text(encoding='utf-8')
+
+        self.assertIn("theme = 'light';", index_html)
+        self.assertIn("(storedStandardTheme() || 'light')", theme_composable)
+        self.assertNotIn('prefers-color-scheme', index_html)
+        self.assertNotIn('prefers-color-scheme', theme_composable)
+
     def test_tongdaxin_light_reuses_terminal_layout_with_windows_95_palette(self):
         theme_composable = (
             ROOT / 'web' / 'src' / 'composables' / 'useTheme.js'

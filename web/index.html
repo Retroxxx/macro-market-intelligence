@@ -15,7 +15,7 @@
           corners = localStorage.getItem(cornerStorageKey) || '';
         } catch (error) {}
         if (theme !== 'light' && theme !== 'dark' && theme !== 'tongdaxin' && theme !== 'tongdaxin-light') {
-          theme = window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          theme = 'light';
         }
         if (corners !== 'rounded' && corners !== 'square') corners = 'square';
         const isTongdaxin = theme === 'tongdaxin' || theme === 'tongdaxin-light';
