@@ -27,6 +27,16 @@ NiuOne runs on a personal computer or server, and its configuration and research
 
 Click an animation to open the corresponding live page.
 
+### Market Overview
+
+<p align="center">
+  <a href="https://niuone.cn/">
+    <img width="1200" alt="Market-overview interaction: inspect breadth, turnover, indices, theme opportunities, candidates, market flashes, and sector capital flows" src="docs/assets/readme/overview.gif" />
+  </a>
+</p>
+
+<p align="center"><sub>Market regime, breadth, limit-up/down counts, major industry flows, and portfolio exposure form a decision summary linked to the core market and opportunity views.</sub></p>
+
 ### Simulated Trading and Portfolio Review
 
 <p align="center">
@@ -77,6 +87,16 @@ Click an animation to open the corresponding live page.
 
 <p align="center"><sub>Pre-open, midday, and post-market reports cover the main view, capital flows, leading sectors, risks, and next-session watchlist.</sub></p>
 
+### Live Market Flashes
+
+<p align="center">
+  <a href="https://niuone.cn/realtime-news">
+    <img width="1200" alt="Market-flash interaction: filter important items, switch NewsNow sources, and browse the aggregated feed" src="docs/assets/readme/realtime-news.gif" />
+  </a>
+</p>
+
+<p align="center"><sub>Aggregate selectable sources such as CLS, Jin10, and Wallstreetcn, filter by source or importance, and retain a local cached feed when upstream sources fail.</sub></p>
+
 ### U.S. Institutional Ratings
 
 <p align="center">
@@ -95,7 +115,7 @@ Click an animation to open the corresponding live page.
 
 <p align="center"><sub>Manage data sources, models, strategies, notifications, and runtime options from the local settings page.</sub></p>
 
-> Market and simulated-portfolio values in these animations are for interface demonstration only and are not investment advice.
+> Every animation shows real page interactions in the light theme. Market, news, and simulated-portfolio values are for interface demonstration only and are not investment advice.
 
 ## Feature Overview
 
