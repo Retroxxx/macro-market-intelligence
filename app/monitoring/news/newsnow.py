@@ -22,6 +22,11 @@ from app.core.json_cache import read_json_cache, write_json_cache
 
 
 DEFAULT_ENDPOINT = "https://newsnow.busiyi.world/api/s"
+# The public endpoint's Cloudflare policy rejects application-style agents.
+# Keep the caller identifiable while using its accepted browser-compatible form.
+NEWSNOW_USER_AGENT = (
+    "Mozilla/5.0 (compatible; NiuOne; +https://github.com/kunkundi/niuone)"
+)
 DEFAULT_SOURCE_IDS = ("cls-telegraph", "jin10", "wallstreetcn-quick")
 NEWSNOW_SOURCE_REGISTRY_REVISION = "2173126f804bec0201769f59d933add6c4632d17"
 SOURCE_CATEGORY_LABELS = {
@@ -458,7 +463,7 @@ class NewsNowClient:
             f"{self.config.endpoint}?{query}",
             headers={
                 "Accept": "application/json",
-                "User-Agent": "NiuOne/newsnow-client",
+                "User-Agent": NEWSNOW_USER_AGENT,
             },
             method="GET",
         )

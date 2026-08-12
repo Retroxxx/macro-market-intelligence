@@ -161,7 +161,26 @@ class NewsNowClientTests(unittest.TestCase):
             request.full_url,
             "https://news.example/api/s?id=jin10&latest=true",
         )
-        self.assertEqual(request.get_header("User-agent"), "NiuOne/newsnow-client")
+
+    def test_fetch_uses_public_service_compatible_identifiable_user_agent(self):
+        requests = []
+
+        def opener(request, timeout):
+            del timeout
+            requests.append(request)
+            return FakeResponse(source_payload("jin10", "flash-1", "金十快讯"))
+
+        NewsNowClient(
+            self.config(),
+            opener=opener,
+            semaphore=threading.BoundedSemaphore(1),
+        ).fetch("jin10")
+
+        user_agent = requests[0].get_header("User-agent")
+        self.assertTrue(user_agent.startswith("Mozilla/5.0"))
+        self.assertIn("NiuOne", user_agent)
+        self.assertIn("https://github.com/kunkundi/niuone", user_agent)
+        self.assertNotEqual(user_agent, "NiuOne/newsnow-client")
 
     def test_fetch_uses_extra_date_when_source_omits_pub_date(self):
         published_ms = 1_786_461_578_000
