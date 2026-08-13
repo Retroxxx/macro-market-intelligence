@@ -15,20 +15,52 @@ ENTRYPOINTS = SRC / "entrypoints"
 sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(COMPAT))
 MODULE_PATH = COMPAT / "us_market_summary.py"
+MODEL_ENV_KEYS = {
+    "DASHBOARD_ENV_FILE",
+    "DASHBOARD_CONFIG",
+    "DASHBOARD_DECISION_MODEL",
+    "DASHBOARD_DECISION_BASE_URL",
+    "DASHBOARD_DECISION_API_KEY",
+    "DASHBOARD_DECISION_STREAM_MODE",
+    "DASHBOARD_DECISION_REASONING_EFFORT",
+    "DASHBOARD_DECISION_CONTEXT_LENGTH",
+    "DASHBOARD_DECISION_MAX_TOKENS",
+    "A_SHARE_MODEL_SUMMARY_MODEL",
+    "A_SHARE_MODEL_SUMMARY_BASE_URL",
+    "A_SHARE_MODEL_SUMMARY_API_KEY",
+    "A_SHARE_MODEL_SUMMARY_STREAM_MODE",
+    "A_SHARE_MODEL_SUMMARY_REASONING_EFFORT",
+    "A_SHARE_MODEL_SUMMARY_CONTEXT_LENGTH",
+    "A_SHARE_MODEL_SUMMARY_MAX_TOKENS",
+}
+ISOLATED_MODEL_ENV = {
+    "DASHBOARD_ENV_FILE": str(ROOT / ".missing-test-dashboard.env"),
+    "DASHBOARD_CONFIG": str(ROOT / ".missing-test-model-config.yaml"),
+    "DASHBOARD_DECISION_MODEL": "summary-test",
+    "DASHBOARD_DECISION_BASE_URL": "https://model.example/v1",
+    "DASHBOARD_DECISION_API_KEY": "test-key",
+}
 
 
-def load_module():
+def _load_module():
     spec = importlib.util.spec_from_file_location("us_market_summary_under_test", MODULE_PATH)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
 
+def load_module():
+    return load_module_with_env({})
+
+
 def load_module_with_env(updates: dict[str, str]):
-    original = {key: os.environ.get(key) for key in updates}
+    original = {key: os.environ.get(key) for key in MODEL_ENV_KEYS}
     try:
+        for key in MODEL_ENV_KEYS:
+            os.environ.pop(key, None)
+        os.environ.update(ISOLATED_MODEL_ENV)
         os.environ.update(updates)
-        return load_module()
+        return _load_module()
     finally:
         for key, value in original.items():
             if value is None:
