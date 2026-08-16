@@ -516,7 +516,7 @@ console.log(JSON.stringify({{
             ".overview-theme-lifecycle { font-size: 9px; padding-left: 4px; }",
             ".overview-theme-meta { font-size: 9px; }",
             ".overview-candidate-table-head { box-shadow: inset 0 1px 0 var(--overview-border-strong); font-size: 9px; height: 17px; line-height: 1; padding: 0 5px; }",
-            ".overview-flow-row { flex: 1 1 0; font-size: 9px; min-height: 20px; }",
+            ".overview-flow-row { box-sizing: border-box; flex: 1 1 0; font-size: 9px; line-height: 1.25;",
         ):
             self.assertIn(readable_terminal_text, component)
         self.assertIn(".overview-theme-row { min-height: 25px; padding: 3px 5px; }", component)
@@ -629,9 +629,15 @@ console.log(JSON.stringify({{
         self.assertNotIn("部分资金数据更新失败", component)
         self.assertIn("overviewFlowRowLimit", component)
         self.assertIn("flowRowLimit.value", component)
-        self.assertIn(".overview-flow-columns { flex: 1 1 0;", component)
+        self.assertIn(
+            ".overview-flow-columns { flex: 1 1 0; gap: 8px; min-height: 0; overflow: hidden; }",
+            component,
+        )
         self.assertIn(".overview-flow-columns > div { display: flex; flex-direction: column;", component)
-        self.assertIn(".overview-flow-row { flex: 1 1 0;", component)
+        self.assertIn(
+            ".overview-flow-row { box-sizing: border-box; flex: 1 1 0; font-size: 9px; line-height: 1.25; min-height: 0; overflow: hidden; }",
+            component,
+        )
         self.assertIn("主要行业主力净额", component)
         self.assertIn("overviewMoneyFlowNet", component)
         self.assertIn("overview-breadth-unavailable", component)
