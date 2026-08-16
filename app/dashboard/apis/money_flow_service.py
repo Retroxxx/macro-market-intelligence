@@ -51,7 +51,8 @@ PAGE_SIZE = 100
 MAX_PAGES = 5
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 8
-MAX_REQUEST_ATTEMPTS = 2
+REQUEST_RETRY_DELAYS_SECONDS = (0.5, 1.0)
+MAX_REQUEST_ATTEMPTS = len(REQUEST_RETRY_DELAYS_SECONDS) + 1
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 FIELDS = (
     "f12,f14,f2,f3,f62,f184,f66,f69,f72,f75,f78,f81,"
@@ -146,6 +147,7 @@ def _download_json(
     runner: Callable[..., Any] = subprocess.run,
     sleep: Callable[[float], None] = time.sleep,
     curl_path: str | None = None,
+    validate_payload: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Download one bounded JSON response with a short retry budget.
 
@@ -191,15 +193,28 @@ def _download_json(
             payload = json.loads(raw.decode("utf-8"))
             if not isinstance(payload, dict):
                 raise RuntimeError("industry main-flow response is not an object")
+            if validate_payload is not None:
+                validate_payload(payload)
             return payload
         except Exception as exc:
             last_error = exc
-            if attempt + 1 < MAX_REQUEST_ATTEMPTS:
-                sleep(0.25 * (attempt + 1))
+            if attempt < len(REQUEST_RETRY_DELAYS_SECONDS):
+                sleep(REQUEST_RETRY_DELAYS_SECONDS[attempt])
     assert last_error is not None
     raise RuntimeError(
         f"industry main-flow request failed: {type(last_error).__name__}: {last_error}"
     ) from last_error
+
+
+def _validate_page_payload(payload: dict[str, Any]) -> None:
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise RuntimeError("industry main-flow response has no data")
+    diff = data.get("diff")
+    if not isinstance(diff, list):
+        raise RuntimeError("industry main-flow rows are invalid")
+    if not any(isinstance(row, dict) for row in diff):
+        raise RuntimeError("industry main-flow response has no usable rows")
 
 
 def _fetch_page(page: int) -> tuple[list[dict[str, Any]], int]:
@@ -217,13 +232,14 @@ def _fetch_page(page: int) -> tuple[list[dict[str, Any]], int]:
         "fs": "m:90 s:4",
         "fields": FIELDS,
     })
-    payload = _download_json(f"{EASTMONEY_URL}?{query}")
+    payload = _download_json(
+        f"{EASTMONEY_URL}?{query}",
+        validate_payload=_validate_page_payload,
+    )
     data = payload.get("data")
     if not isinstance(data, dict):
         raise RuntimeError("industry main-flow response has no data")
     diff = data.get("diff")
-    if diff is None:
-        diff = []
     if not isinstance(diff, list):
         raise RuntimeError("industry main-flow rows are invalid")
     rows = [row for row in diff if isinstance(row, dict)]
