@@ -377,16 +377,24 @@ class PromptStrategyBacktestingTests(unittest.TestCase):
             "protocol_version": PROMPT_BACKTEST_PROTOCOL_VERSION,
         }
         run = Mock()
-        run.to_dict.return_value = {
+        run.to_dict.side_effect = AssertionError("full run serializer must not be used")
+        run.selection.to_dict.return_value = {
+            "signals": [],
+            "trades": [],
+            "statistics": {},
+        }
+        run.warnings = ()
+        run.industry_quality = None
+        run.replay_cache = {}
+        run.data.series = {}
+        run.data.failures = {}
+        expected_selection = {
             "selection": {
                 "signals": [],
                 "trades": [],
                 "statistics": {},
             },
-            "warnings": [],
         }
-        run.data.series = {}
-        run.data.failures = {}
         universe = {
             "reference_symbols": ("sh600000",),
             "eligible_symbols": ("sh600000",),
@@ -414,6 +422,7 @@ class PromptStrategyBacktestingTests(unittest.TestCase):
             PromptStrategyBacktestPolicy,
         )
         self.assertEqual(call.kwargs["warmup_calendar_days"], 730)
+        self.assertFalse(call.kwargs["retain_historical_data"])
         self.assertEqual(call.kwargs["selection_config"].cooldown_sessions, 0)
         self.assertIn(
             version["version_id"],
@@ -429,6 +438,8 @@ class PromptStrategyBacktestingTests(unittest.TestCase):
         )
         self.assertTrue(payload["execution_assumptions"]["isolated_portfolio"])
         self.assertFalse(payload["prompt_backtest"]["production_state_writes"])
+        self.assertEqual(payload["selection"], expected_selection["selection"])
+        run.to_dict.assert_not_called()
 
 
 if __name__ == "__main__":

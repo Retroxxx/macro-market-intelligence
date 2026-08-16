@@ -14,7 +14,9 @@ from typing import Any
 from .historical_data import (
     HistoricalDataError,
     HistoricalDataResult,
+    HistoricalDataSummary,
     HistoricalFetchConfig,
+    HistoricalSeries,
     SourceFetcher,
     fetch_historical_data,
     normalize_a_share_symbol,
@@ -27,6 +29,7 @@ from .selection import (
     SelectionBacktestResult,
     SelectionFunction,
     SelectionStrategy,
+    _OwnedImmutableMapping,
     build_selection_replay_tape,
     run_selection_backtest,
 )
@@ -292,9 +295,9 @@ class IndustryAnnotationQuality:
         }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class HistoricalSelectionBacktestRun:
-    data: HistoricalDataResult
+    data: HistoricalDataResult | HistoricalDataSummary
     selection: SelectionBacktestResult
     warnings: tuple[str, ...] = ()
     industry_quality: IndustryAnnotationQuality | None = None
@@ -313,7 +316,8 @@ class HistoricalSelectionBacktestRun:
 
 
 def _annotated_bars(
-    data: HistoricalDataResult,
+    series_by_symbol: dict[str, HistoricalSeries],
+    failures: Mapping[str, str],
     symbols: tuple[str, ...],
     *,
     industry_by_symbol: Mapping[str, str] | None,
@@ -324,12 +328,14 @@ def _annotated_bars(
     classification_loader: ClassificationSnapshotLoader | None = None,
     progress_callback: AnnotationProgress | None = None,
 ) -> tuple[
-    Mapping[str, tuple[HistoricalBar, ...]],
+    Mapping[str, Mapping[str, HistoricalBar]],
     list[str],
     IndustryAnnotationQuality,
 ]:
+    """Annotate bars while consuming raw series to cap conversion peak memory."""
+
     warnings: list[str] = []
-    total = len(data.bars_by_symbol)
+    total = len(series_by_symbol)
     if progress_callback is not None:
         progress_callback(0, total, "")
     static_industries = _normalized_metadata_map(industry_by_symbol)
@@ -374,48 +380,62 @@ def _annotated_bars(
             ),
         })
     names = _normalized_metadata_map(name_by_symbol)
-    bars_by_symbol: dict[str, tuple[HistoricalBar, ...]] = {}
+    bars_by_symbol: dict[str, Mapping[str, HistoricalBar]] = {}
     total_bar_count = 0
     matched_bar_count = 0
     covered_symbols: set[str] = set()
-    for completed, (symbol, rows) in enumerate(data.bars_by_symbol.items(), start=1):
-        annotated: list[HistoricalBar] = []
+    fallback_symbols: list[str] = []
+    for completed, symbol in enumerate(tuple(series_by_symbol), start=1):
+        series = series_by_symbol.pop(symbol)
+        rows = series.bars
+        if series.attempts:
+            fallback_symbols.append(symbol)
+        industry = str(
+            static_industries.get(symbol)
+            or static_industries.get(symbol[-6:])
+            or ""
+        ).strip()
+        themes = tuple(
+            static_themes.get(symbol)
+            or static_themes.get(symbol[-6:])
+            or ()
+        )
+        if not themes and industry:
+            themes = (industry,)
+        if themes or industry:
+            industry = industry or themes[0]
+            matched_bar_count += len(rows)
+            covered_symbols.add(symbol)
+        name = str(names.get(symbol) or names.get(symbol[-6:]) or "")
+        extras: dict[str, Any] = {
+            "data_source": series.source,
+            "adjustment": series.adjustment,
+        }
+        if themes:
+            extras["themes"] = themes
+        shared_extras = _OwnedImmutableMapping(extras)
+        annotated: dict[str, HistoricalBar] = {}
         for raw in rows:
             total_bar_count += 1
-            row = dict(raw)
-            industry = str(
-                static_industries.get(symbol)
-                or static_industries.get(symbol[-6:])
-                or ""
-            ).strip()
-            themes = tuple(
-                static_themes.get(symbol)
-                or static_themes.get(symbol[-6:])
-                or ()
+            bar = HistoricalBar(
+                symbol=symbol,
+                date=str(raw.get("date") or ""),
+                open=raw.get("open"),
+                high=raw.get("high"),
+                low=raw.get("low"),
+                close=raw.get("close"),
+                volume=raw.get("volume") or 0.0,
+                amount=raw.get("amount"),
+                turnover=raw.get("turnover"),
+                previous_close=raw.get("previous_close"),
+                name=name,
+                industry=industry,
+                extras=shared_extras,
             )
-            if not themes and industry:
-                themes = (industry,)
-            if themes or industry:
-                row["themes"] = list(themes)
-                row["industry"] = industry or themes[0]
-                matched_bar_count += 1
-                covered_symbols.add(symbol)
-            else:
-                # Raw rows do not own classification metadata. Missing current
-                # provider coverage must remain visibly unclassified.
-                row.pop("industry", None)
-                row.pop("sector", None)
-                row.pop("themes", None)
-            name = names.get(symbol) or names.get(symbol[-6:])
-            if name:
-                row["name"] = name
-            annotated.append(HistoricalBar.from_value(symbol, row))
-        bars_by_symbol[symbol] = tuple(annotated)
+            annotated[bar.date] = bar
+        bars_by_symbol[symbol] = _OwnedImmutableMapping(annotated)
         if progress_callback is not None:
             progress_callback(completed, total, symbol)
-    fallback_symbols = [
-        symbol for symbol, series in data.series.items() if series.attempts
-    ]
     if fallback_symbols:
         displayed = ", ".join(fallback_symbols[:10])
         remaining = len(fallback_symbols) - 10
@@ -424,10 +444,10 @@ def _annotated_bars(
             "fallback source used after earlier source failures for "
             f"{len(fallback_symbols)} symbols: {displayed}{suffix}"
         )
-    if data.failures:
+    if failures:
         warnings.append(
             "partial universe fetched because HistoricalFetchConfig.strict=False: "
-            + ", ".join(data.failures)
+            + ", ".join(failures)
         )
     missing_bar_count = max(0, total_bar_count - matched_bar_count)
     snapshot_summary: Mapping[str, Any] | None = classification_summary or None
@@ -454,7 +474,7 @@ def _annotated_bars(
         matched_bar_count=matched_bar_count,
         missing_bar_count=missing_bar_count,
         covered_symbol_count=len(covered_symbols),
-        requested_symbol_count=len(data.bars_by_symbol),
+        requested_symbol_count=total,
         source=source,
         snapshot_summary=snapshot_summary,
     )
@@ -483,8 +503,14 @@ def run_historical_selection_backtest(
     progress_callback: BacktestProgress | None = None,
     replay_cache: ReplayTapeCache | None = None,
     replay_cache_identity: Mapping[str, Any] | None = None,
+    retain_historical_data: bool = True,
 ) -> HistoricalSelectionBacktestRun:
-    """Download warmup/forward buffers and evaluate selected stocks."""
+    """Download warmup/forward buffers and evaluate selected stocks.
+
+    Complete historical rows remain available in the returned public result by
+    default. Long-lived worker callers may opt into compact fetch metadata after
+    the rows have entered the replay engine.
+    """
     try:
         start = datetime.strptime(str(signal_start_date)[:10], "%Y-%m-%d").date()
         end = datetime.strptime(str(signal_end_date)[:10], "%Y-%m-%d").date()
@@ -534,6 +560,19 @@ def run_historical_selection_backtest(
             f"{len(data.series)}/{len(normalized_symbols)} "
             f"({coverage_ratio:.1%} < {float(minimum_coverage_ratio):.1%})"
         )
+    data_summary = data.summary()
+    result_data: HistoricalDataResult | HistoricalDataSummary = (
+        data if retain_historical_data else data_summary
+    )
+    raw_series = dict(data.series)
+    data_failures = data.failures
+    fetched_symbols = tuple(raw_series)
+    # The mutable series map is consumed one symbol at a time below. Dropping the
+    # aggregate result first lets each raw row batch become collectible as soon as
+    # its compact HistoricalBar objects have been created.
+    if not retain_historical_data:
+        del data
+
     def annotation_progress(completed: int, total: int, _symbol: str) -> None:
         if progress_callback is None:
             return
@@ -547,8 +586,9 @@ def run_historical_selection_backtest(
         )
 
     bars_by_symbol, warnings, industry_quality = _annotated_bars(
-        data,
-        tuple(data.bars_by_symbol),
+        raw_series,
+        data_failures,
+        fetched_symbols,
         industry_by_symbol=industry_by_symbol,
         classification_loader=classification_loader,
         industry_loader=industry_loader,
@@ -557,10 +597,10 @@ def run_historical_selection_backtest(
         name_by_symbol=name_by_symbol,
         progress_callback=annotation_progress,
     )
-    if len(data.series) < len(normalized_symbols):
+    if len(data_summary.series) < len(normalized_symbols):
         warnings.append(
             "historical universe coverage: "
-            f"{len(data.series)}/{len(normalized_symbols)} ({coverage_ratio:.1%})"
+            f"{len(data_summary.series)}/{len(normalized_symbols)} ({coverage_ratio:.1%})"
         )
     resolved_selection = replace(
         selection_config or SelectionBacktestConfig(),
@@ -621,7 +661,7 @@ def run_historical_selection_backtest(
             sources=identity.get("sources") or (),
             adjustment=str(identity.get("adjustment") or ""),
             stock_pool=identity.get("stock_pool") or (),
-            source_by_symbol=data.source_by_symbol,
+            source_by_symbol=data_summary.source_by_symbol,
         )
         tape = replay_cache.load(cache_key)
         cache_hit = tape is not None
@@ -747,7 +787,7 @@ def run_historical_selection_backtest(
     if progress_callback is not None:
         progress_callback(100, "completed", "回测完成")
     return HistoricalSelectionBacktestRun(
-        data=data,
+        data=result_data,
         selection=selection,
         warnings=tuple(warnings),
         industry_quality=industry_quality,

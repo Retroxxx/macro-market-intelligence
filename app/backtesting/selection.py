@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import math
 import statistics
+import sys
 import time
 from bisect import bisect_left
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -59,6 +60,27 @@ BUILTIN_STRATEGY_HISTORY_LIMIT = 120
 NIUONE_CONTEXT_WARMUP_SESSIONS = 60
 REPLAY_ETA_RECENT_SESSION_COUNT = 10
 DIAGNOSTIC_SCORE_THRESHOLD_OFFSETS = (-1.0, -0.5, -0.25, 0.0, 0.25, 0.5, 1.0)
+
+
+class _OwnedImmutableMapping(Mapping[Any, Any]):
+    """Read-only view over a dict whose ownership was transferred internally."""
+
+    __slots__ = ("_values",)
+
+    def __init__(self, values: dict[Any, Any]) -> None:
+        object.__setattr__(self, "_values", MappingProxyType(values))
+
+    def __getitem__(self, key: Any) -> Any:
+        return self._values[key]
+
+    def __iter__(self) -> Iterator[Any]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __setattr__(self, _name: str, _value: Any) -> None:
+        raise AttributeError(f"{type(self).__name__} is immutable")
 
 
 def _diagnostic_blocker_family(reason: str) -> str:
@@ -141,12 +163,12 @@ def _optional_float(value: Any, *, field_name: str) -> float | None:
 
 def _date_text(value: Any) -> str:
     if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%d")
+        return sys.intern(value.strftime("%Y-%m-%d"))
     if isinstance(value, date):
-        return value.isoformat()
+        return sys.intern(value.isoformat())
     text = str(value or "").strip()[:10]
     try:
-        return date.fromisoformat(text).isoformat()
+        return sys.intern(date.fromisoformat(text).isoformat())
     except ValueError:
         raise SelectionBacktestError(f"invalid trading date: {value!r}") from None
 
@@ -155,10 +177,10 @@ def _normalize_symbol(value: Any) -> str:
     symbol = str(value or "").strip().lower()
     if not symbol:
         raise SelectionBacktestError("symbol is required")
-    return symbol
+    return sys.intern(symbol)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class HistoricalBar:
     """One completed daily bar plus optional session metadata."""
 
@@ -209,7 +231,14 @@ class HistoricalBar:
                 field_name,
                 _optional_float(getattr(self, field_name), field_name=field_name),
             )
-        object.__setattr__(self, "extras", MappingProxyType(dict(self.extras or {})))
+        extras = self.extras
+        object.__setattr__(
+            self,
+            "extras",
+            extras
+            if isinstance(extras, _OwnedImmutableMapping)
+            else MappingProxyType(dict(extras or {})),
+        )
 
     @classmethod
     def from_value(
@@ -273,7 +302,7 @@ class HistoricalBar:
             "amount": self.amount,
             "turnover": self.turnover,
             "prev_close": self.previous_close,
-            "symbol_code": self.symbol[-6:],
+            "symbol_code": sys.intern(self.symbol[-6:]),
             "stock_name": self.name,
             "industry": self.industry,
         })
@@ -737,13 +766,17 @@ class ReplaySelectionStrategy:
 
 
 def _normalized_bars(
-    bars_by_symbol: Mapping[str, Iterable[HistoricalBar | Mapping[str, Any]]],
+    bars_by_symbol: Mapping[
+        str,
+        Iterable[HistoricalBar | Mapping[str, Any]]
+        | Mapping[str, HistoricalBar | Mapping[str, Any]],
+    ],
     *,
     progress_callback: SelectionPhaseProgress | None = None,
-) -> tuple[dict[str, dict[str, HistoricalBar]], tuple[str, ...]]:
+) -> tuple[dict[str, Mapping[str, HistoricalBar]], tuple[str, ...]]:
     if not isinstance(bars_by_symbol, Mapping) or not bars_by_symbol:
         raise SelectionBacktestError("bars_by_symbol must contain at least one symbol")
-    result: dict[str, dict[str, HistoricalBar]] = {}
+    result: dict[str, Mapping[str, HistoricalBar]] = {}
     dates: set[str] = set()
     total = len(bars_by_symbol)
     if progress_callback is not None:
@@ -753,20 +786,43 @@ def _normalized_bars(
         start=1,
     ):
         symbol = _normalize_symbol(raw_symbol)
-        by_date: dict[str, HistoricalBar] = {}
-        for raw_bar in raw_bars or []:
-            if isinstance(raw_bar, HistoricalBar):
+        by_date: Mapping[str, HistoricalBar]
+        reuse_date_index = (
+            isinstance(raw_bars, _OwnedImmutableMapping) and bool(raw_bars)
+        )
+        if reuse_date_index:
+            for raw_date, raw_bar in raw_bars.items():
+                if not isinstance(raw_bar, HistoricalBar):
+                    reuse_date_index = False
+                    break
                 if raw_bar.symbol != symbol:
                     raise SelectionBacktestError(
                         f"bar symbol mismatch: expected {symbol}, got {raw_bar.symbol}"
                     )
-                bar = raw_bar
-            else:
-                bar = HistoricalBar.from_value(symbol, raw_bar)
-            by_date[bar.date] = bar
-            dates.add(bar.date)
+                if raw_date != raw_bar.date:
+                    reuse_date_index = False
+                    break
+        if reuse_date_index:
+            by_date = raw_bars
+        else:
+            normalized_by_date: dict[str, HistoricalBar] = {}
+            raw_values = (
+                raw_bars.values() if isinstance(raw_bars, Mapping) else raw_bars or ()
+            )
+            for raw_bar in raw_values:
+                if isinstance(raw_bar, HistoricalBar):
+                    if raw_bar.symbol != symbol:
+                        raise SelectionBacktestError(
+                            f"bar symbol mismatch: expected {symbol}, got {raw_bar.symbol}"
+                        )
+                    bar = raw_bar
+                else:
+                    bar = HistoricalBar.from_value(symbol, raw_bar)
+                normalized_by_date[bar.date] = bar
+            by_date = normalized_by_date
         if by_date:
             result[symbol] = by_date
+            dates.update(by_date)
         if progress_callback is not None and (
             completed == 1 or completed % 25 == 0 or completed == total
         ):
@@ -871,6 +927,72 @@ def _selection_statistics(
     }
 
 
+_STRATEGY_ROW_BASE_FIELDS = (
+    "date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "amount",
+    "turnover",
+    "prev_close",
+    "symbol_code",
+    "stock_name",
+    "industry",
+)
+_STRATEGY_ROW_ENRICHED_FIELDS = (
+    "bbi",
+    "j",
+    "ema20",
+    "ema50",
+    "z_white",
+    "z_yellow",
+    "change_pct",
+)
+_STRATEGY_ROW_STORAGE_TYPES: dict[
+    tuple[Any, ...], tuple[type, object]
+] = {}
+
+
+def _new_prepared_strategy_row(bar: HistoricalBar) -> dict[str, Any]:
+    """Build a mutable key-sharing row for one exact indicator enrichment pass."""
+
+    keys = tuple(dict.fromkeys((
+        *bar.extras,
+        *_STRATEGY_ROW_BASE_FIELDS,
+        *_STRATEGY_ROW_ENRICHED_FIELDS,
+    )))
+    entry = _STRATEGY_ROW_STORAGE_TYPES.get(keys)
+    if entry is None:
+        if len(_STRATEGY_ROW_STORAGE_TYPES) >= 64:
+            return bar.as_strategy_row()
+        storage_type = type("_PreparedStrategyRowStorage", (), {})
+        seed = storage_type()
+        for key in keys:
+            seed.__dict__[key] = None
+        entry = (storage_type, seed)
+        _STRATEGY_ROW_STORAGE_TYPES[keys] = entry
+    storage = entry[0]()
+    row = storage.__dict__
+    row.update(bar.extras)
+    row.update({
+        "date": bar.date,
+        "open": bar.open,
+        "high": bar.high,
+        "low": bar.low,
+        "close": bar.close,
+        "volume": bar.volume,
+        "amount": bar.amount,
+        "turnover": bar.turnover,
+        "prev_close": bar.previous_close,
+        "symbol_code": sys.intern(bar.symbol[-6:]),
+        "stock_name": bar.name,
+        "industry": bar.industry,
+    })
+    return row
+
+
 def _prepared_strategy_rows(
     bars: Mapping[str, Mapping[str, HistoricalBar]],
     *,
@@ -883,7 +1005,10 @@ def _prepared_strategy_rows(
     if progress_callback is not None:
         progress_callback(0, total)
     for completed, (symbol, by_date) in enumerate(bars.items(), start=1):
-        rows = [by_date[trading_date].as_strategy_row() for trading_date in sorted(by_date)]
+        rows = [
+            _new_prepared_strategy_row(by_date[trading_date])
+            for trading_date in sorted(by_date)
+        ]
         enrich_rows(rows)
         prepared[symbol] = tuple(MappingProxyType(row) for row in rows)
         if preparation_callback is not None and (
@@ -950,7 +1075,11 @@ def _estimate_replay_eta(
 
 
 def build_selection_replay_tape(
-    bars_by_symbol: Mapping[str, Iterable[HistoricalBar | Mapping[str, Any]]],
+    bars_by_symbol: Mapping[
+        str,
+        Iterable[HistoricalBar | Mapping[str, Any]]
+        | Mapping[str, HistoricalBar | Mapping[str, Any]],
+    ],
     selector: SelectionStrategy | SelectionFunction,
     *,
     config: SelectionBacktestConfig | None = None,
@@ -2397,7 +2526,11 @@ def _run_strategy_portfolio_backtest(
 
 
 def run_selection_backtest(
-    bars_by_symbol: Mapping[str, Iterable[HistoricalBar | Mapping[str, Any]]],
+    bars_by_symbol: Mapping[
+        str,
+        Iterable[HistoricalBar | Mapping[str, Any]]
+        | Mapping[str, HistoricalBar | Mapping[str, Any]],
+    ],
     selector: SelectionStrategy | SelectionFunction,
     *,
     config: SelectionBacktestConfig | None = None,

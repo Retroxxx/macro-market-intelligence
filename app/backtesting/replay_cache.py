@@ -22,6 +22,29 @@ from .selection import (
 
 
 REPLAY_CACHE_SCHEMA_VERSION = 1
+_MAPPING_PROXY_TYPE = type(MappingProxyType({}))
+
+
+BarSeries = Iterable[HistoricalBar] | Mapping[str, HistoricalBar]
+
+
+def _bar_values(rows: BarSeries) -> Iterable[HistoricalBar]:
+    return rows.values() if isinstance(rows, Mapping) else rows
+
+
+def _stable_bar_series(
+    bars_by_symbol: Mapping[str, BarSeries],
+) -> Mapping[str, BarSeries]:
+    """Materialize only one-shot iterables; mappings and tuples stay shared."""
+    return {
+        symbol: (
+            rows
+            if isinstance(rows, (_MAPPING_PROXY_TYPE, tuple))
+            else tuple(rows.values()) if isinstance(rows, Mapping)
+            else tuple(rows)
+        )
+        for symbol, rows in bars_by_symbol.items()
+    }
 
 
 def _hash_value(hasher: Any, value: Any) -> None:
@@ -30,12 +53,11 @@ def _hash_value(hasher: Any, value: Any) -> None:
 
 
 def _classification_snapshot_hash(
-    bars_by_symbol: Mapping[str, Iterable[HistoricalBar]],
+    bars_by_symbol: Mapping[str, BarSeries],
 ) -> str:
     hasher = hashlib.sha256()
     for symbol in sorted(bars_by_symbol):
-        rows = tuple(bars_by_symbol[symbol])
-        first = rows[0] if rows else None
+        first = next(iter(_bar_values(bars_by_symbol[symbol])), None)
         themes = (
             first.extras.get("themes", ())
             if first is not None and isinstance(first.extras, Mapping)
@@ -51,7 +73,7 @@ def _classification_snapshot_hash(
 
 
 def _bar_snapshot_hash(
-    bars_by_symbol: Mapping[str, Iterable[HistoricalBar]],
+    bars_by_symbol: Mapping[str, BarSeries],
     source_by_symbol: Mapping[str, str],
 ) -> str:
     """Fingerprint fetched values so upstream history revisions miss the cache."""
@@ -59,7 +81,7 @@ def _bar_snapshot_hash(
     for symbol in sorted(bars_by_symbol):
         _hash_value(hasher, symbol)
         _hash_value(hasher, source_by_symbol.get(symbol, ""))
-        for bar in bars_by_symbol[symbol]:
+        for bar in _bar_values(bars_by_symbol[symbol]):
             for value in (
                 bar.date,
                 bar.open,
@@ -86,7 +108,7 @@ class ReplayCacheKey:
 
 
 def build_replay_cache_key(
-    bars_by_symbol: Mapping[str, Iterable[HistoricalBar]],
+    bars_by_symbol: Mapping[str, BarSeries],
     *,
     protocol_version: str,
     selector_id: str,
@@ -99,9 +121,7 @@ def build_replay_cache_key(
     source_by_symbol: Mapping[str, str],
 ) -> ReplayCacheKey:
     """Build the stable identity required before selector output can be reused."""
-    materialized = {
-        symbol: tuple(rows) for symbol, rows in bars_by_symbol.items()
-    }
+    stable_bars = _stable_bar_series(bars_by_symbol)
     descriptor = {
         "schema_version": REPLAY_CACHE_SCHEMA_VERSION,
         "protocol_version": str(protocol_version or ""),
@@ -114,8 +134,8 @@ def build_replay_cache_key(
         "sources": list(dict.fromkeys(str(item or "") for item in sources)),
         "adjustment": str(adjustment or ""),
         "stock_pool": sorted(dict.fromkeys(str(item or "") for item in stock_pool)),
-        "classification_snapshot_hash": _classification_snapshot_hash(materialized),
-        "bar_snapshot_hash": _bar_snapshot_hash(materialized, source_by_symbol),
+        "classification_snapshot_hash": _classification_snapshot_hash(stable_bars),
+        "bar_snapshot_hash": _bar_snapshot_hash(stable_bars, source_by_symbol),
     }
     encoded = json.dumps(
         descriptor,
@@ -137,39 +157,62 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def _tape_payload(tape: SelectionReplayTape) -> dict[str, Any]:
-    return {
-        "frames": {
-            trading_date: {
-                "date": frame.date,
-                "signals": [
-                    {
-                        "symbol": signal.symbol,
-                        "strategy_id": signal.strategy_id,
-                        "reason": signal.reason,
-                        "score": signal.score,
-                        "metadata": _plain(signal.metadata),
-                    }
-                    for signal in frame.signals
-                ],
-                "scored": _plain(frame.scored),
-                "cross_section": _plain(frame.cross_section),
-            }
-            for trading_date, frame in tape.frames.items()
-        },
-        "diagnostics": _plain(tape.diagnostics),
-    }
+def _dump_json(handle: Any, value: Any) -> None:
+    json.dump(
+        value,
+        handle,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _dump_tape(handle: Any, tape: SelectionReplayTape) -> None:
+    """Stream one frame at a time instead of duplicating the complete tape."""
+
+    handle.write('{"frames":{')
+    first = True
+    for trading_date, frame in tape.frames.items():
+        if not first:
+            handle.write(",")
+        first = False
+        _dump_json(handle, str(trading_date))
+        handle.write(":")
+        _dump_json(handle, {
+            "date": frame.date,
+            "signals": [
+                {
+                    "symbol": signal.symbol,
+                    "strategy_id": signal.strategy_id,
+                    "reason": signal.reason,
+                    "score": signal.score,
+                    "metadata": _plain(signal.metadata),
+                }
+                for signal in frame.signals
+            ],
+            "scored": _plain(frame.scored),
+            "cross_section": _plain(frame.cross_section),
+        })
+    handle.write('},"diagnostics":')
+    _dump_json(handle, _plain(tape.diagnostics))
+    handle.write("}")
 
 
 def _mapping_proxy_tree(values: Mapping[str, Any]) -> Mapping[str, Any]:
-    return MappingProxyType({
-        str(key): (
-            _mapping_proxy_tree(value)
-            if isinstance(value, Mapping)
-            else value
-        )
-        for key, value in values.items()
-    })
+    if isinstance(values, dict) and all(isinstance(key, str) for key in values):
+        result = values
+        for key, value in tuple(result.items()):
+            if isinstance(value, Mapping):
+                result[key] = _mapping_proxy_tree(value)
+    else:
+        result = {
+            str(key): (
+                _mapping_proxy_tree(value)
+                if isinstance(value, Mapping)
+                else value
+            )
+            for key, value in values.items()
+        }
+    return MappingProxyType(result)
 
 
 def _tape_from_payload(payload: Mapping[str, Any]) -> SelectionReplayTape | None:
@@ -177,8 +220,15 @@ def _tape_from_payload(payload: Mapping[str, Any]) -> SelectionReplayTape | None
     if not isinstance(raw_frames, Mapping):
         return None
     frames: dict[str, SelectionReplayFrame] = {}
+    if isinstance(raw_frames, dict):
+        frame_items = (
+            (trading_date, raw_frames.pop(trading_date))
+            for trading_date in tuple(raw_frames)
+        )
+    else:
+        frame_items = raw_frames.items()
     try:
-        for trading_date, raw_frame in raw_frames.items():
+        for trading_date, raw_frame in frame_items:
             if not isinstance(raw_frame, Mapping):
                 return None
             signals = tuple(
@@ -304,17 +354,15 @@ class ReplayTapeCache:
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             with gzip.open(temporary, "wt", encoding="utf-8") as handle:
-                json.dump(
-                    {
-                        "schema_version": REPLAY_CACHE_SCHEMA_VERSION,
-                        "key": key.digest,
-                        "descriptor": dict(key.descriptor),
-                        "tape": _tape_payload(tape),
-                    },
-                    handle,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
+                handle.write('{"schema_version":')
+                _dump_json(handle, REPLAY_CACHE_SCHEMA_VERSION)
+                handle.write(',"key":')
+                _dump_json(handle, key.digest)
+                handle.write(',"descriptor":')
+                _dump_json(handle, dict(key.descriptor))
+                handle.write(',"tape":')
+                _dump_tape(handle, tape)
+                handle.write("}")
             temporary.replace(target)
             return True
         except (OSError, TypeError, ValueError):

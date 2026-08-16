@@ -5,6 +5,7 @@ import sys
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
+from types import MappingProxyType
 from unittest.mock import patch
 
 
@@ -2136,6 +2137,110 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
             config=config,
         )
         self.assertEqual(object_result.to_dict(), mapping_result.to_dict())
+
+    def test_external_mapping_proxies_are_detached_before_replay(self):
+        extras_backing = {
+            "data_source": "eastmoney",
+            "adjustment": "qfq",
+            "themes": ("银行",),
+        }
+        shared_extras = MappingProxyType(extras_backing)
+        bars = tuple(
+            HistoricalBar(
+                symbol="600000",
+                date=trading_date,
+                open=price,
+                high=price,
+                low=price,
+                close=price,
+                volume=100,
+                extras=shared_extras,
+            )
+            for trading_date, price in (
+                ("2026-01-05", 10.0),
+                ("2026-01-06", 10.1),
+            )
+        )
+        index_backing = {bar.date: bar for bar in bars}
+        indexed = MappingProxyType(index_backing)
+
+        normalized, dates = selection_module._normalized_bars({
+            "600000": indexed,
+        })
+
+        extras_backing["themes"] = ("证券",)
+        index_backing.clear()
+
+        self.assertFalse(hasattr(bars[0], "__dict__"))
+        self.assertEqual(bars[0].extras["themes"], ("银行",))
+        self.assertEqual(bars[1].extras["themes"], ("银行",))
+        self.assertIsNot(normalized["600000"], indexed)
+        self.assertEqual(tuple(normalized["600000"]), tuple(bar.date for bar in bars))
+        self.assertEqual(dates, ("2026-01-05", "2026-01-06"))
+
+    def test_compact_prepared_rows_match_regular_strategy_rows_exactly(self):
+        shared_extras = MappingProxyType({
+            "data_source": "eastmoney",
+            "adjustment": "qfq",
+            "themes": ("银行",),
+            "custom_score": 7.25,
+            "__dict__": "ordinary-extra-field",
+            1: "non-string-extra-field",
+        })
+        bars = tuple(
+            HistoricalBar(
+                symbol="sh600000",
+                date=trading_date,
+                open=price,
+                high=price + 0.2,
+                low=price - 0.1,
+                close=price + 0.1,
+                volume=1000 + index,
+                amount=10_000 + index,
+                turnover=1.2 + index / 10,
+                previous_close=None if index == 0 else price,
+                name="浦发银行",
+                industry="银行",
+                extras=shared_extras,
+            )
+            for index, (trading_date, price) in enumerate((
+                ("2026-01-05", 10.0),
+                ("2026-01-06", 10.2),
+                ("2026-01-07", 10.1),
+            ))
+        )
+        reference = [bar.as_strategy_row() for bar in bars]
+        enrich_strategy_rows(reference)
+        indexed = MappingProxyType({bar.date: bar for bar in bars})
+
+        compact = selection_module._prepared_strategy_rows({
+            "sh600000": indexed,
+        })["sh600000"]
+
+        self.assertEqual([dict(row) for row in compact], reference)
+        self.assertEqual(
+            [list(row.items()) for row in compact],
+            [list(row.items()) for row in reference],
+        )
+        self.assertNotIn("change_pct", compact[0])
+        self.assertIn("change_pct", compact[1])
+        with self.assertRaises(TypeError):
+            compact[0]["close"] = 0
+
+    def test_mutable_date_mapping_is_detached_before_replay(self):
+        bar = HistoricalBar.from_value(
+            "600000",
+            daily_bar("2026-01-05", 10.0),
+        )
+        mutable = {bar.date: bar}
+
+        normalized, _dates = selection_module._normalized_bars({
+            "600000": mutable,
+        })
+        mutable.clear()
+
+        self.assertIsNot(normalized["600000"], mutable)
+        self.assertEqual(normalized["600000"][bar.date], bar)
 
     def test_measures_next_open_forward_returns_and_deduplicates(self):
         bars = {"600000": [
