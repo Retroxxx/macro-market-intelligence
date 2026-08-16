@@ -198,7 +198,6 @@ install_linux() {
   mkdir -p "$unit_dir" "$LOG_DIR"
   generate_linux_unit "$unit_dir/${LINUX_UNITS[0]}" "NiuOne Dashboard" "${PROGRAMS[0]}"
   generate_linux_unit "$unit_dir/${LINUX_UNITS[1]}" "NiuOne Cron Scheduler" "${PROGRAMS[1]}"
-  generate_linux_unit "$unit_dir/${LINUX_UNITS[2]}" "NiuOne X Watchlist Daemon" "${PROGRAMS[2]}"
 
   systemctl --user daemon-reload
   systemctl --user enable "${LINUX_UNITS[@]}"

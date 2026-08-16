@@ -69,6 +69,12 @@ class ServiceLauncherTests(unittest.TestCase):
         ):
             self.assertIn(value, text)
 
+    def test_linux_service_installer_does_not_reference_removed_process(self):
+        text = (ROOT / "scripts" / "manage-long-running.sh").read_text(encoding="utf-8")
+        self.assertNotIn("LINUX_UNITS[2]", text)
+        self.assertNotIn("PROGRAMS[2]", text)
+        self.assertNotIn("NiuOne X Watchlist Daemon", text)
+
     def test_windows_launcher_and_manager_cover_all_processes(self):
         launcher = (ROOT / "run.bat").read_text(encoding="utf-8")
         manager = (ROOT / "scripts" / "manage-long-running.ps1").read_text(encoding="utf-8")
