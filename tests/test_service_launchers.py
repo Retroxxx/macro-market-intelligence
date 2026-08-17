@@ -75,6 +75,13 @@ class ServiceLauncherTests(unittest.TestCase):
         self.assertNotIn("PROGRAMS[2]", text)
         self.assertNotIn("NiuOne X Watchlist Daemon", text)
 
+    def test_linux_working_directory_is_an_unquoted_absolute_path(self):
+        text = (ROOT / "scripts" / "manage-long-running.sh").read_text(encoding="utf-8")
+        self.assertIn("printf 'WorkingDirectory=%s\\n'", text)
+        self.assertNotIn("printf 'WorkingDirectory=\"%s\"\\n'", text)
+        self.assertIn("printf 'Environment=\"NIUONE_LOCAL_DATA_DIR=%s\"\\n'", text)
+        self.assertIn("printf 'ExecStart=\"%s\"\\n'", text)
+
     def test_windows_launcher_and_manager_cover_all_processes(self):
         launcher = (ROOT / "run.bat").read_text(encoding="utf-8")
         manager = (ROOT / "scripts" / "manage-long-running.ps1").read_text(encoding="utf-8")

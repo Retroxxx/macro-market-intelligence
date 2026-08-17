@@ -165,7 +165,7 @@ generate_linux_unit() {
     printf 'After=network-online.target\n\n'
     printf '[Service]\n'
     printf 'Type=simple\n'
-    printf 'WorkingDirectory="%s"\n' "$root_value"
+    printf 'WorkingDirectory=%s\n' "$root_value"
     printf 'Environment="NIUONE_LOCAL_DATA_DIR=%s"\n' "$data_value"
     printf 'Environment="DASHBOARD_ENV_FILE=%s"\n' "$env_value"
     printf 'Environment="PYTHONDONTWRITEBYTECODE=1"\n'
