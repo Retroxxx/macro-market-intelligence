@@ -128,6 +128,7 @@ from strategies.display import (
     stock_role_label,
 )
 from strategies.lifecycle import NIUONE_LIFECYCLE_STAGES
+from trading.accounting import ACCOUNTING_AUDIT_FIELDS, trade_counts_for_account
 from trading.fees import (
     A_SHARE_COMMISSION_RATE,
     A_SHARE_MINIMUM_COMMISSION,
@@ -504,14 +505,26 @@ def now_ts() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _accounted_trade_executions(
+    executed: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return only fills that remain active after account-state reconciliation."""
+    return [
+        trade
+        for trade in executed
+        if isinstance(trade, dict) and trade_counts_for_account(trade)
+    ]
+
+
 def _notify_trade_executions_safely(executed: list[dict[str, Any]]) -> None:
     """Fan out persisted simulated fills without affecting trade execution."""
-    if not executed:
+    accounted_executions = _accounted_trade_executions(executed)
+    if not accounted_executions:
         return
     try:
         from notifications import notify_trade_executions
 
-        results = notify_trade_executions(executed)
+        results = notify_trade_executions(accounted_executions)
         failed_count = sum(1 for result in (results or []) if not bool(getattr(result, "ok", False)))
         if failed_count:
             print(
@@ -784,7 +797,7 @@ def load_state() -> dict[str, Any]:
         save_state(state)
         return state
     try:
-        state = json.loads(STATE_FILE.read_text())
+        state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
     except Exception:
         state = default_state()
     base = default_state()
@@ -962,6 +975,8 @@ def reconcile_positions_with_trade_log(state: dict[str, Any]) -> list[str]:
     for trade in state.get("trade_log") or []:
         if not isinstance(trade, dict):
             continue
+        if not trade_counts_for_account(trade):
+            continue
         action = str(trade.get("action") or "").upper()
         code = normalize_code(str(trade.get("code") or ""))
         shares = trade_shares(trade.get("shares"))
@@ -1011,6 +1026,8 @@ def reconcile_positions_with_trade_log(state: dict[str, Any]) -> list[str]:
 
 def _trade_cash_delta(trade: Mapping[str, Any]) -> float:
     """Return the signed cash movement recorded by one durable fill."""
+    if not trade_counts_for_account(trade):
+        return 0.0
     action = str(trade.get("action") or "").upper()
     try:
         shares = max(0, int(float(trade.get("shares") or 0)))
@@ -1048,8 +1065,10 @@ def _apply_trade_to_account_snapshot(
     positions: dict[str, Any],
     trade: Mapping[str, Any],
     templates: Mapping[str, Any],
-) -> None:
+) -> bool:
     """Replay one branch-only fill onto another branch's position snapshot."""
+    if not trade_counts_for_account(trade):
+        return False
     action = str(trade.get("action") or "").upper()
     code = normalize_code(str(trade.get("code") or ""))
     try:
@@ -1057,7 +1076,7 @@ def _apply_trade_to_account_snapshot(
     except (TypeError, ValueError):
         shares = 0
     if action not in {"BUY", "SELL"} or not code or shares <= 0:
-        return
+        return False
 
     template = templates.get(code)
     if not isinstance(template, Mapping):
@@ -1135,10 +1154,10 @@ def _apply_trade_to_account_snapshot(
             lots[trade_date] = int(lots.get(trade_date, 0) or 0) + shares
         position["buy_date_lots"] = lots
         positions[code] = position
-        return
+        return True
 
-    if existing is None:
-        return
+    if existing is None or shares > position_qty(existing):
+        return False
     remaining_qty = max(0, position_qty(existing) - shares)
     lots = existing.get("buy_date_lots")
     lots = dict(lots) if isinstance(lots, Mapping) else {}
@@ -1158,28 +1177,101 @@ def _apply_trade_to_account_snapshot(
         existing["qty"] = remaining_qty
         existing.pop("shares", None)
         existing["buy_date_lots"] = lots
+    return True
 
 
 def merge_divergent_trade_account_state(
     state: dict[str, Any],
     current: Mapping[str, Any],
     state_only_trades: list[dict[str, Any]],
-) -> None:
+) -> int:
     """Merge disjoint fills without dropping either writer's cash or positions."""
     positions = copy.deepcopy(current.get("positions") or {})
     templates = state.get("positions") or {}
     cash = _safe_float(current.get("cash"), _safe_float(state.get("cash"), 0.0))
+    rejected_trade_count = 0
     for trade in sorted(state_only_trades, key=lambda item: str(item.get("time") or "")):
-        cash += _trade_cash_delta(trade)
-        _apply_trade_to_account_snapshot(positions, trade, templates)
+        applied = _apply_trade_to_account_snapshot(positions, trade, templates)
+        if applied:
+            cash += _trade_cash_delta(trade)
+            continue
+        try:
+            rejected_sell_shares = max(
+                0,
+                int(float(trade.get("shares") or 0)),
+            )
+        except (TypeError, ValueError):
+            rejected_sell_shares = 0
+        if (
+            trade_counts_for_account(trade)
+            and str(trade.get("action") or "").upper() == "SELL"
+            and normalize_code(str(trade.get("code") or ""))
+            and rejected_sell_shares > 0
+        ):
+            trade.update({
+                "accounting_status": "rejected",
+                "accounting_rejected": True,
+                "accounting_rejection_reason": (
+                    "concurrent_sell_exceeds_available_position"
+                ),
+                "accounting_rejected_at": now_ts(),
+            })
+            rejected_trade_count += 1
     state["cash"] = round(cash, 2)
     state["positions"] = positions
+    return rejected_trade_count
+
+
+def _repair_pending_equity_after_accounting_rejection(
+    state: dict[str, Any],
+    point_time: str,
+) -> bool:
+    """Replace a stale branch point with the post-merge canonical account mark."""
+    if not point_time:
+        return False
+    cash = _safe_float(state.get("cash"), 0.0)
+    market_value = 0.0
+    for position in (state.get("positions") or {}).values():
+        if not isinstance(position, Mapping):
+            continue
+        quantity = position_qty(position)
+        price = _safe_float(
+            position.get("last_price") or position.get("avg_cost"),
+            0.0,
+        )
+        market_value += max(0, quantity) * max(0.0, price)
+    initial_cash = _safe_float(state.get("initial_cash"), INITIAL_CASH)
+    if initial_cash <= 0:
+        initial_cash = INITIAL_CASH
+    total_equity = cash + market_value
+    repaired = {
+        "time": point_time,
+        "equity": round(total_equity, 2),
+        "cash": round(cash, 2),
+        "market_value": round(market_value, 2),
+        "pnl_pct": round((total_equity / initial_cash - 1) * 100, 2),
+        "account_created_at": str(state.get("created_at") or ""),
+    }
+    changed = False
+    for key in ("equity_history", "daily_equity_history"):
+        history = state.get(key)
+        if not isinstance(history, list):
+            continue
+        for index, point in enumerate(history):
+            if not isinstance(point, Mapping):
+                continue
+            if str(point.get("time") or "") != point_time:
+                continue
+            history[index] = {**dict(point), **repaired}
+            changed = True
+    return changed
 
 
 def save_state(state: dict[str, Any]) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with state_file_write_lock():
         pending_equity_sync_time = str(state.pop(_PENDING_EQUITY_DB_SYNC_TIME, "") or "")
+        rejected_trade_count = 0
         state["updated_at"] = now_ts()
 
         # Merge append-only logs with the on-disk copy before replacing the file.
@@ -1192,17 +1284,22 @@ def save_state(state: dict[str, Any]) -> None:
 
             def merge_list(key: str, identity_fields: tuple[str, ...], prefer_state: bool = False) -> None:
                 merged = []
-                seen = set()
+                merged_by_identity: dict[tuple[str, ...], dict[str, Any]] = {}
                 first = state.get(key) if prefer_state else current.get(key)
                 second = current.get(key) if prefer_state else state.get(key)
                 for item in (first or []) + (second or []):
                     if not isinstance(item, dict):
                         continue
                     ident = tuple(json.dumps(item.get(f, ""), ensure_ascii=False, sort_keys=True) for f in identity_fields)
-                    if ident in seen:
+                    retained = merged_by_identity.get(ident)
+                    if retained is not None:
+                        if key == "trade_log" and not trade_counts_for_account(item):
+                            for field in ACCOUNTING_AUDIT_FIELDS:
+                                if field in item:
+                                    retained[field] = copy.deepcopy(item[field])
                         continue
-                    seen.add(ident)
                     merged.append(item)
+                    merged_by_identity[ident] = item
                 state[key] = merged
 
             trade_identity_fields = ("time", "action", "code", "shares", "price", "reason")
@@ -1232,7 +1329,7 @@ def save_state(state: dict[str, Any]) -> None:
                         for item in (state.get("trade_log") or [])
                         if isinstance(item, dict) and trade_id(item) not in current_trade_ids
                     ]
-                    merge_divergent_trade_account_state(
+                    rejected_trade_count += merge_divergent_trade_account_state(
                         state,
                         current,
                         state_only_trades,
@@ -1258,6 +1355,11 @@ def save_state(state: dict[str, Any]) -> None:
             # append-only trade merge succeeded. Re-apply the retained ledger
             # after merging so a completed SELL cannot be resurrected.
             reconcile_positions_with_trade_log(state)
+            if rejected_trade_count:
+                _repair_pending_equity_after_accounting_rejection(
+                    state,
+                    pending_equity_sync_time,
+                )
 
             # Preserve the newest decision marker and its error as one logical
             # value. A stale quote refresh must not clear an error written by a
@@ -1319,6 +1421,11 @@ def save_state(state: dict[str, Any]) -> None:
             encoding="utf-8",
         )
         tmp.replace(STATE_FILE)
+
+        if rejected_trade_count:
+            # A stale writer may already have replaced today's mutable SQLite
+            # position snapshot before its oversell was rejected during merge.
+            _sync_positions_to_db(state)
 
         # Synchronize SQLite only after the canonical same-minute point is chosen.
         # Keeping this under the state-file lock preserves JSON/DB writer ordering.
@@ -2057,7 +2164,11 @@ def enrich_portfolio(state: dict[str, Any]) -> dict[str, Any]:
         "sector_tide_open_risk_pct": round(sector_tide_open_risk_pct, 4),
         "niuone_open_risk_pct": round(niuone_open_risk_pct, 4),
         "positions": rows,
-        "trade_log": list(reversed(state.get("trade_log", [])[-TRADE_LOG_LIMIT:])),
+        "trade_log": list(reversed([
+            trade
+            for trade in state.get("trade_log", [])
+            if isinstance(trade, dict) and trade_counts_for_account(trade)
+        ][-TRADE_LOG_LIMIT:])),
         "decision_log": list(reversed(state.get("decision_log", [])[-50:])),
         "pending_decisions": [
             item for item in state.get("pending_decisions", [])
@@ -2504,7 +2615,9 @@ def rebuild_intraday_equity_curve(
     today_trades = [
         trade
         for trade in state.get("trade_log", [])
-        if isinstance(trade, dict) and str(trade.get("time", "")).startswith(today)
+        if isinstance(trade, dict)
+        and trade_counts_for_account(trade)
+        and str(trade.get("time", "")).startswith(today)
     ]
     latest_trade_dt = None
     if today_trades:
@@ -2628,6 +2741,8 @@ def build_today_sold_stocks(
     sold: dict[str, dict[str, Any]] = {}
     for trade in state.get("trade_log", []) or []:
         if not isinstance(trade, dict):
+            continue
+        if not trade_counts_for_account(trade):
             continue
         if str(trade.get("action") or "").upper() != "SELL":
             continue
@@ -4293,6 +4408,8 @@ def check_daily_loss_budget(state: dict[str, Any]) -> tuple[bool, float]:
     for trade in state.get("trade_log") or []:
         if not isinstance(trade, dict) or not str(trade.get("time") or "").startswith(today):
             continue
+        if not trade_counts_for_account(trade):
+            continue
         if str(trade.get("action") or "").upper() != "SELL":
             continue
         trade_day_pnl = _safe_float(trade.get("day_pnl"), float("nan"))
@@ -4506,6 +4623,8 @@ def niuone_opened_position_codes_on_date(
     opened_codes: set[str] = set()
     for raw_trade in state.get("trade_log") or []:
         if not isinstance(raw_trade, dict):
+            continue
+        if not trade_counts_for_account(raw_trade):
             continue
         if str(raw_trade.get("action") or "").upper() != "BUY":
             continue
@@ -6856,6 +6975,29 @@ def _refresh_frozen_prompt_position_exits(
     )
 
 AUTO_EXIT_PERSISTENCE_STATUS_KEY = "_auto_exit_persistence_status"
+AUTO_EXIT_ELIGIBLE_CODES_KEY = "_auto_exit_eligible_codes"
+AUTO_EXIT_REFRESH_BASELINE_KEY = "_auto_exit_refresh_baseline"
+_AUTO_EXIT_ACCOUNT_POSITION_FIELDS = frozenset({
+    "avg_cost",
+    "buy_date_lots",
+    "qty",
+    "shares",
+})
+_AUTO_EXIT_REFRESH_META_FIELDS = (
+    "last_quote_refresh",
+    "last_intraday_refresh",
+)
+
+
+def _auto_exit_refresh_baseline(state: Mapping[str, Any]) -> dict[str, Any]:
+    """Capture only fields needed to distinguish refresh deltas from stale state."""
+    baseline = {
+        "positions": copy.deepcopy(state.get("positions") or {}),
+    }
+    for field in _AUTO_EXIT_REFRESH_META_FIELDS:
+        if field in state:
+            baseline[field] = copy.deepcopy(state[field])
+    return baseline
 
 
 def _default_persistence_status() -> dict[str, bool]:
@@ -6879,6 +7021,117 @@ def _pop_auto_exit_persistence_status(
     }
 
 
+def _position_account_identity(position: Mapping[str, Any]) -> tuple[Any, ...]:
+    try:
+        qty = int(position.get("qty") or position.get("shares") or 0)
+    except (TypeError, ValueError):
+        qty = 0
+    raw_lots = position.get("buy_date_lots")
+    lots: list[tuple[str, int]] = []
+    if isinstance(raw_lots, Mapping):
+        for day, raw_qty in raw_lots.items():
+            try:
+                lot_qty = int(raw_qty or 0)
+            except (TypeError, ValueError):
+                lot_qty = 0
+            lots.append((str(day), lot_qty))
+    return (
+        qty,
+        round(_safe_float(position.get("avg_cost"), 0.0), 8),
+        tuple(sorted(lots)),
+    )
+
+
+def _merge_refreshed_auto_exit_context(
+    canonical_state: dict[str, Any],
+    refreshed_state: Mapping[str, Any],
+    refresh_baseline: Mapping[str, Any],
+) -> set[str]:
+    """Carry quote/rule inputs onto unchanged canonical positions."""
+    canonical_positions = {
+        normalize_code(code): position
+        for code, position in (canonical_state.get("positions") or {}).items()
+        if isinstance(position, dict) and normalize_code(code)
+    }
+    refreshed_positions = {
+        normalize_code(code): position
+        for code, position in (refreshed_state.get("positions") or {}).items()
+        if isinstance(position, Mapping) and normalize_code(code)
+    }
+    baseline_positions = {
+        normalize_code(code): position
+        for code, position in (refresh_baseline.get("positions") or {}).items()
+        if isinstance(position, Mapping) and normalize_code(code)
+    }
+    eligible_codes: set[str] = set()
+    for code, refreshed_position in refreshed_positions.items():
+        canonical_position = canonical_positions.get(code)
+        if canonical_position is None:
+            continue
+        if _position_account_identity(canonical_position) != _position_account_identity(
+            refreshed_position
+        ):
+            continue
+        baseline_position = baseline_positions.get(code)
+        if baseline_position is None:
+            continue
+        for field in set(baseline_position) | set(refreshed_position):
+            if field not in _AUTO_EXIT_ACCOUNT_POSITION_FIELDS:
+                baseline_has_field = field in baseline_position
+                refreshed_has_field = field in refreshed_position
+                if (
+                    baseline_has_field == refreshed_has_field
+                    and baseline_position.get(field) == refreshed_position.get(field)
+                ):
+                    continue
+                if refreshed_has_field:
+                    canonical_position[field] = copy.deepcopy(
+                        refreshed_position[field]
+                    )
+                else:
+                    canonical_position.pop(field, None)
+        eligible_codes.add(code)
+
+    for field in _AUTO_EXIT_REFRESH_META_FIELDS:
+        baseline_has_field = field in refresh_baseline
+        refreshed_has_field = field in refreshed_state
+        if (
+            baseline_has_field == refreshed_has_field
+            and refresh_baseline.get(field) == refreshed_state.get(field)
+        ):
+            continue
+        if refreshed_has_field:
+            canonical_state[field] = copy.deepcopy(refreshed_state[field])
+        else:
+            canonical_state.pop(field, None)
+    return eligible_codes
+
+
+def _commit_refreshed_auto_exits(
+    refreshed_state: Mapping[str, Any],
+    refresh_baseline: Mapping[str, Any],
+    dt: datetime,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, bool]]:
+    """Re-read, evaluate, and persist auto exits in one account transaction."""
+    with state_file_write_lock():
+        canonical_state = load_state()
+        eligible_codes = _merge_refreshed_auto_exit_context(
+            canonical_state,
+            refreshed_state,
+            refresh_baseline,
+        )
+        canonical_state.pop(AUTO_EXIT_PERSISTENCE_STATUS_KEY, None)
+        canonical_state[AUTO_EXIT_ELIGIBLE_CODES_KEY] = sorted(eligible_codes)
+        try:
+            executed = check_auto_exits(canonical_state, dt)
+        finally:
+            canonical_state.pop(AUTO_EXIT_ELIGIBLE_CODES_KEY, None)
+        persistence_status = _pop_auto_exit_persistence_status(canonical_state)
+        record_equity(canonical_state)
+        save_state(canonical_state)
+    return canonical_state, executed, persistence_status
+
+
 def check_auto_exits(
     state: dict[str, Any],
     dt: datetime | None = None,
@@ -6898,6 +7151,16 @@ def check_auto_exits(
     positions = state.get("positions") or {}
     if not positions:
         return []
+    eligible_raw = state.get(AUTO_EXIT_ELIGIBLE_CODES_KEY)
+    eligible_codes = (
+        {
+            normalize_code(code)
+            for code in eligible_raw
+            if normalize_code(code)
+        }
+        if isinstance(eligible_raw, (list, tuple, set, frozenset))
+        else None
+    )
     
     today = check_dt.strftime("%Y-%m-%d")
     time_exit_allowed = is_time_exit_check_time(check_dt)
@@ -6908,6 +7171,8 @@ def check_auto_exits(
     cash = float(state.get("cash") or 0)
     
     for code in list(positions.keys()):
+        if eligible_codes is not None and normalize_code(code) not in eligible_codes:
+            continue
         pos = positions[code]
         sellable = available_to_sell(pos, today)
         if sellable <= 0:
@@ -7165,6 +7430,7 @@ def run_auto_exits_once(dt: datetime | None = None) -> dict[str, Any]:
     """Run the side-effectful automatic exit script once for scheduled checks."""
     dt = dt or datetime.now()
     state = load_state()
+    refresh_baseline = _auto_exit_refresh_baseline(state)
     strategy_payload = load_latest_sector_tide_payload()
     sync_sector_tide_position_context(state, strategy_payload)
     sync_niuone_position_context(state, strategy_payload)
@@ -7174,11 +7440,12 @@ def run_auto_exits_once(dt: datetime | None = None) -> dict[str, Any]:
     _refresh_position_bbi(state, dt)
     _refresh_frozen_prompt_position_exits(state, dt)
     update_zettaranc_volume_context(state, dt)
-    state.pop(AUTO_EXIT_PERSISTENCE_STATUS_KEY, None)
-    executed = check_auto_exits(state, dt)
-    persistence_status = _pop_auto_exit_persistence_status(state)
-    record_equity(state)
-    save_state(state)
+    state, executed, persistence_status = _commit_refreshed_auto_exits(
+        state,
+        refresh_baseline,
+        dt,
+    )
+    executed = _accounted_trade_executions(executed)
     if executed:
         _notify_trade_executions_safely(executed)
     return {
@@ -7202,12 +7469,26 @@ def run_position_exit_checks_before_decision(
     if not any(isinstance(pos, dict) and position_qty(pos) > 0 for pos in positions.values()):
         return []
     current = dt or datetime.now()
+    baseline_value = state.pop(AUTO_EXIT_REFRESH_BASELINE_KEY, None)
+    refresh_baseline = (
+        baseline_value
+        if isinstance(baseline_value, Mapping)
+        else _auto_exit_refresh_baseline(state)
+    )
     refresh_realtime_prices(state)
     refresh_position_intraday(state)
     _refresh_position_bbi(state, current)
     _refresh_frozen_prompt_position_exits(state, current)
     update_zettaranc_volume_context(state, current)
-    return check_auto_exits(state, current)
+    canonical_state, executed, persistence_status = _commit_refreshed_auto_exits(
+        state,
+        refresh_baseline,
+        current,
+    )
+    state.clear()
+    state.update(canonical_state)
+    state[AUTO_EXIT_PERSISTENCE_STATUS_KEY] = persistence_status
+    return executed
 
 
 def maybe_record_session_equity_heartbeat(min_interval_seconds: int = EQUITY_HEARTBEAT_MIN_SECONDS) -> bool:
@@ -7547,7 +7828,11 @@ def compact_portfolio_for_decision(portfolio: dict[str, Any]) -> dict[str, Any]:
         "total_pnl_pct": portfolio.get("total_pnl_pct"),
         "sector_tide_open_risk_pct": portfolio.get("sector_tide_open_risk_pct"),
         "positions": compact_positions,
-        "recent_trades": (portfolio.get("trade_log") or [])[:8],
+        "recent_trades": [
+            trade
+            for trade in (portfolio.get("trade_log") or [])
+            if isinstance(trade, Mapping) and trade_counts_for_account(trade)
+        ][:8],
         "last_b1_generated_at": portfolio.get("last_b1_generated_at"),
         "last_decision_at": portfolio.get("last_decision_at"),
         "last_quote_refresh": portfolio.get("last_quote_refresh"),
@@ -10606,6 +10891,7 @@ def execute_due_pending_decisions(now: datetime | None = None) -> dict[str, Any]
             _sync_positions_to_db(state)
         record_equity(state)
         save_state(state)
+        all_executed = _accounted_trade_executions(all_executed)
         if all_executed:
             _notify_trade_executions_safely(all_executed)
     return {"executed": all_executed, "attempted": attempted}
@@ -10613,6 +10899,7 @@ def execute_due_pending_decisions(now: datetime | None = None) -> dict[str, Any]
 
 def run_decision_after_b1(b1_payload: dict[str, Any], force: bool = False) -> dict[str, Any]:
     state = load_state()
+    auto_exit_refresh_baseline = _auto_exit_refresh_baseline(state)
     generated_at = b1_payload.get("generated_at") or now_ts()
     schedule_slot = b1_payload.get("schedule_slot") or ""
     schedule_run_kind = b1_payload.get("schedule_run_kind") or ""
@@ -10629,9 +10916,16 @@ def run_decision_after_b1(b1_payload: dict[str, Any], force: bool = False) -> di
     sync_niuone_position_context(state, b1_payload)
     sync_zettaranc_position_context(state, b1_payload)
     state.pop(AUTO_EXIT_PERSISTENCE_STATUS_KEY, None)
-    position_exit_executed = run_position_exit_checks_before_decision(
-        state,
-        datetime.now(),
+    state[AUTO_EXIT_REFRESH_BASELINE_KEY] = auto_exit_refresh_baseline
+    try:
+        position_exit_executed = run_position_exit_checks_before_decision(
+            state,
+            datetime.now(),
+        )
+    finally:
+        state.pop(AUTO_EXIT_REFRESH_BASELINE_KEY, None)
+    position_exit_executed = _accounted_trade_executions(
+        position_exit_executed
     )
     position_exit_persistence = _pop_auto_exit_persistence_status(state)
     if already_decided:
@@ -10941,14 +11235,15 @@ def run_decision_after_b1(b1_payload: dict[str, Any], force: bool = False) -> di
         _sync_positions_to_db(state)
     record_equity(state)
     save_state(state)
-    all_executed = [*position_exit_executed, *executed]
+    model_executed = _accounted_trade_executions(executed)
+    all_executed = [*position_exit_executed, *model_executed]
     if all_executed:
         _notify_trade_executions_safely(all_executed)
     return {
         "decision": decision,
         "executed": all_executed,
         "position_exit_executed": position_exit_executed,
-        "model_executed": executed,
+        "model_executed": model_executed,
         "decision_persisted": decision_persisted,
         "candidate_evidence_valid": candidate_evidence_valid,
         "trades_persisted": (
