@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -9,11 +10,13 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import urllib.error
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
+from urllib.parse import parse_qs, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -225,6 +228,134 @@ class UsRatingReportTests(unittest.TestCase):
             self.assertNotIn("fmp-private-key", request.full_url)
             self.assertEqual(request.get_header("Apikey"), "fmp-private-key")
             self.assertGreater(timeout, 0)
+
+    def test_generate_report_pages_small_batches_when_large_fmp_pages_are_denied(self):
+        requests = []
+        latest_rows = [
+            {
+                "symbol": f"T{index:02d}",
+                "publishedDate": f"2026-08-12T{14 + index:02d}:00:00Z",
+                "gradingCompany": "Example Bank",
+                "newGrade": "Buy",
+                "previousGrade": "Hold",
+                "action": "upgrade",
+                "newsTitle": "Rating raised",
+                "priceWhenPosted": 100,
+            }
+            for index in range(10)
+        ]
+
+        def opener(request, timeout=0):
+            requests.append((request, timeout))
+            parsed = urlsplit(request.full_url)
+            params = parse_qs(parsed.query)
+            if parsed.path.endswith("/grades-latest-news"):
+                limit = int(params["limit"][0])
+                if limit > 10:
+                    raise AssertionError("FMP rejects rating pages larger than 10")
+                page = int(params["page"][0])
+                if page == 0:
+                    return _Response(latest_rows)
+                if page == 1:
+                    return _Response(
+                        [
+                            {
+                                "symbol": "OLD",
+                                "publishedDate": "2026-08-11T20:00:00Z",
+                                "gradingCompany": "Example Bank",
+                                "newGrade": "Buy",
+                                "previousGrade": "Hold",
+                                "action": "upgrade",
+                                "newsTitle": "Older rating",
+                                "priceWhenPosted": 100,
+                            }
+                        ]
+                    )
+                raise AssertionError(f"unexpected grades page {page}")
+            if parsed.path.endswith("/price-target-latest-news"):
+                self.assertLessEqual(int(params["limit"][0]), 10)
+                return _Response([])
+            if parsed.path.endswith("/batch-quote"):
+                symbols = params["symbols"][0].split(",")
+                return _Response(
+                    [
+                        {"symbol": symbol, "name": f"Company {symbol}", "price": 120}
+                        for symbol in symbols
+                    ]
+                )
+            raise AssertionError(request.full_url)
+
+        with loaded_report(api_key="fmp-private-key") as report:
+            content = report.generate_report(
+                now=datetime(2026, 8, 13, 1, 0, tzinfo=timezone.utc),
+                opener=opener,
+            )
+
+        grade_requests = [
+            request
+            for request, _timeout in requests
+            if urlsplit(request.full_url).path.endswith("/grades-latest-news")
+        ]
+        self.assertEqual(
+            [int(parse_qs(urlsplit(request.full_url).query)["page"][0]) for request in grade_requests],
+            [0, 1],
+        )
+        self.assertEqual(
+            [int(parse_qs(urlsplit(request.full_url).query)["limit"][0]) for request in grade_requests],
+            [10, 10],
+        )
+        self.assertIn("本地规则筛选出 10 只股票", content)
+        self.assertNotIn("OLD /", content)
+
+    def test_generate_report_keeps_first_page_when_fmp_denies_pagination(self):
+        latest_rows = [
+            {
+                "symbol": f"P{index:02d}",
+                "publishedDate": f"2026-08-12T{14 + index:02d}:00:00Z",
+                "gradingCompany": "Example Bank",
+                "newGrade": "Buy",
+                "previousGrade": "Hold",
+                "action": "upgrade",
+                "newsTitle": "Rating raised",
+                "priceWhenPosted": 100,
+            }
+            for index in range(10)
+        ]
+
+        def opener(request, timeout=0):
+            parsed = urlsplit(request.full_url)
+            params = parse_qs(parsed.query)
+            if parsed.path.endswith("/grades-latest-news"):
+                self.assertEqual(int(params["limit"][0]), 10)
+                if int(params["page"][0]) == 0:
+                    return _Response(latest_rows)
+                raise urllib.error.HTTPError(
+                    request.full_url,
+                    402,
+                    "payment required",
+                    {},
+                    io.BytesIO(b""),
+                )
+            if parsed.path.endswith("/price-target-latest-news"):
+                return _Response([])
+            if parsed.path.endswith("/batch-quote"):
+                symbols = params["symbols"][0].split(",")
+                return _Response(
+                    [
+                        {"symbol": symbol, "name": f"Company {symbol}", "price": 120}
+                        for symbol in symbols
+                    ]
+                )
+            raise AssertionError(request.full_url)
+
+        with loaded_report(api_key="fmp-private-key") as report:
+            content = report.generate_report(
+                now=datetime(2026, 8, 13, 1, 0, tzinfo=timezone.utc),
+                opener=opener,
+            )
+
+        self.assertIn("本地规则筛选出 10 只股票", content)
+        self.assertIn("当前 FMP 权限仅返回最新 10 条评级", content)
 
     def test_optional_target_and_quote_failures_degrade_report(self):
         with loaded_report(api_key="fmp-private-key") as report:

@@ -74,6 +74,7 @@ except Exception:
 JOB_ID = "fd0b807138f4"
 JOB_NAME = "每日美股机构买入评级汇报"
 FMP_FEED_LIMIT = 250
+FMP_FEED_PAGE_SIZE = 10
 
 
 def _int_env(
@@ -344,17 +345,24 @@ def format_report(
     *,
     now: datetime,
     max_results: int,
+    feed_limited: bool = False,
 ) -> str:
     local_dt = now.astimezone(CN_TZ)
     title = f"牛牛大王，美股机构买入评级日报（{local_dt:%Y年%m月%d日}）"
     groups = list(ranked_groups)[: max(1, max_results)]
     if not groups:
         source_day = latest_day.isoformat() if latest_day else "未知"
-        return (
+        content = (
             f"{title}\n\n"
             f"FMP 最新评级批次日期：{source_day}。"
             "本批次没有符合本地买入倾向规则的机构评级。"
         )
+        if feed_limited:
+            content += (
+                "\n\n数据覆盖提示：当前 FMP 权限仅返回最新 10 条评级，"
+                "本日报基于有限样本生成，可能遗漏同批次的其他机构评级。"
+            )
+        return content
 
     lines = [
         title,
@@ -365,6 +373,13 @@ def format_report(
         ),
         "",
     ]
+    if feed_limited:
+        lines.extend(
+            [
+                "数据覆盖提示：当前 FMP 权限仅返回最新 10 条评级，本日报基于有限样本生成，可能遗漏同批次的其他机构评级。",
+                "",
+            ]
+        )
     for symbol, events, target, quote in groups:
         representative = events[0]
         company_name = _compact_text(quote.name if quote and quote.name else symbol, limit=120)
@@ -410,6 +425,105 @@ def _remaining_timeout(deadline: float, *, max_retries: int) -> float:
     return min(float(US_RATING_REQUEST_TIMEOUT_SECONDS), request_budget)
 
 
+def _fetch_latest_grade_feed(
+    *,
+    deadline: float,
+    max_items: int,
+    opener=urlopen,
+) -> tuple[list[GradeEvent], bool]:
+    """Read the newest complete rating day without requiring a large FMP page."""
+
+    item_limit = max(1, min(FMP_FEED_LIMIT, int(max_items)))
+    page_size = min(FMP_FEED_PAGE_SIZE, item_limit)
+    page_count = (item_limit + page_size - 1) // page_size
+    events: list[GradeEvent] = []
+    latest_day: date | None = None
+    max_retries = 2
+
+    for page in range(page_count):
+        request_limit = min(page_size, item_limit - len(events))
+        try:
+            page_events = fetch_latest_grades(
+                FMP_API_BASE_URL,
+                FMP_API_KEY,
+                page=page,
+                limit=request_limit,
+                timeout=_remaining_timeout(deadline, max_retries=max_retries),
+                max_retries=max_retries,
+                opener=opener,
+            )
+        except FmpRatingsError as exc:
+            if page > 0 and events and "HTTP 402" in str(exc):
+                return events, True
+            raise
+        bounded_page = page_events[:request_limit]
+        if not bounded_page:
+            break
+        events.extend(bounded_page)
+        page_days = [
+            event.published_at.astimezone(US_EASTERN_TZ).date()
+            for event in bounded_page
+        ]
+        if latest_day is None:
+            latest_day = max(page_days)
+        if len(bounded_page) < request_limit or any(
+            event_day < latest_day for event_day in page_days
+        ):
+            break
+
+    return events, False
+
+
+def _fetch_relevant_price_targets(
+    selected_events: Iterable[GradeEvent],
+    *,
+    deadline: float,
+    max_items: int,
+    opener=urlopen,
+) -> list[PriceTargetEvent]:
+    """Page the optional target feed until it is older than the match window."""
+
+    selected = list(selected_events)
+    if not selected:
+        return []
+    symbols = {event.symbol for event in selected}
+    cutoff = min(event.published_at for event in selected) - timedelta(days=3)
+    item_limit = max(1, min(FMP_FEED_LIMIT, int(max_items)))
+    page_size = min(FMP_FEED_PAGE_SIZE, item_limit)
+    page_count = (item_limit + page_size - 1) // page_size
+    targets: list[PriceTargetEvent] = []
+    fetched_count = 0
+    max_retries = 1
+
+    for page in range(page_count):
+        request_limit = min(page_size, item_limit - fetched_count)
+        try:
+            page_targets = fetch_latest_price_targets(
+                FMP_API_BASE_URL,
+                FMP_API_KEY,
+                page=page,
+                limit=request_limit,
+                timeout=_remaining_timeout(deadline, max_retries=max_retries),
+                max_retries=max_retries,
+                opener=opener,
+            )
+        except FmpRatingsError as exc:
+            if page > 0 and "HTTP 402" in str(exc):
+                return targets
+            raise
+        bounded_page = page_targets[:request_limit]
+        if not bounded_page:
+            break
+        fetched_count += len(bounded_page)
+        targets.extend(target for target in bounded_page if target.symbol in symbols)
+        if len(bounded_page) < request_limit or any(
+            target.published_at < cutoff for target in bounded_page
+        ):
+            break
+
+    return targets
+
+
 def generate_report(
     test_mode: bool = False,
     *,
@@ -421,13 +535,9 @@ def generate_report(
     current = now or datetime.now(timezone.utc)
     deadline = time.monotonic() + US_RATING_DEADLINE_SECONDS
     feed_limit = 10 if test_mode else FMP_FEED_LIMIT
-    grade_retries = 2
-    grade_events = fetch_latest_grades(
-        FMP_API_BASE_URL,
-        FMP_API_KEY,
-        limit=feed_limit,
-        timeout=_remaining_timeout(deadline, max_retries=grade_retries),
-        max_retries=grade_retries,
+    grade_events, feed_limited = _fetch_latest_grade_feed(
+        deadline=deadline,
+        max_items=feed_limit,
         opener=opener,
     )
     latest_day, selected = select_latest_positive_events(grade_events)
@@ -437,23 +547,22 @@ def generate_report(
             [],
             now=current,
             max_results=2 if test_mode else FMP_RATING_MAX_RESULTS,
+            feed_limited=feed_limited,
         )
 
     targets: list[PriceTargetEvent] = []
     quotes: dict[str, Quote] = {}
-    optional_retries = 1
     try:
-        targets = fetch_latest_price_targets(
-            FMP_API_BASE_URL,
-            FMP_API_KEY,
-            limit=feed_limit,
-            timeout=_remaining_timeout(deadline, max_retries=optional_retries),
-            max_retries=optional_retries,
+        targets = _fetch_relevant_price_targets(
+            selected,
+            deadline=deadline,
+            max_items=feed_limit,
             opener=opener,
         )
     except FmpRatingsError as exc:
         print(f"WARN: FMP 目标价补充不可用：{exc}", file=sys.stderr)
     try:
+        optional_retries = 1
         quotes = fetch_batch_quotes(
             FMP_API_BASE_URL,
             FMP_API_KEY,
@@ -471,6 +580,7 @@ def generate_report(
         ranked,
         now=current,
         max_results=2 if test_mode else FMP_RATING_MAX_RESULTS,
+        feed_limited=feed_limited,
     )
 
 
