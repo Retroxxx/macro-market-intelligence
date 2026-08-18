@@ -2755,6 +2755,10 @@ class NiuOneStrategyTests(unittest.TestCase):
             self.assertEqual(pos["stock_role"], "leader")
             self.assertEqual(pos["risk_budget_regime"], "offensive")
             self.assertEqual(pos["entry_market_regime"], "offensive")
+            self.assertEqual(pos["entry_signal_score"], 9.0)
+            self.assertEqual(pos["last_buy_signal_score"], 9.0)
+            self.assertEqual(pos["highest_buy_signal_score"], 9.0)
+            self.assertEqual(pos["niuone_buy_signal_count"], 1)
             self.assertGreater(pos["position_open_risk_pct"], 1.4)
             self.assertLessEqual(pos["position_open_risk_pct"], 1.5)
 
@@ -3365,6 +3369,10 @@ class NiuOneStrategyTests(unittest.TestCase):
                 "gap_buffer_pct": 1.0,
                 "execution_buffer_pct": 0.2,
                 "buy_date_lots": {"2000-01-01": 100},
+                "entry_signal_score": 8.8,
+                "last_buy_signal_score": 8.8,
+                "highest_buy_signal_score": 8.8,
+                "niuone_buy_signal_count": 1,
             }
 
             early_state = {"cash": 99000.0, "positions": {"600000": dict(original_position)}, "trade_log": []}
@@ -3429,6 +3437,60 @@ class NiuOneStrategyTests(unittest.TestCase):
                 early_state["positions"]["600000"]["qty"],
                 200,
             )
+            self.assertIn(
+                "评分严格创新高",
+                repeated_early_decision["execution_blocked_reason"],
+            )
+
+            trader.execution_quote = lambda code: {
+                "price": 10.5,
+                "name": "牛牛启动",
+                "source": "test",
+            }
+            stronger_signal_decision = {
+                "actions": [{
+                    "action": "BUY",
+                    "code": "600000",
+                    "shares": 100,
+                    "reason": "启动主题评分继续提高",
+                }],
+            }
+            stronger_signal = dict(early_candidate)
+            stronger_signal["best_score"] = 9.2
+            stronger_signal["stop_price"] = 9.8
+            stronger_added = trader.execute_actions(
+                early_state,
+                stronger_signal_decision,
+                [stronger_signal],
+                True,
+                "连续竞价交易时段",
+                market,
+            )
+            self.assertEqual(
+                len(stronger_added),
+                1,
+                stronger_signal_decision.get("execution_blocked_reason"),
+            )
+            stronger_position = early_state["positions"]["600000"]
+            self.assertEqual(stronger_position["qty"], 300)
+            self.assertEqual(stronger_position["last_buy_signal_score"], 9.2)
+            self.assertEqual(
+                stronger_position["highest_buy_signal_score"],
+                9.2,
+            )
+            self.assertEqual(stronger_position["niuone_buy_signal_count"], 3)
+            self.assertEqual(
+                stronger_added[0]["niuone_add_signal_score_audit"][
+                    "previous_score"
+                ],
+                9.0,
+            )
+            self.assertEqual(
+                stronger_position["niuone_buy_signal_score_history"][-1][
+                    "route"
+                ],
+                "score_progression",
+            )
 
             upgraded_state = {"cash": 99000.0, "positions": {"600000": dict(original_position)}, "trade_log": []}
             upgraded_decision = {
@@ -3482,6 +3544,7 @@ class NiuOneStrategyTests(unittest.TestCase):
             }
             divergence_candidate = niu_candidate(
                 best_strategy="niu_leader",
+                best_score=9.2,
                 mainline_state="mainline",
                 sector_status="mainline",
                 mainline_score=77.9,
@@ -3497,7 +3560,7 @@ class NiuOneStrategyTests(unittest.TestCase):
                 market,
             ), [])
             self.assertIn(
-                "只在主升阶段加仓",
+                "只允许主升阶段",
                 divergence_decision["execution_blocked_reason"],
             )
         finally:
@@ -4588,7 +4651,7 @@ class NiuOneStrategyTests(unittest.TestCase):
         self.assertIsNone(tuesday)
         self.assertEqual(wednesday["signal"], "niu_reversal_no_progress")
 
-    def test_niuone_hard_caps_total_open_positions_at_five(self):
+    def test_niuone_full_book_replaces_lower_priority_holding(self):
         original_time = trader.is_a_share_execution_time
         original_quote = trader.execution_quote
         try:
@@ -4624,13 +4687,171 @@ class NiuOneStrategyTests(unittest.TestCase):
 
             executed = trader.execute_actions(state, decision, [candidate], True, "连续竞价交易时段", market)
 
-            self.assertEqual(executed, [])
-            self.assertIn("牛牛战法最多同时持有5只", decision["execution_blocked_reason"])
+            self.assertEqual(
+                [(item["action"], item["code"]) for item in executed],
+                [("SELL", "600010"), ("BUY", "600099")],
+            )
+            self.assertEqual(
+                executed[0]["sell_execution_source"],
+                "priority_replacement",
+            )
+            self.assertEqual(
+                executed[1]["replacement_source_code"],
+                "600010",
+            )
+            self.assertEqual(len(state["positions"]), 5)
+            self.assertNotIn("600010", state["positions"])
+            self.assertIn("600099", state["positions"])
+            self.assertEqual(
+                decision["actions"][0]["intent"],
+                "REPLACE",
+            )
+            self.assertEqual(
+                decision["niuone_replacement_plan"][0]["buy_code"],
+                "600099",
+            )
         finally:
             trader.is_a_share_execution_time = original_time
             trader.execution_quote = original_quote
 
-    def test_niuone_daily_new_position_cap_persists_across_decision_cycles(self):
+    def test_niuone_full_book_keeps_holding_when_candidate_priority_is_lower(self):
+        positions = {
+            f"60001{index}": {
+                "code": f"60001{index}",
+                "name": f"强持仓{index}",
+                "qty": 100,
+                "buy_strategy": "niu_leader",
+                "buy_date_lots": {"2026-07-24": 100},
+                "current_decision_score": 9.2,
+                "mainline_score": 90,
+                "mainline_state": "mainline",
+                "mainline_confirmed": True,
+                "niuone_lifecycle_stage": "markup",
+                "stock_strong": True,
+                "stock_leader_tier": True,
+            }
+            for index in range(5)
+        }
+        state = {"positions": positions}
+        candidate = niu_candidate(
+            code="600099",
+            industry="电子",
+            sector="电子",
+        )
+        candidate.update({
+            "best_strategy": "niu_reversal_probe",
+            "best_decision_score": 7.7,
+            "mainline_score": 55,
+            "mainline_state": "brewing",
+            "niuone_lifecycle_stage": "brewing",
+            "stock_strong": False,
+            "stock_leader_tier": False,
+        })
+        decision = {
+            "actions": [{
+                "action": "BUY",
+                "code": "600099",
+                "shares": 100,
+                "reason": "牛牛试仓候选",
+            }]
+        }
+
+        actions = trader.prepare_niuone_portfolio_actions(
+            decision,
+            state,
+            [candidate],
+            execution_date="2026-07-25",
+        )
+
+        self.assertEqual(actions[0]["action"], "HOLD")
+        self.assertEqual(actions[0]["intent"], "HOLD_PRIORITY")
+        self.assertEqual(decision["niuone_replacement_plan"], [])
+        self.assertIn("未严格高于", actions[0]["reason"])
+        self.assertEqual(
+            decision["execution_blocks"][0]["category"],
+            "portfolio_priority",
+        )
+
+    def test_niuone_replacement_preflight_keeps_holding_when_buy_cannot_fill(self):
+        original_time = trader.is_a_share_execution_time
+        original_quote = trader.execution_quote
+        try:
+            trader.is_a_share_execution_time = lambda dt=None: (
+                True,
+                "连续竞价交易时段",
+            )
+            trader.execution_quote = lambda code: {
+                "price": 11.0 if code == "600099" else 10.0,
+                "prev_close": 10.0,
+                "name": code,
+                "source": "test",
+            }
+            positions = {
+                f"60001{index}": {
+                    "code": f"60001{index}",
+                    "name": f"已有持仓{index}",
+                    "qty": 100,
+                    "avg_cost": 10.0,
+                    "last_price": 10.0,
+                    "buy_strategy": "niu_leader",
+                    "industry": f"行业{index}",
+                    "entry_stop_price": 9.5,
+                    "gap_buffer_pct": 1.0,
+                    "execution_buffer_pct": 0.2,
+                    "effective_loss_distance_pct": 6.2,
+                    "buy_date_lots": {"2026-07-24": 100},
+                }
+                for index in range(5)
+            }
+            state = {
+                "cash": 95000.0,
+                "positions": positions,
+                "trade_log": [],
+            }
+            candidate = niu_candidate(
+                code="600099",
+                industry="电子",
+                sector="电子",
+                signal_theme="电子",
+            )
+            decision = {
+                "actions": [{
+                    "action": "BUY",
+                    "code": "600099",
+                    "shares": 100,
+                    "reason": "牛牛领航确认",
+                }],
+            }
+
+            executed = trader.execute_actions(
+                state,
+                decision,
+                [candidate],
+                True,
+                "连续竞价交易时段",
+                {
+                    "allow_new_buys": True,
+                    "max_open_positions": 6,
+                    "max_new_buys_per_decision": 1,
+                    "max_total_position_pct": 80,
+                    "min_cash_reserve_pct": 20,
+                },
+            )
+
+            self.assertEqual(executed, [])
+            self.assertEqual(len(state["positions"]), 5)
+            self.assertIn("600010", state["positions"])
+            self.assertNotIn("600099", state["positions"])
+            self.assertEqual(decision["niuone_replacement_plan"], [])
+            self.assertTrue(any(
+                block["category"] == "replacement_preflight"
+                for block in decision["execution_blocks"]
+            ))
+        finally:
+            trader.is_a_share_execution_time = original_time
+            trader.execution_quote = original_quote
+
+    def test_niuone_new_positions_are_not_limited_across_decision_cycles(self):
         original_time = trader.is_a_share_execution_time
         original_quote = trader.execution_quote
         original_today_key = trader.today_key
@@ -4657,11 +4878,15 @@ class NiuOneStrategyTests(unittest.TestCase):
             }
             state = {"cash": 100000.0, "positions": {}, "trade_log": []}
 
-            for index, code in enumerate(("600001", "600002"), start=1):
+            for index, code in enumerate(
+                ("600001", "600002", "600003"),
+                start=1,
+            ):
                 candidate = niu_candidate(
                     code=code,
                     industry=f"行业{index}",
                     sector=f"行业{index}",
+                    signal_theme=f"行业{index}",
                 )
                 decision = {
                     "actions": [{
@@ -4680,59 +4905,17 @@ class NiuOneStrategyTests(unittest.TestCase):
                     market,
                 )
                 self.assertEqual(len(executed), 1)
-                self.assertEqual(
-                    decision["actions"][0]
-                    ["niuone_daily_new_position_count_before"],
-                    index - 1,
-                )
-
-            third_candidate = niu_candidate(
-                code="600003",
-                industry="行业3",
-                sector="行业3",
-            )
-            third_decision = {
-                "actions": [{
-                    "action": "BUY",
-                    "code": "600003",
-                    "shares": 100,
-                    "reason": "牛牛领航确认",
-                }]
-            }
-            blocked = trader.execute_actions(
-                state,
-                third_decision,
-                [third_candidate],
-                True,
-                "连续竞价交易时段",
-                market,
-            )
-
-            self.assertEqual(blocked, [])
-            self.assertNotIn("600003", state["positions"])
-            self.assertEqual(len(state["trade_log"]), 2)
-            self.assertEqual(
-                third_decision["actions"][0]
-                ["niuone_daily_new_position_count_before"],
-                2,
-            )
-            self.assertEqual(
-                third_decision["actions"][0]
-                ["niuone_daily_new_position_limit"],
-                2,
-            )
-            self.assertIn(
-                "跨决策轮次累计",
-                third_decision["execution_blocked_reason"],
-            )
-            self.assertEqual(
-                third_decision["execution_blocks"][0]["category"],
-                "position_capacity",
-            )
+            self.assertEqual(set(state["positions"]), {
+                "600001",
+                "600002",
+                "600003",
+            })
+            self.assertEqual(len(state["trade_log"]), 3)
             self.assertEqual(
                 backtest_niuone_exits.NIUONE_MAX_NEW_POSITIONS_PER_SESSION,
                 NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY,
             )
+            self.assertIsNone(NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY)
         finally:
             trader.is_a_share_execution_time = original_time
             trader.execution_quote = original_quote

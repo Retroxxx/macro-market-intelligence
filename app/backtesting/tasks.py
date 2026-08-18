@@ -77,7 +77,7 @@ BACKTEST_STATE_SCHEMA_VERSION = 2
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BACKTEST_RISK_PROFILE = "aggressive"
 GENERIC_BACKTEST_RISK_PROFILE = "balanced"
-NIUONE_BACKTEST_PROTOCOL_VERSION = "niuone-backtest-v34"
+NIUONE_BACKTEST_PROTOCOL_VERSION = "niuone-backtest-v36"
 GENERIC_BACKTEST_PROTOCOL_VERSION = "selection-backtest-v2"
 NIUONE_BACKTEST_RISK_PROFILES: dict[str, dict[str, Any]] = {
     "aggressive": {
@@ -90,8 +90,7 @@ NIUONE_BACKTEST_RISK_PROFILES: dict[str, dict[str, Any]] = {
         "policy_options": {
             "risk_budget_scale": 1.35,
             "position_budget_scale": 1.15,
-            "max_new_positions_per_session": 3,
-            "max_open_positions": 6,
+            "max_open_positions": 5,
             "max_industry_positions": 3,
         },
     },
@@ -753,6 +752,7 @@ def run_strategy_backtest_request(
             "max_new_positions_per_session": (
                 position_exit_strategy.max_new_positions_per_session
             ),
+            "new_position_count_limited": False,
             "max_open_positions": position_exit_strategy.max_open_positions,
             "max_industry_positions": (
                 position_exit_strategy.max_industry_positions
@@ -774,7 +774,7 @@ def run_strategy_backtest_request(
         if risk_profile_id == "aggressive":
             payload["warnings"].append(
                 "NiuOne aggressive backtest profile increases account-risk, "
-                "portfolio/theme exposure, and position-count budgets; it does "
+                "portfolio/theme exposure, and same-theme capacity; it does "
                 "not weaken price-pattern, structural-stop, limit-up, or T+1 rules"
             )
     elif suite_id == PROMPT_SUITE_ID and prompt_version is not None:

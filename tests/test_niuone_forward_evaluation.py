@@ -419,7 +419,7 @@ def operating_settings(*times: str) -> dict[str, str]:
 
 class NiuOneForwardEvaluationTests(unittest.TestCase):
     def test_protocol_identity_covers_evidence_pipeline_and_effective_paths(self):
-        self.assertEqual(DEFAULT_COHORT_START, "2026-08-13")
+        self.assertEqual(DEFAULT_COHORT_START, "2026-08-19")
         expected_sources = {
             "app/automation/cron.py",
             "app/automation/scheduler_service.py",
@@ -500,7 +500,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
         )
         self.assertEqual(
             identity["protocol"]["sell_execution_evidence_schema_version"],
-            1,
+            2,
         )
         self.assertEqual(
             identity["protocol"]["required_executed_sell_sizing_fields"],
@@ -523,11 +523,19 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
         self.assertEqual(
             identity["protocol"]
             ["maximum_new_niuone_positions_per_trading_day"],
-            2,
+            None,
         )
         self.assertEqual(
             identity["protocol"]["daily_new_position_limit_rule"],
             protocol["daily_new_position_limit_rule"],
+        )
+        self.assertEqual(
+            identity["protocol"]["maximum_open_niuone_positions"],
+            5,
+        )
+        self.assertEqual(
+            identity["protocol"]["priority_replacement_rule"],
+            protocol["priority_replacement_rule"],
         )
         self.assertEqual(
             identity["protocol"]
@@ -1486,7 +1494,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
         )
         sell.update({
             "_forward_payload_available": True,
-            "sell_execution_evidence_schema_version": 1,
+            "sell_execution_evidence_schema_version": 2,
             "sell_execution_source": "model_action",
             "model_requested_sell_shares": 1000,
             "available_sell_shares": 800,
@@ -1507,7 +1515,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
         )["opportunities"]
         audit = opportunities["sell_execution"]
 
-        self.assertEqual(audit["schema_version"], 1)
+        self.assertEqual(audit["schema_version"], 2)
         self.assertEqual(audit["model_sell_fill_count"], 1)
         self.assertEqual(audit["automatic_sell_fill_count"], 1)
         self.assertEqual(audit["auto_reduced_sell_fill_count"], 1)
@@ -2646,7 +2654,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
 
         self.assertEqual(report["overall"]["completed_trade_count"], 1)
         self.assertEqual(report["coverage"]["duplicate_trade_count"], 2)
-        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v33")
+        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v35")
         self.assertEqual(
             report["protocol"][
                 "niuone_markup_upgrade_absolute_position_cap_pct"
@@ -2708,7 +2716,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
         )
         self.assertEqual(
             report["protocol"]["sell_execution_evidence_schema_version"],
-            1,
+            2,
         )
         self.assertEqual(
             report["protocol"]["required_executed_sell_sizing_fields"],

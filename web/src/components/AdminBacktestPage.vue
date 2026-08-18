@@ -7,7 +7,7 @@ import { useAdminConfig } from '../composables/useAdminConfig.js'
 
 document.title = '牛牛1号 · 策略回测'
 
-const NIUONE_BACKTEST_PROTOCOL_VERSION = 'niuone-backtest-v34'
+const NIUONE_BACKTEST_PROTOCOL_VERSION = 'niuone-backtest-v36'
 
 const route = useRoute()
 const { state, errorMessage, refresh, authenticate } = useAdminConfig()
@@ -166,6 +166,12 @@ const signalStatusReasonLabels = {
   markup_upgrade_confirmed_done: '主升阶段升级加仓已完成',
   markup_upgrade_rule: '主升阶段升级加仓条件未满足',
   markup_rebalance_rule: '主升回补条件未满足',
+  signal_score_baseline_missing: '缺少上次实际买入评分',
+  signal_score_missing: '本次买入信号缺少评分',
+  signal_score_not_improved: '本次评分未刷新持仓期买入最高分',
+  signal_score_add_stage: '评分递增加仓所需生命周期未满足',
+  signal_score_add_loss: '评分递增但持仓仍亏损，不摊低成本',
+  signal_score_add_pnl_window: '评分递增加仓超出允许浮盈窗口',
   reversal_same_day_add: '牛牛试仓当日不重复加仓',
   reversal_upgrade_unconfirmed: '试仓尚未满足启动/主线升级条件',
   emerging_upgrade_unconfirmed: '启动观察仓尚未确认升级为主线',
@@ -686,7 +692,7 @@ onBeforeUnmount(() => {
         <template v-else>
           <form class="backtest-form" @submit.prevent="startBacktest">
             <div class="backtest-form-head">
-              <div><h2>回测参数</h2><p v-if="strategy.id === 'niuone'">无需输入股票，系统按历史行情自主选股；牛牛战法固定使用进取风险参数和 100 万元独立初始资金，严格回放风险定仓、阶段升级加仓、T+1、持仓/主题/总仓约束及策略卖出。回测与模拟账户完全隔离，历史日 K 实时获取且不使用本地缓存。</p><p v-else-if="strategy.id === 'preset_text'">选择一个已激活的冻结版本后，系统按该版本独立执行选股、次日开盘买入、持仓逐日监测和规则卖出；全程不调用模型，也不读写模拟账户。结果保留版本、计划指纹和可重放审计。</p><p v-else>无需输入股票，系统按历史行情自主选股；收盘信号于次日开盘买入，与模拟账户及持仓完全隔离。历史日 K 按所选区间实时获取，不使用本地日 K 缓存。</p></div>
+              <div><h2>回测参数</h2><p v-if="strategy.id === 'niuone'">无需输入股票，系统按历史行情自主选股；牛牛战法固定使用进取风险参数和 100 万元独立初始资金，严格回放风险定仓、阶段升级、同股评分递增加仓、T+1、持仓/主题/总仓约束及策略卖出。回测与模拟账户完全隔离，历史日 K 实时获取且不使用本地缓存。</p><p v-else-if="strategy.id === 'preset_text'">选择一个已激活的冻结版本后，系统按该版本独立执行选股、次日开盘买入、持仓逐日监测和规则卖出；全程不调用模型，也不读写模拟账户。结果保留版本、计划指纹和可重放审计。</p><p v-else>无需输入股票，系统按历史行情自主选股；收盘信号于次日开盘买入，与模拟账户及持仓完全隔离。历史日 K 按所选区间实时获取，不使用本地日 K 缓存。</p></div>
               <span>最长 {{ limits.max_range_days || 366 }} 天</span>
             </div>
             <div class="backtest-fields">

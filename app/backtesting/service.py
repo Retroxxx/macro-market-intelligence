@@ -46,6 +46,8 @@ AnnotationProgress = Callable[[int, int, str], None]
 NIUONE_REPLAY_SCORED_FIELDS = (
     "atr",
     "atr20",
+    "best_decision_score",
+    "decision_score",
     "execution_buffer_pct",
     "gap_buffer_pct",
     "industry",

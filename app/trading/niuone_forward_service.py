@@ -560,6 +560,8 @@ def _build_protocol_identity(
             "holding_lifecycle_daily_coverage_rule",
             "maximum_new_niuone_positions_per_trading_day",
             "daily_new_position_limit_rule",
+            "maximum_open_niuone_positions",
+            "priority_replacement_rule",
             "niuone_reversal_minimum_recovery_ratio_inclusive",
             "niuone_reversal_maximum_recovery_ratio_exclusive",
             "niuone_reversal_recovery_rule",

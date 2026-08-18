@@ -330,7 +330,7 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
             "niu_reversal_probe",
         )
 
-    def test_niuone_strategy_portfolio_limits_new_positions_per_session(self):
+    def test_niuone_strategy_portfolio_does_not_limit_new_positions_per_session(self):
         symbols = ("600000", "600001", "600002")
         rows = {
             symbol: [
@@ -388,21 +388,112 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(result.statistics["evaluated_signal_count"], 2)
-        self.assertEqual(result.portfolio["open_position_count"], 2)
-        self.assertEqual(
-            [row["status_reason"] for row in result.signals if row["status"] == "rejected"],
-            ["max_new_positions"],
+        self.assertEqual(result.statistics["evaluated_signal_count"], 3)
+        self.assertEqual(result.portfolio["open_position_count"], 3)
+        self.assertEqual(result.statistics["entry_rejection_counts"], {})
+
+    def test_niuone_strategy_portfolio_replaces_only_with_higher_priority_signal(self):
+        symbols = tuple(f"60000{index}" for index in range(5))
+        incoming_symbol = "600099"
+        all_symbols = (*symbols, incoming_symbol)
+        rows = {
+            symbol: [
+                daily_bar(day, 10.0, 10.0, industry=f"行业{index}")
+                for day in (
+                    "2026-01-05",
+                    "2026-01-06",
+                    "2026-01-07",
+                    "2026-01-08",
+                    "2026-01-09",
+                )
+            ]
+            for index, symbol in enumerate(all_symbols)
+        }
+
+        class ReplacementSelector:
+            def on_close(self, context):
+                if context.date == "2026-01-05":
+                    selected = symbols
+                    decision_score = 6.0
+                elif context.date == "2026-01-07":
+                    selected = (incoming_symbol,)
+                    decision_score = 9.8
+                else:
+                    return []
+                return [SelectionSignal(
+                    symbol,
+                    strategy_id="niu_leader",
+                    score=decision_score,
+                    metadata={"scored": {
+                        "decision_score": decision_score,
+                        "stop_price": 9.5,
+                        "atr20": 0.5,
+                        "gap_buffer_pct": 0.5,
+                        "execution_buffer_pct": 0.2,
+                        "industry": f"行业{all_symbols.index(symbol)}",
+                        "market_regime": "offensive",
+                        "market_allows_buys": True,
+                        "market_hard_stop": False,
+                        "mainline_score": 80,
+                        "mainline_state": "mainline",
+                        "mainline_confirmed": True,
+                        "niuone_lifecycle_stage": "markup",
+                        "stock_leader_tier": True,
+                        "stock_strong": True,
+                    }},
+                ) for symbol in selected]
+
+            def latest_scored(self, symbol, _strategy_id):
+                is_incoming = symbol == incoming_symbol
+                return {
+                    "decision_score": 9.8 if is_incoming else 6.0,
+                    "mainline_score": 80,
+                    "mainline_state": "mainline",
+                    "mainline_confirmed": True,
+                    "niuone_lifecycle_stage": "markup",
+                    "stock_leader_tier": True,
+                    "stock_strong": True,
+                    "atr20": 0.5,
+                }
+
+        result = run_selection_backtest(
+            rows,
+            ReplacementSelector(),
+            position_exit_strategy=NiuOneStrategyBacktestPolicy(
+                entry_order_scale=0.1,
+            ),
+            config=SelectionBacktestConfig(
+                holding_sessions=(1,),
+                signal_start_date="2026-01-05",
+                signal_end_date="2026-01-07",
+                slippage_bps=0,
+                price_limit_resolver=None,
+                cost_model=SelectionCostModel(
+                    commission_rate=0,
+                    transfer_fee_rate=0,
+                    sell_stamp_duty_rate=0,
+                ),
+            ),
         )
-        self.assertEqual(
-            result.statistics["entry_rejection_counts"],
-            {"max_new_positions": 1},
+
+        replacement_trades = [
+            trade
+            for trade in result.trades
+            if trade["exit_signal"] == "niu_priority_replacement"
+        ]
+        self.assertEqual(len(replacement_trades), 1)
+        self.assertEqual(replacement_trades[0]["symbol"], "600000")
+        incoming_trade = next(
+            trade for trade in result.trades
+            if trade["symbol"] == incoming_symbol
         )
+        self.assertEqual(incoming_trade["entry_date"], "2026-01-08")
+        self.assertEqual(result.portfolio["open_position_count"], 5)
 
     def test_niuone_strategy_portfolio_accepts_research_new_position_limit(self):
         self.assertEqual(
             NiuOneStrategyBacktestPolicy().max_new_positions_per_session,
-            2,
+            None,
         )
         self.assertEqual(
             NiuOneStrategyBacktestPolicy(
@@ -418,15 +509,17 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
         self.assertEqual(production.max_open_positions, 5)
         self.assertEqual(production.max_industry_positions, 2)
 
-        diversified = NiuOneStrategyBacktestPolicy(
-            max_open_positions=7,
+        concentrated = NiuOneStrategyBacktestPolicy(
+            max_open_positions=4,
             max_industry_positions=1,
         )
-        self.assertEqual(diversified.max_open_positions, 7)
-        self.assertEqual(diversified.max_industry_positions, 1)
+        self.assertEqual(concentrated.max_open_positions, 4)
+        self.assertEqual(concentrated.max_industry_positions, 1)
 
         with self.assertRaisesRegex(ValueError, "max_open_positions"):
             NiuOneStrategyBacktestPolicy(max_open_positions=0)
+        with self.assertRaisesRegex(ValueError, "max_open_positions"):
+            NiuOneStrategyBacktestPolicy(max_open_positions=6)
         with self.assertRaisesRegex(ValueError, "max_industry_positions"):
             NiuOneStrategyBacktestPolicy(max_industry_positions=0)
 
@@ -503,8 +596,6 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
         aggressive = NiuOneStrategyBacktestPolicy(
             risk_budget_scale=1.35,
             position_budget_scale=1.15,
-            max_new_positions_per_session=3,
-            max_open_positions=6,
             max_industry_positions=3,
         )
 
@@ -522,8 +613,8 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
             aggressive_budget["max_sector_position_pct"],
             46.0,
         )
-        self.assertEqual(aggressive.max_new_positions_per_session, 3)
-        self.assertEqual(aggressive.max_open_positions, 6)
+        self.assertIsNone(aggressive.max_new_positions_per_session)
+        self.assertEqual(aggressive.max_open_positions, 5)
         self.assertEqual(aggressive.max_industry_positions, 3)
         defensive_budget = balanced._risk_budget(
             "defensive",
@@ -745,6 +836,67 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
                 "2026-01-06",
             ),
             "markup_upgrade_rule",
+        )
+
+    def test_same_strategy_add_requires_and_records_a_new_high_buy_score(self):
+        policy = NiuOneStrategyBacktestPolicy(markup_upgrade_only=True)
+        scored = {
+            "mainline_confirmed": True,
+            "mainline_state": "mainline",
+            "niuone_lifecycle_stage": "markup",
+            "stock_leader_tier": True,
+            "stock_strong": True,
+        }
+        position = {
+            "strategy_id": "niu_leader",
+            "avg_cost": 10.0,
+            "last_price": 10.5,
+            "entry_signal_score": 8.8,
+            "last_buy_signal_score": 9.0,
+            "highest_buy_signal_score": 9.0,
+            "niuone_buy_signal_count": 2,
+            "lots": [{"date": "2026-01-05"}],
+        }
+        unchanged = SelectionSignal(
+            "600000",
+            strategy_id="niu_leader",
+            score=9.0,
+            metadata={"scored": scored},
+        )
+        stronger = SelectionSignal(
+            "600000",
+            strategy_id="niu_leader",
+            score=9.2,
+            metadata={"scored": scored},
+        )
+
+        self.assertEqual(
+            policy.schedule_block_reason(
+                position,
+                unchanged,
+                "2026-01-06",
+            ),
+            "signal_score_not_improved",
+        )
+        self.assertEqual(
+            policy.schedule_block_reason(
+                position,
+                stronger,
+                "2026-01-06",
+            ),
+            "",
+        )
+        entry_bar = HistoricalBar.from_value(
+            "600000",
+            daily_bar("2026-01-07", 10.5, industry="半导体"),
+        )
+        updated = policy.on_add(position, stronger, entry_bar, 10.5)
+        self.assertEqual(updated["last_buy_signal_score"], 9.2)
+        self.assertEqual(updated["highest_buy_signal_score"], 9.2)
+        self.assertEqual(updated["niuone_buy_signal_count"], 3)
+        self.assertEqual(
+            updated["niuone_buy_signal_score_history"][-1]["route"],
+            "score_progression",
         )
 
     def test_markup_rebalance_reentry_requires_a_filled_trim_not_a_fixed_count(self):

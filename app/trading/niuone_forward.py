@@ -31,6 +31,7 @@ from app.strategies.niuone_risk import (
     NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT,
     NIUONE_MARKUP_UPGRADE_POSITION_CAP_PCT,
     NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY,
+    NIUONE_MAX_OPEN_POSITIONS,
 )
 from app.strategies.exits import (
     NIUONE_LIFECYCLE_CLIMAX_MIN_PNL_PCT,
@@ -47,7 +48,7 @@ from app.strategies.policy import (
 from app.strategies.selection import strategy_daily_candidate_limit
 
 
-DEFAULT_COHORT_START = "2026-08-13"
+DEFAULT_COHORT_START = "2026-08-19"
 DEFAULT_MIN_COMPLETED_TRADES = 30
 DEFAULT_MIN_CALENDAR_MONTHS = 3
 DEFAULT_SHADOW_EXECUTION_GAP_PCT = 1.0
@@ -56,7 +57,7 @@ DEFAULT_HISTORICAL_REFERENCE_WIN_RATE_PCT = 59.71
 DEFAULT_WIN_RATE_CONFIDENCE_LEVEL = 0.95
 DEFAULT_MAX_PORTFOLIO_DRAWDOWN_PCT = 6.0
 DEFAULT_MIN_RETURN_TO_DRAWDOWN_RATIO = 1.0
-FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v33"
+FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v35"
 FORWARD_PERFORMANCE_CLUSTER_UNIT = "entry_date_x_entry_theme"
 FORWARD_SHADOW_CANDIDATES = {
     "execution_gap": "round13_execution_gap_le_1pct",
@@ -136,7 +137,7 @@ FORWARD_REQUIRED_OPERATING_DAY_EVENTS = (
 )
 FORWARD_CANDIDATE_EVIDENCE_SCHEMA_VERSION = 2
 FORWARD_EXECUTION_EVIDENCE_SCHEMA_VERSION = 2
-FORWARD_SELL_EXECUTION_EVIDENCE_SCHEMA_VERSION = 1
+FORWARD_SELL_EXECUTION_EVIDENCE_SCHEMA_VERSION = 2
 FORWARD_REQUIRED_EXECUTED_BUY_SIZING_FIELDS = (
     "model_requested_shares",
     "maximum_permitted_shares",
@@ -592,6 +593,7 @@ def _summarize_niuone_sell_execution(
 ) -> dict[str, Any]:
     """Audit durable model-directed NiuOne SELL quantity reductions."""
     model_sell_fill_count = 0
+    priority_replacement_sell_fill_count = 0
     automatic_sell_fill_count = 0
     auto_reduced_sell_fill_count = 0
     requested_share_count = 0
@@ -629,7 +631,11 @@ def _summarize_niuone_sell_execution(
             automatic_sell_fill_count += 1
             continue
 
-        model_sell_fill_count += 1
+        sell_execution_source = str(fill.get("sell_execution_source") or "")
+        if sell_execution_source == "priority_replacement":
+            priority_replacement_sell_fill_count += 1
+        else:
+            model_sell_fill_count += 1
         gaps: set[str] = set()
         requested = _shares(fill.get("model_requested_sell_shares"))
         available = _optional_quantity(fill.get("available_sell_shares"))
@@ -643,7 +649,10 @@ def _summarize_niuone_sell_execution(
             != FORWARD_SELL_EXECUTION_EVIDENCE_SCHEMA_VERSION
         ):
             gaps.add("durable_sell_fill.schema_version")
-        if fill.get("sell_execution_source") != "model_action":
+        if sell_execution_source not in {
+            "model_action",
+            "priority_replacement",
+        }:
             gaps.add("durable_sell_fill.sell_execution_source")
         if requested <= 0 or requested % 100:
             gaps.add("durable_sell_fill.model_requested_sell_shares")
@@ -680,9 +689,12 @@ def _summarize_niuone_sell_execution(
                 invalid_field_counts[field] += 1
 
     return {
-        "unit_of_analysis": "deduplicated_durable_model_niuone_sell_fill",
+        "unit_of_analysis": "deduplicated_durable_niuone_sell_fill",
         "schema_version": FORWARD_SELL_EXECUTION_EVIDENCE_SCHEMA_VERSION,
         "model_sell_fill_count": model_sell_fill_count,
+        "priority_replacement_sell_fill_count": (
+            priority_replacement_sell_fill_count
+        ),
         "automatic_sell_fill_count": automatic_sell_fill_count,
         "auto_reduced_sell_fill_count": auto_reduced_sell_fill_count,
         "requested_share_count": requested_share_count,
@@ -3282,8 +3294,16 @@ def evaluate_niuone_forward(
                 NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY
             ),
             "daily_new_position_limit_rule": (
-                "distinct durable NiuOne opening BUY codes per Beijing "
-                "trading date; adds and non-NiuOne openings excluded"
+                "no morning, afternoon, per-decision, or per-trading-day "
+                "NiuOne opening-count limit; portfolio capacity and risk "
+                "budgets remain binding"
+            ),
+            "maximum_open_niuone_positions": NIUONE_MAX_OPEN_POSITIONS,
+            "priority_replacement_rule": (
+                "when the five-name book is full, a new NiuOne candidate may "
+                "replace only a fully T+1-sellable NiuOne holding with a "
+                "strictly lower audited current portfolio priority; execute "
+                "the full SELL before the BUY"
             ),
             "niuone_reversal_minimum_recovery_ratio_inclusive": (
                 NIUONE_DAILY_V_MIN_RECOVERY_RATIO

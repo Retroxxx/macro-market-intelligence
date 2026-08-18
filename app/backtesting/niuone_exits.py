@@ -43,10 +43,16 @@ try:
         NIUONE_MARKUP_REBALANCE_STALL_MIN_ATR,
         NIUONE_MARKUP_REBALANCE_STALL_SESSIONS,
         NIUONE_MARKUP_REBALANCE_TRIM_RATIO,
+        NIUONE_MARKUP_UPGRADE_MAX_PNL_PCT,
+        NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT,
         NIUONE_MARKUP_UPGRADE_POSITION_CAP_PCT,
         NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY,
         NIUONE_MAX_OPEN_POSITIONS,
+        niuone_add_signal_score_audit,
+        niuone_buy_signal_score,
         niuone_markup_momentum_probe_eligible,
+        niuone_portfolio_priority,
+        niuone_priority_is_higher,
         niuone_risk_budget,
         niuone_structure_risk_ok,
     )
@@ -98,10 +104,16 @@ except ImportError:  # pragma: no cover - legacy top-level import path
         NIUONE_MARKUP_REBALANCE_STALL_MIN_ATR,
         NIUONE_MARKUP_REBALANCE_STALL_SESSIONS,
         NIUONE_MARKUP_REBALANCE_TRIM_RATIO,
+        NIUONE_MARKUP_UPGRADE_MAX_PNL_PCT,
+        NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT,
         NIUONE_MARKUP_UPGRADE_POSITION_CAP_PCT,
         NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY,
         NIUONE_MAX_OPEN_POSITIONS,
+        niuone_add_signal_score_audit,
+        niuone_buy_signal_score,
         niuone_markup_momentum_probe_eligible,
+        niuone_portfolio_priority,
+        niuone_priority_is_higher,
         niuone_risk_budget,
         niuone_structure_risk_ok,
     )
@@ -508,6 +520,9 @@ class NiuOneDailyExitStrategy:
         entry_price: float,
     ) -> Mapping[str, Any]:
         scored = _scored_from_signal(signal)
+        entry_signal_score, entry_signal_score_source = (
+            niuone_buy_signal_score(scored, fallback=signal.score)
+        )
         stop_price = _number(scored.get("stop_price"), 0.0)
         atr20 = _number(scored.get("atr20") or scored.get("atr"), 0.0)
         state = {
@@ -531,6 +546,18 @@ class NiuOneDailyExitStrategy:
             "niuone_entry_subroute": str(
                 scored.get("niuone_entry_subroute") or ""
             ),
+            "entry_signal_score": entry_signal_score,
+            "last_buy_signal_score": entry_signal_score,
+            "highest_buy_signal_score": entry_signal_score,
+            "niuone_buy_signal_count": 1,
+            "niuone_buy_signal_score_history": [{
+                "filled_at": entry_bar.date,
+                "execution_date": entry_bar.date,
+                "strategy_id": signal.strategy_id,
+                "score": entry_signal_score,
+                "score_source": entry_signal_score_source,
+                "route": "open",
+            }],
         }
         if self.reversal_mainline_peak_drawdown_points is not None:
             entry_mainline_score = _number(
@@ -606,6 +633,7 @@ class NiuOneDailyExitStrategy:
                 "mainline_score", "mainline_state", "mainline_cross_day_persistent",
                 "mainline_confirmed", "market_hard_stop", "stock_leader_rank",
                 "stock_leader_tier", "stock_strong", "atr20", "atr",
+                "decision_score", "best_decision_score",
             ):
                 if key in scored:
                     position[key] = scored[key]
@@ -807,6 +835,31 @@ class NiuOneDailyExitStrategy:
                     f"（{industry}分数{theme_score:.1f}，"
                     f"状态{theme_state or '-'}）"
                 ),
+            )
+
+        replacement = getattr(
+            self,
+            "_priority_replacements",
+            {},
+        ).get(symbol)
+        if isinstance(replacement, Mapping):
+            incoming_symbol = str(replacement.get("incoming_symbol") or "")
+            holding_priority = _number(
+                replacement.get("holding_priority"),
+                0.0,
+            )
+            incoming_priority = _number(
+                replacement.get("incoming_priority"),
+                0.0,
+            )
+            return PositionExitSignal(
+                signal="niu_priority_replacement",
+                reason=(
+                    f"牛牛组合优先级换仓：候选{incoming_symbol}优先级"
+                    f"{incoming_priority:.4f}严格高于持仓{symbol}优先级"
+                    f"{holding_priority:.4f}"
+                ),
+                metadata=dict(replacement),
             )
 
         if (
@@ -1114,7 +1167,7 @@ class NiuOneStrategyBacktestPolicy(NiuOneDailyExitStrategy):
     def __init__(
         self,
         *,
-        max_new_positions_per_session: int = (
+        max_new_positions_per_session: int | None = (
             NIUONE_MAX_NEW_POSITIONS_PER_SESSION
         ),
         max_open_positions: int = NIUONE_MAX_OPEN_POSITIONS,
@@ -1128,13 +1181,21 @@ class NiuOneStrategyBacktestPolicy(NiuOneDailyExitStrategy):
         **exit_options: Any,
     ) -> None:
         super().__init__(**exit_options)
-        resolved_limit = int(max_new_positions_per_session)
-        if resolved_limit <= 0:
-            raise ValueError("max_new_positions_per_session must be positive")
-        self.max_new_positions_per_session = resolved_limit
+        if max_new_positions_per_session is None:
+            self.max_new_positions_per_session = None
+        else:
+            resolved_limit = int(max_new_positions_per_session)
+            if resolved_limit <= 0:
+                raise ValueError(
+                    "max_new_positions_per_session must be positive or None"
+                )
+            self.max_new_positions_per_session = resolved_limit
         resolved_open_limit = int(max_open_positions)
-        if resolved_open_limit <= 0:
-            raise ValueError("max_open_positions must be positive")
+        if not 0 < resolved_open_limit <= NIUONE_MAX_OPEN_POSITIONS:
+            raise ValueError(
+                "max_open_positions must be between 1 and "
+                f"{NIUONE_MAX_OPEN_POSITIONS}"
+            )
         self.max_open_positions = resolved_open_limit
         resolved_industry_limit = int(max_industry_positions)
         if resolved_industry_limit <= 0:
@@ -1186,6 +1247,116 @@ class NiuOneStrategyBacktestPolicy(NiuOneDailyExitStrategy):
         else:
             self.holding_upgrade_early_position_cap_pct = None
         self.markup_upgrade_only = bool(markup_upgrade_only)
+        self._priority_replacements: dict[str, dict[str, Any]] = {}
+
+    def reset(self) -> None:
+        self._priority_replacements = {}
+
+    def prepare_session_signals(
+        self,
+        signals: Collection[SelectionSignal],
+        positions: Mapping[str, Mapping[str, Any]],
+        context: SelectionContext,
+        selector: SelectionStrategy | SelectionFunction,
+    ) -> tuple[SelectionSignal, ...]:
+        """Rank overflow signals and arm sellable strict-priority upgrades."""
+        self._priority_replacements = {}
+        incoming: list[tuple[SelectionSignal, dict[str, Any], str]] = []
+        for signal in signals:
+            if signal.symbol in positions:
+                continue
+            scored = self._entry_scored(signal)
+            strategy_id = str(signal.strategy_id or "")
+            if strategy_id not in NIUONE_ABSOLUTE_POSITION_CAP_PCT:
+                continue
+            priority_values = {
+                **scored,
+                "score": signal.score,
+                "strategy_id": strategy_id,
+            }
+            incoming.append((signal, priority_values, strategy_id))
+        incoming.sort(
+            key=lambda item: (
+                -float(
+                    niuone_portfolio_priority(item[1], item[2])["score"]
+                ),
+                item[0].symbol,
+            )
+        )
+        free_slots = max(0, self.max_open_positions - len(positions))
+        overflow = incoming[free_slots:]
+        sellable_holdings: list[
+            tuple[str, Mapping[str, Any], str, dict[str, Any]]
+        ] = []
+        for symbol, position in positions.items():
+            remaining_units = int(position.get("remaining_units") or 0)
+            available_units = sum(
+                int(lot.get("units") or 0)
+                for lot in position.get("lots") or ()
+                if isinstance(lot, Mapping)
+                and int(lot.get("session_index") or 0) < context.session_index
+            )
+            strategy_id = str(position.get("strategy_id") or "")
+            if (
+                remaining_units <= 0
+                or available_units < remaining_units
+                or strategy_id not in NIUONE_ABSOLUTE_POSITION_CAP_PCT
+            ):
+                continue
+            current = dict(position)
+            current.update(_latest_scored(selector, symbol, strategy_id))
+            sellable_holdings.append(
+                (symbol, position, strategy_id, current)
+            )
+        sellable_holdings.sort(
+            key=lambda item: (
+                float(niuone_portfolio_priority(item[3], item[2])["score"]),
+                item[0],
+            )
+        )
+        for signal, candidate, incoming_strategy in overflow:
+            if not sellable_holdings:
+                break
+            symbol, _position, holding_strategy, holding = sellable_holdings[0]
+            if not niuone_priority_is_higher(
+                candidate,
+                holding,
+                incoming_strategy=incoming_strategy,
+                holding_strategy=holding_strategy,
+            ):
+                continue
+            sellable_holdings.pop(0)
+            holding_priority = niuone_portfolio_priority(
+                holding,
+                holding_strategy,
+            )
+            incoming_priority = niuone_portfolio_priority(
+                candidate,
+                incoming_strategy,
+            )
+            self._priority_replacements[symbol] = {
+                "incoming_symbol": signal.symbol,
+                "incoming_strategy_id": incoming_strategy,
+                "holding_priority": holding_priority["score"],
+                "incoming_priority": incoming_priority["score"],
+                "signal_date": context.date,
+            }
+        ordered_signals = sorted(
+            signals,
+            key=lambda signal: (
+                -float(
+                    niuone_portfolio_priority(
+                        {
+                            **self._entry_scored(signal),
+                            "score": signal.score,
+                        },
+                        signal.strategy_id,
+                    )["score"]
+                ),
+                signal.symbol,
+            ),
+        )
+        return tuple(ordered_signals)
 
     def _risk_budget(
         self,
@@ -1252,6 +1423,50 @@ class NiuOneStrategyBacktestPolicy(NiuOneDailyExitStrategy):
                 and position.get("niuone_markup_rebalance_armed") is True
             )
         )
+        if existing == incoming and not rebalance_reentry:
+            if bought_today:
+                return (
+                    "reversal_same_day_add"
+                    if incoming == "niu_reversal_probe"
+                    else "markup_upgrade_same_day_add"
+                )
+            score_audit = niuone_add_signal_score_audit(
+                position,
+                scored,
+                fallback_signal_score=signal.score,
+            )
+            if score_audit["previous_score"] is None:
+                return "signal_score_baseline_missing"
+            if score_audit["current_score"] is None:
+                return "signal_score_missing"
+            if score_audit["eligible"] is not True:
+                return "signal_score_not_improved"
+            lifecycle_stage = str(
+                scored.get("niuone_lifecycle_stage") or ""
+            )
+            current_price = _number(position.get("last_price"), 0.0)
+            avg_cost = _number(position.get("avg_cost"), 0.0)
+            current_pnl_pct = (
+                (current_price / avg_cost - 1.0) * 100.0
+                if current_price > 0 and avg_cost > 0
+                else 0.0
+            )
+            if incoming == "niu_reversal_probe":
+                if lifecycle_stage != "brewing":
+                    return "signal_score_add_stage"
+                if current_pnl_pct < -1e-9:
+                    return "signal_score_add_loss"
+                return ""
+            if lifecycle_stage != "markup":
+                return "signal_score_add_stage"
+            if (
+                current_pnl_pct + 1e-9
+                < NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT
+                or current_pnl_pct
+                > NIUONE_MARKUP_UPGRADE_MAX_PNL_PCT + 1e-9
+            ):
+                return "signal_score_add_pnl_window"
+            return ""
         if (
             self.markup_upgrade_only
             and (
@@ -1459,6 +1674,7 @@ class NiuOneStrategyBacktestPolicy(NiuOneDailyExitStrategy):
             return PortfolioEntryDecision(0, "reject", "max_open_positions")
         if (
             not is_add
+            and self.max_new_positions_per_session is not None
             and new_positions_today >= self.max_new_positions_per_session
         ):
             return PortfolioEntryDecision(0, "reject", "max_new_positions")
@@ -1707,6 +1923,9 @@ class NiuOneStrategyBacktestPolicy(NiuOneDailyExitStrategy):
     ) -> Mapping[str, Any]:
         """Update only strategy state that legitimately changes on an upgrade."""
         scored = self._entry_scored(signal)
+        filled_signal_score, filled_signal_score_source = (
+            niuone_buy_signal_score(scored, fallback=signal.score)
+        )
         state = {
             "reversal_basis": str(
                 scored.get("reversal_basis") or position.get("reversal_basis") or ""
@@ -1720,6 +1939,48 @@ class NiuOneStrategyBacktestPolicy(NiuOneDailyExitStrategy):
                 entry_price,
             ),
         }
+        if filled_signal_score is not None:
+            prior_highest = _number(
+                position.get("highest_buy_signal_score"),
+                _number(
+                    position.get("last_buy_signal_score"),
+                    _number(position.get("entry_signal_score"), -math.inf),
+                ),
+            )
+            score_history = list(
+                position.get("niuone_buy_signal_score_history") or []
+            )
+            score_history.append({
+                "filled_at": entry_bar.date,
+                "execution_date": entry_bar.date,
+                "strategy_id": signal.strategy_id,
+                "score": filled_signal_score,
+                "score_source": filled_signal_score_source,
+                "route": (
+                    "markup_rebalance"
+                    if signal.metadata.get(
+                        "niuone_markup_rebalance_reentry"
+                    ) is True
+                    else "stage_upgrade"
+                    if str(position.get("strategy_id") or "")
+                    != str(signal.strategy_id or "")
+                    else "score_progression"
+                ),
+            })
+            state.update({
+                "last_buy_signal_score": filled_signal_score,
+                "highest_buy_signal_score": round(
+                    max(prior_highest, filled_signal_score),
+                    4,
+                ),
+                "niuone_buy_signal_count": (
+                    max(
+                        int(position.get("niuone_buy_signal_count") or 0),
+                        1,
+                    ) + 1
+                ),
+                "niuone_buy_signal_score_history": score_history[-20:],
+            })
         source_strategy_id = str(position.get("strategy_id") or "")
         if (
             signal.strategy_id in {"niu_emerging", "niu_leader"}

@@ -1368,7 +1368,7 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertEqual(fill["available_sell_shares"], 800)
         self.assertTrue(fill["sell_quantity_auto_reduced"])
         self.assertEqual(fill["sell_execution_source"], "model_action")
-        self.assertEqual(fill["sell_execution_evidence_schema_version"], 1)
+        self.assertEqual(fill["sell_execution_evidence_schema_version"], 2)
         self.assertFalse(fill["position_fully_closed"])
 
     def test_execute_actions_keeps_niuone_sell_fail_closed_when_nothing_is_available(self):

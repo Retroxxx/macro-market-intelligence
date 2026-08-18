@@ -2288,6 +2288,27 @@ def _run_strategy_portfolio_backtest(
         if callable(set_exit_tracking_symbols):
             set_exit_tracking_symbols(positions)
         generated_signals = _call_selector(selector, context)
+        prepare_session_signals = getattr(
+            strategy,
+            "prepare_session_signals",
+            None,
+        )
+        if callable(prepare_session_signals):
+            try:
+                generated_signals = tuple(
+                    prepare_session_signals(
+                        generated_signals,
+                        positions,
+                        context,
+                        selector,
+                    )
+                    or ()
+                )
+            except Exception as exc:
+                raise SelectionBacktestError(
+                    "portfolio strategy failed while ranking session signals "
+                    f"after {trading_date} close: {exc}"
+                ) from exc
         completed_sessions += 1
         had_portfolio_activity = within_signal_window or bool(positions)
 

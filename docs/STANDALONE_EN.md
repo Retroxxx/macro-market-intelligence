@@ -169,7 +169,7 @@ By default, runtime data is stored in:
 | `DASHBOARD_NIUONE_FORWARD_PREFLIGHT_CRON` | `5 9 * * 1-5` | Verify the strict-forward protocol immediately at Scheduler startup and again at 09:05 Monday through Friday |
 | `DASHBOARD_NIUONE_EQUITY_SNAPSHOT_CRON` | `15 15 * * 1-5` | Refresh marks without trading and persist account equity after each actual A-share session |
 | `DASHBOARD_NIUONE_FORWARD_CRON` | `20 15 * * 1-5` | Recompute the NiuOne strict-forward report from the durable fill ledger after each Monday-through-Friday session; applies on the next Cron cycle |
-| `DASHBOARD_NIUONE_FORWARD_COHORT_START` | `2026-08-13` | Strict-forward cohort start; archive the old protocol lock and restart from a new trading day after a rule change |
+| `DASHBOARD_NIUONE_FORWARD_COHORT_START` | `2026-08-19` | Strict-forward cohort start; archive the old protocol lock and restart from a new trading day after a rule change |
 | `DASHBOARD_ACTIVE_STRATEGY` | `niuone` | Active independent strategy; changes apply to the next scan without a restart |
 | `DASHBOARD_PRACTICE_SCHEDULE_TIMES` | `09:25,10:00,10:30,11:00,11:20,13:00,13:30,14:00,14:30,14:50` | Shared schedule for market summaries, screening, and simulated decisions |
 | `DASHBOARD_KLINE_BOOTSTRAP_ENABLED` | `1` | Prepare full-market daily K lines immediately after a first deployment or cache expiry; requires a restart |
@@ -238,6 +238,10 @@ v32 adds a stock capital-activity gate to mature mainline entries: Leading, Resu
 v33 localizes internal enums only in user-facing strategy prose. Prompts use Chinese lifecycle, role, and mainline-mode labels; persistence and historical rendering convert standalone lowercase enums only in Chinese strategy context, including nested dropped-buy reasons. Proper names, English technical prose, errors, acronyms, and identifiers remain unchanged, and all strategy gates and risk controls are identical. The display mapping joins the protocol fingerprint, standalone strict-forward advances to `niuone-strict-forward-v33`, and the default new cohort begins on `2026-08-13`; archive the v32 lock and report before deployment.
 
 Administrator backtest v34 includes the terminal liquidation session after the signal window in the equity curve and risk metrics, and improves current-session timing plus ETA during long replays. NiuOne advances to `niuone-backtest-v34` and frozen prompt strategies advance to `prompt-backtest-v2`; older results become stale and must be rerun after a standalone upgrade. Strategy rules, fill precision, and capital calculations are unchanged.
+
+v34 removes NiuOne morning/afternoon, per-decision, and per-day opening-count limits while fixing the book at five holdings. At full capacity, the system compares an auditable candidate priority with the lowest-priority NiuOne holding and executes SELL-before-BUY only when the candidate is strictly higher and every old lot is T+1 sellable; risk and theme budgets are unchanged. Strict-forward/admin-backtest advance to `niuone-strict-forward-v34`/`niuone-backtest-v35`, with a new default cohort on `2026-08-19`; archive old locks, reports, and backtests before deployment.
+
+v35 adds same-name, same-strategy score-ladder scaling. Every filled BUY advances a holding-period score high-water mark; another signal may add only when its score sets a strict new high, while ties, declines, and missing scores fail closed. Probe cannot add on its entry day or average down, and mature paths retain the Markup, strong-leader, and 2%–12% profit-window gates. Stage upgrades, post-trim wave re-entry, and all portfolio controls remain independent. Strict-forward/admin-backtest advance to `niuone-strict-forward-v35`/`niuone-backtest-v36`; the not-yet-started default cohort remains `2026-08-19`.
 
 ### One-Click Enablement
 

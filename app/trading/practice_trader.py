@@ -193,8 +193,11 @@ from strategies.niuone_risk import (
     NIUONE_MARKUP_UPGRADE_MAX_PNL_PCT,
     NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT,
     NIUONE_MARKUP_UPGRADE_POSITION_CAP_PCT,
-    NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY,
     NIUONE_MAX_OPEN_POSITIONS,
+    niuone_add_signal_score_audit,
+    niuone_buy_signal_score,
+    niuone_portfolio_priority,
+    niuone_priority_is_higher,
     niuone_risk_budget,
     niuone_structural_stop_limits,
     niuone_structure_risk_ok,
@@ -5332,6 +5335,15 @@ def sync_niuone_position_context(state: dict[str, Any], b1_payload: dict[str, An
         normalized_code = normalize_code(code)
         candidate = candidates.get(normalized_code, {})
         stock = stocks.get(normalized_code) if isinstance(stocks.get(normalized_code), dict) else {}
+        pos.pop("current_decision_score", None)
+        if candidate:
+            current_decision_score = candidate.get("best_decision_score")
+            if current_decision_score is None:
+                current_decision_score = candidate.get("decision_score")
+            if current_decision_score is None:
+                current_decision_score = candidate.get("best_score")
+            if current_decision_score is not None:
+                pos["current_decision_score"] = current_decision_score
         theme_profiles = {
             str(item.get("industry") or "").strip(): dict(item)
             for item in (stock.get("theme_profiles") or [])
@@ -7759,6 +7771,12 @@ def compact_portfolio_for_decision(portfolio: dict[str, Any]) -> dict[str, Any]:
     compact_positions = []
     for pos in portfolio.get("positions", []) or []:
         exit_state = pos.get("exit_state") or {}
+        entry_strategy = str(
+            pos.get("buy_strategy")
+            or pos.get("strategy_id")
+            or pos.get("initial_buy_strategy")
+            or ""
+        )
         compact_positions.append({
             "code": pos.get("code"),
             "name": pos.get("name"),
@@ -7789,6 +7807,29 @@ def compact_portfolio_for_decision(portfolio: dict[str, Any]) -> dict[str, Any]:
             "pnl": pos.get("pnl"),
             "pnl_pct": pos.get("pnl_pct"),
             "buy_strategy": pos.get("buy_strategy"),
+            "niuone_priority": (
+                niuone_portfolio_priority(pos, entry_strategy)
+                if is_niuone_strategy(entry_strategy)
+                else {}
+            ),
+            "niuone_lifecycle_stage": pos.get("niuone_lifecycle_stage"),
+            "mainline_score": pos.get("mainline_score"),
+            "mainline_state": pos.get("mainline_state"),
+            "mainline_cross_day_persistent": pos.get(
+                "mainline_cross_day_persistent"
+            ),
+            "mainline_confirmed": pos.get("mainline_confirmed"),
+            "stock_strong": pos.get("stock_strong"),
+            "stock_leader_tier": pos.get("stock_leader_tier"),
+            "entry_signal_score": pos.get("entry_signal_score"),
+            "current_decision_score": pos.get("current_decision_score"),
+            "last_buy_signal_score": pos.get("last_buy_signal_score"),
+            "highest_buy_signal_score": pos.get(
+                "highest_buy_signal_score"
+            ),
+            "niuone_buy_signal_count": pos.get(
+                "niuone_buy_signal_count"
+            ),
             "entry_reason": pos.get("entry_reason"),
             "strategy_mark": pos.get("strategy_mark") or {},
             "strategy_mark_id": pos.get("strategy_mark_id") or "",
@@ -8173,9 +8214,9 @@ def current_trade_discipline_text(position_limit_desc: str, adaptive: dict[str, 
             custom += (
                 "\n- 牛牛战法执行层动态风险预算：进攻/轮动/修复/防守的单笔权益风险分别≤1.50%/1.00%/0.60%/0.30%，"
                 "策略内组合风险≤4.50%/3.00%/1.80%/0.90%，总仓≤70%/55%/35%/20%，主题风险≤3.00%/2.00%/1.20%/0.60%，主题敞口≤55%/40%/25%/12%；仅市场复合硬停止禁止新仓。"
-                f"领涨/转强/启动/试仓单票30%/25%/15%/6.25%仅为绝对上限，同一主题最多2只、当日跨轮最多新开{NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY}只、同时最多持有{NIUONE_MAX_OPEN_POSITIONS}只。"
+                f"领涨/转强/启动/试仓单票30%/25%/15%/6.25%仅为绝对上限，同一主题最多2只；新开仓不设上午/下午、单轮或单日数量上限，但同时最多持有{NIUONE_MAX_OPEN_POSITIONS}只。满仓时仅当新候选当前优先级严格高于可卖出的最低优先级牛牛持仓，才先卖后买完成换仓。"
                 "\n- 牛牛战法按主线酝酿→主升→高潮→分歧→退幕识别；试仓只参与酝酿候选和启动早段，主升阶段围绕启动/领涨，高潮不追普遍新仓，分歧只观察核心股调整后转强或减仓，持续回落不触发买点，退幕只退出。最近30根日K还须满足：左侧至少回落5日和8%，低点后至少修复3日和6%，收复左侧跌幅须在60%（含）至200%（不含）之间，并确认右侧持续抬高；达到200%后不再按早期试仓。"
-                "试仓在进攻/轮动/修复/防守的单笔权益风险分别≤0.35%/0.30%/0.25%/0.15%，以右侧最近3根日K低点为止损；试仓/启动持仓浮盈在2%～12%、仍处主升且个股保持强势领涨时，跨日延续先向10%上限加仓，主线确认后再向20%上限加仓，每级一次，分歧/高潮/退幕不加仓。"
+                "试仓在进攻/轮动/修复/防守的单笔权益风险分别≤0.35%/0.30%/0.25%/0.15%，以右侧最近3根日K低点为止损；试仓/启动持仓浮盈在2%～12%、仍处主升且个股保持强势领涨时，跨日延续先向10%上限加仓，主线确认后再向20%上限加仓。此后同一战法再次出现BUY且评分严格刷新持仓期实际买入最高分时，可继续在原风险与阶段上限内加仓；分歧/高潮/退幕不加仓。"
                 "\n- 牛牛战法退出：试仓所属题材首次进入退幕即退出，3个交易日未延续右侧趋势也退出；成熟路径另按连续两个交易日跌出行业前三龙头梯队、主线连续转弱、市场硬停止叠加退幕和策略时间窗退出；高潮且不亏先减仓1/3，进攻/修复/防守试仓盘中达到0.75R先减仓50%，轮动试仓及成熟路径达到1R先减仓45%，余仓成本保护并按2ATR跟踪。"
             )
         return custom
@@ -8376,6 +8417,7 @@ def call_model_decision(
                 f"外部确认调整:{c.get('external_context_adjustment','-')} "
             )
         elif is_niuone_strategy(strat):
+            candidate_priority = niuone_portfolio_priority(c, strat)["score"]
             tide_detail = (
                 f"市场:{c.get('market_regime','-')}/{c.get('market_score','-')} "
                 f"题材:{c.get('signal_theme') or c.get('industry') or c.get('sector') or '-'} "
@@ -8392,6 +8434,7 @@ def call_model_decision(
                 f"有效损失:{c.get('effective_loss_distance_pct','-')}% "
                 f"单笔预算:{c.get('per_trade_risk_budget_pct','-')}% "
                 f"动态仓位上限:{c.get('max_position_pct_by_risk','-')}% "
+                f"组合优先级:{candidate_priority} "
                 f"消息面:{c.get('news_tone_label','未检查')} "
             )
         cand_lines.append(
@@ -8516,8 +8559,15 @@ def call_model_decision(
 加仓语义与纪律：
 - 对当前账户JSON里已有持仓输出 BUY，表示加仓/补仓；shares 是本次新增股数，不是目标总股数。
 - 加仓只用于顺势确认或强势回踩重新达标；亏损扩大、跌破原止损、今日新买T+1锁仓、盘面谨慎/防守时，不得为了摊低成本而加仓。
-- 牛牛试仓/启动持仓首次加仓仅限浮盈{NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT:g}%～{NIUONE_MARKUP_UPGRADE_MAX_PNL_PCT:g}%、生命周期主升且个股保持强势领涨：启动跨日延续先向{NIUONE_MARKUP_EARLY_UPGRADE_POSITION_CAP_PCT:g}%上限加仓，主线完全确认后向{NIUONE_MARKUP_UPGRADE_POSITION_CAP_PCT:g}%上限加仓。确认领涨仓随后可重复执行波段再平衡：有效回落或横盘先减仓1/3，只有重新转强价被收复、生命周期回到主升且个股恢复强势领涨才补回风险上限；补回后必须等待下一次独立回撤，不设终身加仓次数上限。每笔仍取风险预算和阶段/单票上限的较小值，shares 只填写当前仓位到目标仓位的差额；高潮、未转强分歧、退幕不得加仓。
+- 牛牛同一股票、同一战法再次出现BUY时，只有本次评分严格高于该持仓历史所有实际买入评分才获得“评分递增”加仓资格；相等、下降或缺少前后评分一律HOLD。试仓仍不得当日重复买入且不得向亏损仓摊低成本；成熟路径还须处于主升、个股保持强势领涨且浮盈在{NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT:g}%～{NIUONE_MARKUP_UPGRADE_MAX_PNL_PCT:g}%延续窗口。阶段升级和已完成减仓后的波段回补仍按各自确认条件执行。
+- 牛牛试仓/启动持仓阶段升级时，启动跨日延续先向{NIUONE_MARKUP_EARLY_UPGRADE_POSITION_CAP_PCT:g}%上限加仓，主线完全确认后向{NIUONE_MARKUP_UPGRADE_POSITION_CAP_PCT:g}%上限加仓。确认领涨仓随后可重复执行波段再平衡：有效回落或横盘先减仓1/3，只有重新转强价被收复、生命周期回到主升且个股恢复强势领涨才补回风险上限；补回后必须等待下一次独立回撤，不设终身加仓次数上限。每笔仍取风险预算和阶段/单票上限的较小值，shares 只填写当前仓位到目标仓位的差额；高潮、未转强分歧、退幕不得加仓。
 - 加仓理由必须写明：原入场战法、当前盈亏/仓位、加仓后仓位占比、失效/止损条件，以及为何优于新开仓或继续HOLD。
+
+牛牛组合容量与换仓纪律：
+- 牛牛新开仓不设上午/下午、单轮或单日数量限制，但账户最多同时持有{NIUONE_MAX_OPEN_POSITIONS}只；单笔、组合、主题风险预算、总仓和T+1继续硬执行。
+- 未满{NIUONE_MAX_OPEN_POSITIONS}只时，符合条件且风险预算允许的候选可直接BUY；候选超过剩余槽位时按组合优先级从高到低选择。
+- 满仓时必须比较当前账户JSON中每只牛牛持仓的niuone_priority与新候选组合优先级。只有新候选严格更高且最低优先级持仓全部可卖，才输出整仓SELL与新股BUY；SELL的intent写REPLACE、replacement_target_code写新股代码，BUY的intent写REPLACE、replacement_source_code写被卖持仓代码。相等或更低、T+1不可卖、证据不足时HOLD，不为提高资金利用率强行换仓。
+- 换仓reason必须同时写明新旧股票代码、两者优先级、比较依据和交易成本/失效风险；系统会再次校验并强制按先SELL后BUY执行。
 
 {preset_output_requirements}
 
@@ -8526,7 +8576,7 @@ def call_model_decision(
   "summary":"一句中文结论（含战法偏好+总体判断）",
 {preset_interpretation_schema}
   "actions":[
-    {{"action":"BUY|SELL|HOLD","code":"600000","name":"股票名","shares":100,"target_position_pct":3.5,"reason":"中文理由（含战法名和仓位依据）"}}
+    {{"action":"BUY|SELL|HOLD","code":"600000","name":"股票名","shares":100,"target_position_pct":3.5,"intent":"OPEN|ADD|EXIT|REPLACE","replacement_source_code":"仅换仓BUY填写","replacement_target_code":"仅换仓SELL填写","reason":"中文理由（含战法名和仓位依据）"}}
   ]
 }}
 如果不适合交易，返回 actions 为空或 HOLD。
@@ -8682,6 +8732,30 @@ def refine_overlimit_buy_actions(
     market_strategy_ctx = market_strategy_ctx or current_market_strategy_context()
     max_new_buys = max(0, int(market_strategy_ctx.get("max_new_buys_per_decision", MAX_NEW_BUYS_PER_DECISION)))
     buy_actions = executable_buy_actions(decision, state)
+    candidate_by_code = {
+        normalize_code(item.get("code") or ""): item
+        for item in candidates
+        if isinstance(item, dict)
+    }
+    if max_new_buys > 0 and buy_actions and all(
+        is_niuone_strategy(
+            str(
+                candidate_by_code.get(
+                    normalize_code(action.get("code") or ""),
+                    {},
+                ).get("best_strategy")
+                or candidate_by_code.get(
+                    normalize_code(action.get("code") or ""),
+                    {},
+                ).get("strategy_id")
+                or ""
+            )
+        )
+        for action in buy_actions
+    ):
+        # NiuOne capacity is governed by the five-name book and deterministic
+        # replacement ranking, not a per-cycle count chosen from market tone.
+        return None
     if max_new_buys <= 0:
         if buy_actions:
             return _fallback_refine_overlimit_buys(decision, buy_actions, 0, "本轮盘面指引不允许新开仓", candidates)
@@ -8784,6 +8858,212 @@ def refine_overlimit_buy_actions(
         )
 
 
+def prepare_niuone_portfolio_actions(
+    decision: dict[str, Any],
+    state: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    *,
+    execution_date: str | None = None,
+) -> list[dict[str, Any]]:
+    """Enforce five-name capacity and create only strict priority upgrades."""
+    positions = state.get("positions") or {}
+    candidate_by_code = {
+        normalize_code(item.get("code") or ""): item
+        for item in candidates
+        if isinstance(item, dict) and normalize_code(item.get("code") or "")
+    }
+    actions = [
+        action
+        for action in (decision.get("actions") or [])
+        if isinstance(action, dict)
+    ]
+    new_niuone_buys: list[tuple[dict[str, Any], dict[str, Any], str]] = []
+    for action in actions:
+        if str(action.get("action") or "").upper() != "BUY":
+            continue
+        code = normalize_code(action.get("code") or "")
+        candidate = candidate_by_code.get(code) or {}
+        strategy_id = str(
+            candidate.get("best_strategy")
+            or candidate.get("buy_strategy")
+            or candidate.get("strategy_id")
+            or ""
+        ).strip()
+        if (
+            code
+            and is_niuone_strategy(strategy_id)
+            and position_qty(positions.get(code) or {}) <= 0
+        ):
+            new_niuone_buys.append((action, candidate, strategy_id))
+    if not new_niuone_buys:
+        return actions
+
+    resolved_date = execution_date or today_key()
+    explicit_replacement_sells: dict[str, dict[str, Any]] = {}
+    organic_full_sell_codes: set[str] = set()
+    retained_actions: list[dict[str, Any]] = []
+    for action in actions:
+        if str(action.get("action") or "").upper() != "SELL":
+            retained_actions.append(action)
+            continue
+        code = normalize_code(action.get("code") or "")
+        position = positions.get(code) or {}
+        quantity = position_qty(position)
+        shares = parse_model_action_shares(action) or 0
+        replacement_intent = bool(
+            str(action.get("intent") or "").upper() == "REPLACE"
+            or normalize_code(action.get("replacement_target_code") or "")
+        )
+        if replacement_intent:
+            explicit_replacement_sells[code] = action
+            continue
+        retained_actions.append(action)
+        if (
+            quantity > 0
+            and shares >= quantity
+            and available_to_sell(position, resolved_date) >= quantity
+        ):
+            organic_full_sell_codes.add(code)
+
+    free_slots = max(
+        0,
+        NIUONE_MAX_OPEN_POSITIONS
+        - open_position_count(positions)
+        + len(organic_full_sell_codes),
+    )
+    ranked_buys = sorted(
+        new_niuone_buys,
+        key=lambda item: (
+            -float(niuone_portfolio_priority(item[1], item[2])["score"]),
+            normalize_code(item[0].get("code") or ""),
+        ),
+    )
+    overflow_buys = ranked_buys[free_slots:]
+    eligible_holdings: list[tuple[str, dict[str, Any], str]] = []
+    for raw_code, position in positions.items():
+        code = normalize_code(raw_code)
+        if code in organic_full_sell_codes:
+            continue
+        quantity = position_qty(position)
+        strategy_id = position_entry_strategy(position)
+        if (
+            code
+            and quantity > 0
+            and is_niuone_strategy(strategy_id)
+            and available_to_sell(position, resolved_date) >= quantity
+        ):
+            eligible_holdings.append((code, position, strategy_id))
+    eligible_holdings.sort(
+        key=lambda item: (
+            float(niuone_portfolio_priority(item[1], item[2])["score"]),
+            item[0],
+        )
+    )
+
+    replacement_sells: list[dict[str, Any]] = []
+    replacement_plan: list[dict[str, Any]] = []
+    for buy_action, candidate, incoming_strategy in overflow_buys:
+        incoming_code = normalize_code(buy_action.get("code") or "")
+        incoming_priority = niuone_portfolio_priority(
+            candidate,
+            incoming_strategy,
+        )
+        if not eligible_holdings:
+            buy_action["action"] = "HOLD"
+            buy_action["intent"] = "HOLD_CAPACITY"
+            buy_action["reason"] = (
+                f"牛牛组合已满{NIUONE_MAX_OPEN_POSITIONS}只，且没有可按T+1整仓卖出的"
+                "牛牛持仓，本轮不换仓"
+            )
+            add_execution_block(
+                decision,
+                incoming_code,
+                buy_action["reason"],
+                category="position_capacity",
+            )
+            continue
+        holding_code, holding, holding_strategy = eligible_holdings[0]
+        holding_priority = niuone_portfolio_priority(
+            holding,
+            holding_strategy,
+        )
+        if not niuone_priority_is_higher(
+            candidate,
+            holding,
+            incoming_strategy=incoming_strategy,
+            holding_strategy=holding_strategy,
+        ):
+            buy_action["action"] = "HOLD"
+            buy_action["intent"] = "HOLD_PRIORITY"
+            buy_action["reason"] = (
+                f"牛牛候选{incoming_code}优先级{incoming_priority['score']}未严格高于"
+                f"最低持仓{holding_code}优先级{holding_priority['score']}，不换仓"
+            )
+            add_execution_block(
+                decision,
+                incoming_code,
+                buy_action["reason"],
+                category="portfolio_priority",
+            )
+            continue
+
+        eligible_holdings.pop(0)
+        sell_action = explicit_replacement_sells.pop(holding_code, None) or {
+            "action": "SELL",
+            "code": holding_code,
+            "name": holding.get("name") or "",
+        }
+        sell_action.update({
+            "action": "SELL",
+            "shares": position_qty(holding),
+            "intent": "REPLACE",
+            "replacement_target_code": incoming_code,
+            "niuone_priority_before": holding_priority,
+            "niuone_priority_after": incoming_priority,
+            "reason": (
+                f"牛牛组合换仓：新候选{incoming_code}优先级"
+                f"{incoming_priority['score']}严格高于持仓{holding_code}优先级"
+                f"{holding_priority['score']}，整仓卖出后买入更高优先级标的"
+            ),
+        })
+        buy_action.update({
+            "intent": "REPLACE",
+            "replacement_source_code": holding_code,
+            "niuone_priority_before": holding_priority,
+            "niuone_priority_after": incoming_priority,
+        })
+        replacement_sells.append(sell_action)
+        replacement_plan.append({
+            "sell_code": holding_code,
+            "buy_code": incoming_code,
+            "holding_priority": holding_priority,
+            "incoming_priority": incoming_priority,
+        })
+
+    # Replacement SELLs emitted by the model but not selected by the audited
+    # comparison are discarded; they must never create an unpaired exit.
+    decision["actions"] = [
+        *replacement_sells,
+        *[
+            action
+            for action in retained_actions
+            if str(action.get("action") or "").upper() == "SELL"
+        ],
+        *[
+            action
+            for action in retained_actions
+            if str(action.get("action") or "").upper() != "SELL"
+        ],
+    ]
+    decision["niuone_replacement_plan"] = replacement_plan
+    if replacement_plan:
+        decision["summary"] = (
+            f"{decision.get('summary') or '牛牛组合决策'}；按严格优先级先卖后买换仓"
+            f"{len(replacement_plan)}组"
+        )
+    return decision["actions"]
+
+
 def execute_actions(
     state: dict[str, Any],
     decision: dict[str, Any],
@@ -8792,6 +9072,8 @@ def execute_actions(
     trade_reason: str,
     market_strategy_ctx: dict[str, Any] | None = None,
     evaluated_at: datetime | None = None,
+    *,
+    _skip_replacement_preflight: bool = False,
 ) -> list[dict[str, Any]]:
     executed = []
     cand_by_code = {normalize_code(c.get("code", "")): c for c in candidates}
@@ -8806,13 +9088,97 @@ def execute_actions(
     decision.setdefault("execution_blocks", [])
     effective_max_open_positions = int(market_strategy_ctx.get("max_open_positions", MAX_OPEN_POSITIONS))
     effective_max_new_buys = int(market_strategy_ctx.get("max_new_buys_per_decision", MAX_NEW_BUYS_PER_DECISION))
-    niuone_opened_today = niuone_opened_position_codes_on_date(state)
     allow_market_guidance_buys = bool(market_strategy_ctx.get("allow_new_buys", True))
     daily_loss_budget_exceeded, daily_loss_budget_pnl = check_daily_loss_budget(state)
     execution_date = evaluated_at.strftime("%Y-%m-%d") if evaluated_at else today_key()
     if not trade_allowed:
         return executed
-    for action in (decision.get("actions") or [])[:5]:
+    prepared_actions = prepare_niuone_portfolio_actions(
+        decision,
+        state,
+        candidates,
+        execution_date=execution_date,
+    )
+    replacement_plan = list(decision.get("niuone_replacement_plan") or [])
+    if replacement_plan and not _skip_replacement_preflight:
+        replacement_codes = {
+            normalize_code(plan.get(key) or "")
+            for plan in replacement_plan
+            if isinstance(plan, dict)
+            for key in ("sell_code", "buy_code")
+        }
+        dry_decision = {
+            "summary": "牛牛换仓成交前完整预检",
+            "actions": copy.deepcopy([
+                action
+                for action in prepared_actions
+                if normalize_code(action.get("code") or "")
+                in replacement_codes
+            ]),
+        }
+        dry_executed = execute_actions(
+            copy.deepcopy(state),
+            dry_decision,
+            candidates,
+            trade_allowed,
+            trade_reason,
+            market_strategy_ctx,
+            evaluated_at,
+            _skip_replacement_preflight=True,
+        )
+        dry_fills = {
+            (
+                str(item.get("action") or "").upper(),
+                normalize_code(item.get("code") or ""),
+            )
+            for item in dry_executed
+        }
+        valid_plan: list[dict[str, Any]] = []
+        for plan in replacement_plan:
+            sell_code = normalize_code(plan.get("sell_code") or "")
+            buy_code = normalize_code(plan.get("buy_code") or "")
+            if {
+                ("SELL", sell_code),
+                ("BUY", buy_code),
+            }.issubset(dry_fills):
+                valid_plan.append(plan)
+                continue
+            prepared_actions[:] = [
+                action
+                for action in prepared_actions
+                if not (
+                    str(action.get("action") or "").upper() == "SELL"
+                    and normalize_code(action.get("code") or "") == sell_code
+                    and str(action.get("intent") or "").upper() == "REPLACE"
+                )
+            ]
+            for action in prepared_actions:
+                if (
+                    str(action.get("action") or "").upper() == "BUY"
+                    and normalize_code(action.get("code") or "") == buy_code
+                ):
+                    action["action"] = "HOLD"
+                    action["intent"] = "HOLD_REPLACEMENT_PREFLIGHT"
+                    action["reason"] = (
+                        f"牛牛换仓预检未能同时确认卖出{sell_code}和买入"
+                        f"{buy_code}均可成交，保留原持仓"
+                    )
+            add_execution_block(
+                decision,
+                buy_code,
+                f"牛牛换仓完整成交预检失败，未卖出{sell_code}",
+                category="replacement_preflight",
+            )
+        decision["niuone_replacement_plan"] = valid_plan
+    action_limit = (
+        2 * NIUONE_MAX_OPEN_POSITIONS
+        if any(
+            str(action.get("intent") or "").upper() == "REPLACE"
+            for action in prepared_actions
+        )
+        else 5
+    )
+    for action in prepared_actions[:action_limit]:
         current_allowed, current_reason = is_a_share_execution_time(evaluated_at)
         if not current_allowed:
             decision["execution_blocked_reason"] = f"执行前复核失败：{current_reason}"
@@ -9026,6 +9392,23 @@ def execute_actions(
                 (existing_pos or {}).get("initial_buy_strategy")
                 or existing_entry_strategy
             )
+            niuone_same_strategy_add = bool(
+                old_qty > 0
+                and is_niuone_strategy(buy_strategy)
+                and existing_entry_strategy == buy_strategy
+            )
+            niuone_signal_score_audit = (
+                niuone_add_signal_score_audit(
+                    existing_pos,
+                    candidate,
+                )
+                if niuone_same_strategy_add
+                else {}
+            )
+            if niuone_signal_score_audit:
+                action["niuone_add_signal_score_audit"] = dict(
+                    niuone_signal_score_audit
+                )
             niuone_rebalance_reentry = bool(
                 old_qty > 0
                 and buy_strategy == "niu_leader"
@@ -9036,10 +9419,13 @@ def execute_actions(
             niuone_stage_add_attempt = bool(
                 old_qty > 0
                 and (
-                    niuone_upgrade_source in {
-                        "niu_reversal_probe",
-                        "niu_emerging",
-                    }
+                    (
+                        existing_entry_strategy != buy_strategy
+                        and niuone_upgrade_source in {
+                            "niu_reversal_probe",
+                            "niu_emerging",
+                        }
+                    )
                     or niuone_rebalance_reentry
                 )
                 and is_niuone_strategy(buy_strategy)
@@ -9047,10 +9433,77 @@ def execute_actions(
             current_pnl_pct = (
                 (float(price) / float((existing_pos or {}).get("avg_cost")) - 1.0)
                 * 100.0
-                if niuone_stage_add_attempt
+                if old_qty > 0
                 and _safe_float((existing_pos or {}).get("avg_cost"), 0.0) > 0
                 else 0.0
             )
+            niuone_score_scale_add = False
+            niuone_score_scale_blocker = ""
+            if niuone_same_strategy_add and not niuone_rebalance_reentry:
+                previous_score = niuone_signal_score_audit.get(
+                    "previous_score"
+                )
+                current_score = niuone_signal_score_audit.get(
+                    "current_score"
+                )
+                if previous_score is None:
+                    niuone_score_scale_blocker = (
+                        "牛牛同股加仓缺少上次实际买入评分，无法核验信号增强"
+                    )
+                elif current_score is None:
+                    niuone_score_scale_blocker = (
+                        "牛牛同股加仓缺少本次可审计评分"
+                    )
+                elif niuone_signal_score_audit.get("eligible") is not True:
+                    niuone_score_scale_blocker = (
+                        f"牛牛同股加仓要求评分严格创新高：本次{current_score:g}"
+                        f"，持仓期最高买入评分{previous_score:g}"
+                    )
+                else:
+                    lifecycle_stage = str(
+                        candidate.get("niuone_lifecycle_stage") or ""
+                    )
+                    if buy_strategy == "niu_reversal_probe":
+                        if lifecycle_stage != "brewing":
+                            niuone_score_scale_blocker = (
+                                "牛牛试仓评分递增加仓只允许主线酝酿阶段"
+                            )
+                        elif current_pnl_pct < -1e-9:
+                            niuone_score_scale_blocker = (
+                                "牛牛评分递增加仓不向亏损持仓摊低成本"
+                            )
+                        else:
+                            niuone_score_scale_add = True
+                    elif lifecycle_stage != "markup":
+                        niuone_score_scale_blocker = (
+                            "牛牛评分递增加仓只允许主升阶段，高潮/分歧/退幕不加仓"
+                        )
+                    elif (
+                        current_pnl_pct + 1e-9
+                        < NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT
+                    ):
+                        niuone_score_scale_blocker = (
+                            "牛牛评分递增加仓要求原持仓浮盈至少"
+                            f"{NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT:g}%"
+                        )
+                    elif (
+                        current_pnl_pct
+                        > NIUONE_MARKUP_UPGRADE_MAX_PNL_PCT + 1e-9
+                    ):
+                        niuone_score_scale_blocker = (
+                            "牛牛评分递增加仓仅限浮盈"
+                            f"≤{NIUONE_MARKUP_UPGRADE_MAX_PNL_PCT:g}%的延续窗口"
+                        )
+                    else:
+                        niuone_score_scale_add = True
+                if not niuone_score_scale_add:
+                    add_execution_block(
+                        decision,
+                        code,
+                        niuone_score_scale_blocker,
+                        category="signal_progression",
+                    )
+                    continue
             niuone_upgrade_blocker = (
                 niuone_markup_rebalance_reentry_blocker(
                     niuone_upgrade_source,
@@ -9071,6 +9524,7 @@ def execute_actions(
             if (
                 niuone_upgrade_blocker is None
                 and not niuone_rebalance_reentry
+                and not niuone_score_scale_add
                 and buy_strategy == "niu_emerging"
                 and (existing_pos or {}).get(
                     "niuone_markup_early_scale_in_done"
@@ -9080,6 +9534,7 @@ def execute_actions(
             elif (
                 niuone_upgrade_blocker is None
                 and not niuone_rebalance_reentry
+                and not niuone_score_scale_add
                 and buy_strategy == "niu_leader"
                 and (existing_pos or {}).get(
                     "niuone_markup_confirmed_scale_in_done"
@@ -9095,8 +9550,14 @@ def execute_actions(
                 )
                 continue
             niuone_markup_scale_add = bool(
-                niuone_stage_add_attempt
-                and niuone_upgrade_blocker is None
+                (
+                    niuone_stage_add_attempt
+                    and niuone_upgrade_blocker is None
+                )
+                or (
+                    niuone_score_scale_add
+                    and buy_strategy in {"niu_emerging", "niu_leader"}
+                )
             )
             niuone_upgrade_add = bool(
                 niuone_markup_scale_add
@@ -9117,7 +9578,7 @@ def execute_actions(
                 )
                 continue
             open_position_limit = (
-                min(effective_max_open_positions, NIUONE_MAX_OPEN_POSITIONS)
+                NIUONE_MAX_OPEN_POSITIONS
                 if is_niuone_strategy(buy_strategy)
                 else effective_max_open_positions
             )
@@ -9136,27 +9597,11 @@ def execute_actions(
                     category="position_capacity",
                 )
                 continue
-            if old_qty <= 0 and is_niuone_strategy(buy_strategy):
-                action["niuone_daily_new_position_count_before"] = len(
-                    niuone_opened_today
-                )
-                action["niuone_daily_new_position_limit"] = (
-                    NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY
-                )
-                if (
-                    len(niuone_opened_today)
-                    >= NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY
-                ):
-                    add_execution_block(
-                        decision,
-                        code,
-                        "牛牛战法当日新开仓已达"
-                        f"{NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY}只上限"
-                        "（跨决策轮次累计）",
-                        category="position_capacity",
-                    )
-                    continue
-            if old_qty <= 0 and new_buys >= effective_max_new_buys:
+            if (
+                old_qty <= 0
+                and not is_niuone_strategy(buy_strategy)
+                and new_buys >= effective_max_new_buys
+            ):
                 add_execution_block(
                     decision,
                     code,
@@ -9336,11 +9781,15 @@ def execute_actions(
                         category="market_mechanics",
                     )
                     continue
-                if buy_strategy == "niu_reversal_probe" and old_qty > 0:
+                if (
+                    buy_strategy == "niu_reversal_probe"
+                    and old_qty > 0
+                    and not niuone_score_scale_add
+                ):
                     add_execution_block(
                         decision,
                         code,
-                        "牛牛试仓只允许一次初始建仓，须满足后续阶段条件再加仓",
+                        "牛牛试仓须出现严格更高评分的后续买入信号才可加仓",
                         category="lifecycle_rule",
                     )
                     continue
@@ -10183,6 +10632,67 @@ def execute_actions(
                 entry_mark_strategy = buy_strategy
                 entry_mark_component = ""
                 entry_mark_source = "BUY_ADD"
+            if is_niuone_strategy(buy_strategy):
+                filled_signal_score, filled_signal_score_source = (
+                    niuone_buy_signal_score(candidate)
+                )
+                if filled_signal_score is not None:
+                    previous_highest_score = _safe_float(
+                        pos.get("highest_buy_signal_score"),
+                        _safe_float(
+                            pos.get("last_buy_signal_score"),
+                            _safe_float(pos.get("entry_signal_score"), -1.0),
+                        ),
+                    )
+                    highest_score = (
+                        max(previous_highest_score, filled_signal_score)
+                        if previous_highest_score >= 0
+                        else filled_signal_score
+                    )
+                    pos["last_buy_signal_score"] = filled_signal_score
+                    pos["highest_buy_signal_score"] = round(
+                        highest_score,
+                        4,
+                    )
+                    pos["niuone_buy_signal_count"] = (
+                        max(
+                            int(pos.get("niuone_buy_signal_count") or 0),
+                            1 if old_qty > 0 else 0,
+                        ) + 1
+                    )
+                    score_history = list(
+                        pos.get("niuone_buy_signal_score_history") or []
+                    )
+                    score_history.append({
+                        "filled_at": now_ts(),
+                        "execution_date": execution_date,
+                        "strategy_id": buy_strategy,
+                        "score": filled_signal_score,
+                        "score_source": filled_signal_score_source,
+                        "shares": qty,
+                        "route": (
+                            "score_progression"
+                            if niuone_score_scale_add
+                            else "markup_rebalance"
+                            if niuone_rebalance_reentry
+                            else "stage_upgrade"
+                            if niuone_upgrade_add
+                            else "open"
+                            if old_qty <= 0
+                            else "add"
+                        ),
+                    })
+                    pos["niuone_buy_signal_score_history"] = (
+                        score_history[-20:]
+                    )
+                    action["niuone_buy_signal_score"] = filled_signal_score
+                    action["niuone_buy_signal_score_source"] = (
+                        filled_signal_score_source
+                    )
+                    action["niuone_highest_buy_signal_score"] = round(
+                        highest_score,
+                        4,
+                    )
             if niuone_markup_scale_add:
                 early_markup_scale_in = buy_strategy == "niu_emerging"
                 if early_markup_scale_in:
@@ -10328,8 +10838,6 @@ def execute_actions(
             cash -= total_cost
             if old_qty <= 0:
                 new_buys += 1
-                if is_niuone_strategy(buy_strategy):
-                    niuone_opened_today.add(code)
             executed_trade = {
                 "time": now_ts(), "action": "BUY", "code": code, "name": name,
                 "shares": qty, "price": round(price, 3), "amount": round(gross, 2),
@@ -10355,6 +10863,14 @@ def execute_actions(
                 "risk_ceiling_utilization_pct",
                 "risk_ceiling_binding_constraints",
                 "risk_ceiling_auto_reduced",
+                "intent",
+                "replacement_source_code",
+                "niuone_priority_before",
+                "niuone_priority_after",
+                "niuone_add_signal_score_audit",
+                "niuone_buy_signal_score",
+                "niuone_buy_signal_score_source",
+                "niuone_highest_buy_signal_score",
             ):
                 if key in action:
                     executed_trade[key] = _json_safe_copy(action[key])
@@ -10459,7 +10975,11 @@ def execute_actions(
                 action["sell_execution_evidence_schema_version"] = (
                     FORWARD_SELL_EXECUTION_EVIDENCE_SCHEMA_VERSION
                 )
-                action["sell_execution_source"] = "model_action"
+                action["sell_execution_source"] = (
+                    "priority_replacement"
+                    if str(action.get("intent") or "").upper() == "REPLACE"
+                    else "model_action"
+                )
                 action["model_requested_sell_shares"] = (
                     model_requested_sell_shares
                 )
@@ -10565,6 +11085,10 @@ def execute_actions(
                 "model_requested_sell_shares",
                 "available_sell_shares",
                 "sell_quantity_auto_reduced",
+                "intent",
+                "replacement_target_code",
+                "niuone_priority_before",
+                "niuone_priority_after",
             ):
                 if key in action:
                     executed_trade[key] = _json_safe_copy(action[key])
@@ -11282,14 +11806,15 @@ def build_trade_rule_note() -> str:
     return (
         f"100股整数倍、T+1；模拟成交仅允许09:30-11:30、13:00-15:00，"
         f"09:15-09:25只作开盘集合竞价观察/申报参考，09:25-09:30静默期不按参考价记成交。"
-        f"买入硬约束：最多{MAX_OPEN_POSITIONS}只持仓、单轮最多{MAX_NEW_BUYS_PER_DECISION}笔新仓、"
-        f"午盘前默认最多{MORNING_MAX_OPEN_POSITIONS}只；Z哥单票按战法硬限制且最高{MAX_SINGLE_POSITION_PCT:g}%，"
+        f"普通策略买入硬约束：最多{MAX_OPEN_POSITIONS}只持仓、单轮最多{MAX_NEW_BUYS_PER_DECISION}笔新仓、"
+        f"午盘前默认最多{MORNING_MAX_OPEN_POSITIONS}只；牛牛不受这些开仓数量限制，只保留最多{NIUONE_MAX_OPEN_POSITIONS}只及风险预算。Z哥单票按战法硬限制且最高{MAX_SINGLE_POSITION_PCT:g}%，"
         f"总仓位最高{MAX_TOTAL_POSITION_PCT:g}%并至少保留{MIN_CASH_RESERVE_PCT:g}%现金；其他人格仓位由模型结合盘面与风险决定。"
         f"板块潮汐另行按市场状态硬执行单笔/组合/行业动态风险预算、总仓45%/30%/15%、行业敞口12%/10%/6%；"
         f"单票8%/6%/4%仅为绝对天花板。"
         f"牛牛战法按主线酝酿→主升→高潮→分歧→退幕识别，试仓只参与酝酿候选和启动早段，酝酿候选中的强势股等待启动确认；主升围绕启动/领涨，高潮不追普遍新仓，分歧只观察核心股调整后转强或减仓，持续回落不触发买点，退幕只退出。"
-        f"当日跨决策轮次累计最多新开{NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY}只、最多同时持有{NIUONE_MAX_OPEN_POSITIONS}只，并硬执行单笔/组合/主题风险预算；总仓70%/55%/35%、主题敞口55%/40%/25%，"
+        f"新开仓不设上午/下午、单轮或单日数量上限，最多同时持有{NIUONE_MAX_OPEN_POSITIONS}只；满仓只在新候选优先级严格高于可卖出的最低优先级牛牛持仓时先卖后买，并硬执行单笔/组合/主题风险预算；总仓70%/55%/35%、主题敞口55%/40%/25%，"
         f"领涨/转强/启动/试仓单票绝对上限30%/25%/15%/6.25%，试仓单笔风险仅0.35%/0.30%/0.25%。"
+        f"同股同战法再次BUY只在评分严格刷新持仓期实际买入最高分时加仓；试仓当日禁加、亏损不补，成熟路径仍须主升强领涨且浮盈2%～12%。"
         f"允许无明确主线；单只股票独强不得确认主线，日线V型结构则按独立试仓路径评估。"
         f"系统底线风控：峰值回撤/ATR吊灯保护、持仓超25日退出；"
         f"Z哥卖出风控：少妇B1至少观察{SHAOFU_MIN_HOLD_TRADING_DAYS}个交易日，开盘前30分钟仅执行硬退出，普通转弱经行业资金/预测量能连续确认后先减半；"

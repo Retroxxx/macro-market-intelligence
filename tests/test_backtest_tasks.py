@@ -330,11 +330,11 @@ class BacktestTaskTests(unittest.TestCase):
         )
         self.assertEqual(
             call.kwargs["position_exit_strategy"].max_new_positions_per_session,
-            3,
+            None,
         )
         self.assertEqual(
             call.kwargs["position_exit_strategy"].max_open_positions,
-            6,
+            5,
         )
         self.assertAlmostEqual(
             call.kwargs["position_exit_strategy"].risk_budget_scale,
@@ -360,8 +360,9 @@ class BacktestTaskTests(unittest.TestCase):
                 "risk_profile": "aggressive",
                 "risk_budget_scale": 1.35,
                 "position_budget_scale": 1.15,
-                "max_new_positions_per_session": 3,
-                "max_open_positions": 6,
+                "max_new_positions_per_session": None,
+                "new_position_count_limited": False,
+                "max_open_positions": 5,
                 "max_industry_positions": 3,
                 "board_lot": 100,
                 "model_order_units_replayed": False,
