@@ -245,6 +245,8 @@ v35 adds same-name, same-strategy score-ladder scaling. Every filled BUY advance
 
 v36 decouples the current-market summary/evaluation from NiuOne opening counts. Its dynamic holding count, per-decision BUY count, and pause fields no longer limit NiuOne; model prompts, over-limit refinement, and execution enforce only the five-name ceiling and full-book replacement priority. Per-trade, portfolio, and theme risk budgets, total exposure, cash, the candidate's own compound market hard stop, and the daily-loss budget remain effective. Standalone strict-forward advances to `niuone-strict-forward-v36`; admin backtest remains `niuone-backtest-v36` because it already uses the same capacity semantics, and the default cohort remains `2026-08-19`.
 
+v37 assigns zero decision weight to failed news prechecks. Failed, timed-out, unchecked, pending, or unavailable records stay available for diagnostics but are omitted from model news evidence and mapped to neutral in candidate summaries. They cannot reduce score, priority, or sizing, or justify no entry, HOLD, or SELL; completed positive, negative, and neutral results continue to participate. Standalone strict-forward advances to `niuone-strict-forward-v37`; admin backtest remains `niuone-backtest-v36`, and the default cohort remains `2026-08-19`.
+
 ### One-Click Enablement
 
 `--service` first performs the same directory initialization, virtual-environment creation, and dependency installation as a normal startup, then registers and immediately starts the native services for the current platform. Running it again updates the existing registrations, which is useful after code or configuration changes.

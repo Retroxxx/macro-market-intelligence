@@ -4359,8 +4359,9 @@ def format_decision_intelligence_context_for_prompt(ctx: dict[str, Any]) -> str:
         lines.append("来源状态：" + "；".join(f"{key}={value}" for key, value in sorted(source_status.items())))
     lines.append(
         "决策要求：每个BUY/SELL/HOLD都必须同时考虑盘面指引、隔夜美股/美股映射、指数/期货、板块与资金、"
-        "已启用的财经快讯重要信息、候选消息面、账户仓位和现金状态；"
+        "已启用的财经快讯重要信息、有效的候选消息面、账户仓位和现金状态；"
         "若任一关键渠道与技术评分冲突，优先降仓、等待确认或HOLD，并在reason写明冲突来源。"
+        "消息面预检失败、超时、未检查、待判断或不可用不是冲突信号，统一按中性、权重0处理。"
     )
     return "\n".join(lines)
 
@@ -7900,7 +7901,8 @@ def compact_portfolio_for_decision(portfolio: dict[str, Any]) -> dict[str, Any]:
 def check_candidate_news_precheck(candidates: list[dict[str, Any]]) -> str:
     """Retrieve through iWencai and judge with the decision model for top candidates.
 
-    Returns: 格式化的消息面文本，供决策 prompt 使用。
+    Only completed records carry decision weight. Retrieval or judgment failures
+    are omitted so missing auxiliary evidence cannot make a candidate look worse.
     """
     top_candidates = [c for c in candidates[:5] if isinstance(c, dict)]
     if not top_candidates:
@@ -7916,7 +7918,12 @@ def check_candidate_news_precheck(candidates: list[dict[str, Any]]) -> str:
         if cached_news_record_matches_source(record, source_mode, news_config.model)
     )
     if cached_count == len(top_candidates):
-        return format_cached_news_records(cached_records)
+        weighted_records = [
+            record
+            for record in cached_records
+            if news_precheck_record_has_decision_weight(record)
+        ]
+        return format_cached_news_records(weighted_records) if weighted_records else ""
 
     missing_candidates = [
         top_candidates[idx]
@@ -7937,12 +7944,39 @@ def check_candidate_news_precheck(candidates: list[dict[str, Any]]) -> str:
         else next(fresh_iter, {})
         for record in cached_records
     ]
+    weighted_records = [
+        record
+        for record in combined_records
+        if news_precheck_record_has_decision_weight(record)
+    ]
     lines = [
         format_cached_news_record(record)
-        for record in combined_records
-        if isinstance(record, dict) and record
+        for record in weighted_records
     ]
     return "【消息面预检（同花顺问财）】\n" + "\n".join(lines) if lines else ""
+
+
+def news_precheck_record_has_decision_weight(record: Any) -> bool:
+    """Return whether a precheck record may influence model trade decisions."""
+    return bool(
+        isinstance(record, Mapping)
+        and record.get("checked") is True
+        and record.get("available") is True
+        and str(record.get("summary") or "").strip()
+    )
+
+
+def candidate_news_tone_for_decision(candidate: Mapping[str, Any]) -> str:
+    """Map unavailable or unfinished prechecks to a zero-weight neutral label."""
+    record = candidate.get("news_precheck")
+    if isinstance(record, Mapping) and not news_precheck_record_has_decision_weight(record):
+        return "中性"
+    if candidate.get("news_available") is False:
+        return "中性"
+    label = str(candidate.get("news_tone_label") or "").strip()
+    if label in {"", "未检查", "不可用", "待判断", "判断不可用"}:
+        return "中性"
+    return label
 
 
 def current_strategy_source() -> str:
@@ -8335,12 +8369,17 @@ def call_model_decision(
     
     # === 实时消息面预检（top5候选） ===
     news_context = ""
+    news_precheck_error = ""
     try:
         top5 = candidates[:5]
         if top5:
             news_context = check_candidate_news_precheck(top5)
-    except Exception as e:
-        news_context = f"（消息面预检失败: {e}）"
+    except Exception as exc:
+        # Missing auxiliary news evidence is deliberately zero-weight. The
+        # failure remains observable in the precheck service/UI, not the model
+        # context where it could be mistaken for a candidate-specific risk.
+        news_precheck_error = f"precheck_{type(exc).__name__}"
+        news_context = ""
     
     strategy_suite = current_strategy_suite()
     compact_candidates = candidates[:100] if strategy_suite == STRATEGY_SOURCE_PRESET_TEXT else candidates[:8]
@@ -8428,7 +8467,7 @@ def call_model_decision(
                 f"动态仓位上限:{c.get('max_position_pct_by_risk','-')}% "
                 f"隔夜美股:{c.get('overnight_us_tone_label','-')}/"
                 f"{c.get('overnight_us_sector') or '无行业映射'} "
-                f"消息面:{c.get('news_tone_label','未检查')} "
+                f"消息面:{candidate_news_tone_for_decision(c)} "
                 f"外部确认调整:{c.get('external_context_adjustment','-')} "
             )
         elif is_niuone_strategy(strat):
@@ -8450,7 +8489,7 @@ def call_model_decision(
                 f"单笔预算:{c.get('per_trade_risk_budget_pct','-')}% "
                 f"动态仓位上限:{c.get('max_position_pct_by_risk','-')}% "
                 f"组合优先级:{candidate_priority} "
-                f"消息面:{c.get('news_tone_label','未检查')} "
+                f"消息面:{candidate_news_tone_for_decision(c)} "
             )
         cand_lines.append(
             f"  {c.get('code')} {c.get('name')} 现价{c.get('price')} "
@@ -8505,6 +8544,18 @@ def call_model_decision(
         market_strategy_ctx,
         news_context,
     )
+    if news_precheck_error:
+        precheck_audit = decision_intelligence_ctx.setdefault(
+            "news_precheck",
+            {},
+        )
+        if isinstance(precheck_audit, dict):
+            precheck_audit.update({
+                "available": False,
+                "text": "",
+                "error": news_precheck_error,
+                "decision_weight": 0,
+            })
     decision_intelligence_prompt = format_decision_intelligence_context_for_prompt(decision_intelligence_ctx)
     trade_discipline_text = current_trade_discipline_text(position_limit_desc, adaptive)
     preset_output_lines: list[str] = []
@@ -8549,6 +8600,7 @@ def call_model_decision(
 隔离要求：本轮BUY只能依据当前新开仓策略及其候选，不得引用、混合或补充其他未启用策略。SELL必须逐只读取已有持仓的strategy_mark并执行上方对应的原策略退出纪律；不得因为当前激活策略变化而改写历史持仓归因。即使候选为空、盘面禁止开仓或日内亏损预算触发，也必须继续判断已有持仓的SELL/HOLD。
 
 ⚠️ 有风险标记的候选股，请结合其近期消息面（利空/减持/监管）综合判断，不要只看技术面。
+消息面缺失约束：预检失败、超时、未检查、待判断或不可用统一按中性且决策权重为0；不得因此降低候选评分、优先级或仓位，不得作为不开仓、HOLD或SELL的理由。仅已完成且有效的利好/利空/中性结果可参与判断。
 
 当前是否允许交易：{trade_allowed}，原因：{trade_reason}
 大盘环境：{market_env.get('detail', '未知')}

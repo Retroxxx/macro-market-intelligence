@@ -132,6 +132,7 @@ class DecisionIntelligenceContextTests(unittest.TestCase):
         self.assertIn("不能自行新增候选", prompt)
         self.assertIn("【综合决策参考】", prompt)
         self.assertIn("决策要求", prompt)
+        self.assertIn("预检失败、超时、未检查、待判断或不可用不是冲突信号", prompt)
 
     def test_disabled_context_formats_as_closed(self):
         self.assertEqual(

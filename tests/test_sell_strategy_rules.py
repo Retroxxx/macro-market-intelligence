@@ -2806,7 +2806,9 @@ class SellStrategyRuleTests(unittest.TestCase):
             trader.check_market_environment = lambda: {"bullish": True, "detail": "test"}
             trader.check_market_sentiment = lambda: {"sentiment": "neutral", "detail": "test", "hot_sectors": []}
             trader.current_market_strategy_context = lambda now=None: {"enabled": False}
-            trader.check_candidate_news_precheck = lambda candidates: ""
+            trader.check_candidate_news_precheck = lambda candidates: (_ for _ in ()).throw(
+                TimeoutError("预检超时不得进入决策")
+            )
 
             def fake_request(base_url, api_key, payload, model_name, max_retries=3, timeout=60):
                 captured["payload"] = payload
@@ -2846,6 +2848,17 @@ class SellStrategyRuleTests(unittest.TestCase):
 
         prompt = captured["payload"]["messages"][0]["content"]
         self.assertEqual(result["summary"], "ok")
+        self.assertEqual(
+            result["decision_intelligence"]["news_precheck"],
+            {
+                "available": False,
+                "text": "",
+                "error": "precheck_TimeoutError",
+                "decision_weight": 0,
+            },
+        )
+        self.assertNotIn("预检超时不得进入决策", prompt)
+        self.assertNotIn("precheck_TimeoutError", prompt)
         self.assertNotIn("temperature", captured["payload"])
         self.assertIn("当前激活策略：预设文字策略", prompt)
         self.assertIn("系统底线风控", prompt)
@@ -3068,6 +3081,8 @@ class SellStrategyRuleTests(unittest.TestCase):
         prompt = captured["payload"]["messages"][0]["content"]
         self.assertEqual(result["summary"], "ok")
         self.assertIn("自定义纪律：只在高确定性时开仓\n重仓必须说明集中理由", prompt)
+        self.assertIn("预检失败、超时、未检查、待判断或不可用统一按中性且决策权重为0", prompt)
+        self.assertIn("不得作为不开仓、HOLD或SELL的理由", prompt)
         self.assertNotIn("单次决策最多给2条新买入", prompt)
         self.assertNotIn("当前持仓达到", prompt)
 

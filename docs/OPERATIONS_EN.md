@@ -294,6 +294,8 @@ v35 adds score-ladder scaling for repeated BUY signals on the same name under th
 
 v36 fully decouples the current-market summary/evaluation from NiuOne opening counts. Dynamic holding counts, per-decision BUY counts, and pause fields in that shared context continue to govern non-NiuOne strategies only; NiuOne prompts, over-limit refinement, and execution use only the hard five-name book plus strict full-book replacement priority. Market context may still tighten per-trade, portfolio, and theme risk budgets, total exposure, and cash, while a candidate's own confirmed compound market hard stop and the independent daily-loss budget still block entries. Strict-forward advances to `niuone-strict-forward-v36`; admin backtest already uses the same capacity semantics and remains `niuone-backtest-v36`, with the default cohort still dated `2026-08-19`.
 
+v37 gives failed news prechecks zero trading-decision weight. Failed, timed-out, unchecked, pending, or unavailable records remain visible for diagnostics but are omitted from decision news evidence and represented as neutral in candidate summaries. They cannot lower a score, priority, or size, or serve as a no-entry, HOLD, or SELL reason; completed positive, negative, and neutral judgments still participate normally. Because the model prompt is part of the frozen evidence chain, strict-forward advances to `niuone-strict-forward-v37`; admin backtest remains `niuone-backtest-v36`, and the not-yet-started default cohort remains `2026-08-19`.
+
 When a strategy appears not to trigger, check in this order:
 
 1. Confirm that `DASHBOARD_ACTIVE_STRATEGY` in `.local-data/dashboard.env` names the expected suite.

@@ -175,6 +175,64 @@ class NewsPrecheckConfigTests(unittest.TestCase):
         self.assertIn("问财新结果", result)
         self.assertNotIn("雪球", result)
 
+    def test_failed_precheck_has_zero_decision_weight(self):
+        module = import_trader_with_env({
+            "IWENCAI_NEWS_PRECHECK_ENABLED": "1",
+            "IWENCAI_ENABLED": "1",
+            "IWENCAI_API_KEY": "iwencai-secret",
+            "DASHBOARD_DECISION_MODEL": "decision-test-model",
+            "DASHBOARD_DECISION_BASE_URL": "https://model.example/v1",
+            "DASHBOARD_DECISION_API_KEY": "decision-secret",
+        })
+
+        failed_record = {
+            "code": "000001",
+            "name": "平安银行",
+            "checked": False,
+            "available": False,
+            "tone": "neutral",
+            "tone_label": "不可用",
+            "summary": "",
+            "provider": "同花顺问财",
+            "source_mode": "iwencai",
+            "source_version": IWENCAI_NEWS_SOURCE_VERSION,
+            "error": "request_TimeoutError",
+        }
+        module.fetch_candidate_news_records = (
+            lambda _candidates, _config, **_kwargs: [failed_record]
+        )
+        candidate = {
+            "code": "000001",
+            "name": "平安银行",
+            "news_precheck": failed_record,
+            "news_available": False,
+            "news_tone_label": "不可用",
+        }
+
+        self.assertEqual(module.check_candidate_news_precheck([candidate]), "")
+        self.assertFalse(
+            module.news_precheck_record_has_decision_weight(failed_record)
+        )
+        self.assertEqual(module.candidate_news_tone_for_decision(candidate), "中性")
+
+    def test_valid_precheck_keeps_decision_weight(self):
+        module = import_trader_with_env({})
+        record = {
+            "checked": True,
+            "available": True,
+            "tone": "negative",
+            "tone_label": "利空",
+            "summary": "监管函提示风险（利空）",
+        }
+        candidate = {
+            "news_precheck": record,
+            "news_available": True,
+            "news_tone_label": "利空",
+        }
+
+        self.assertTrue(module.news_precheck_record_has_decision_weight(record))
+        self.assertEqual(module.candidate_news_tone_for_decision(candidate), "利空")
+
     def test_enabled_precheck_requires_enabled_iwencai_and_key(self):
         module = import_trader_with_env({
             "IWENCAI_NEWS_PRECHECK_ENABLED": "1",
