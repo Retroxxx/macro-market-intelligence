@@ -4851,6 +4851,84 @@ class NiuOneStrategyTests(unittest.TestCase):
             trader.is_a_share_execution_time = original_time
             trader.execution_quote = original_quote
 
+    def test_niuone_openings_ignore_market_evaluation_count_and_pause(self):
+        original_time = trader.is_a_share_execution_time
+        original_quote = trader.execution_quote
+        try:
+            trader.is_a_share_execution_time = lambda dt=None: (
+                True,
+                "连续竞价交易时段",
+            )
+            trader.execution_quote = lambda code: {
+                "price": 10.0,
+                "prev_close": 10.0,
+                "name": f"牛牛{code}",
+                "source": "test",
+            }
+            candidates = [
+                niu_candidate(
+                    code=code,
+                    industry=f"行业{index}",
+                    sector=f"行业{index}",
+                    signal_theme=f"行业{index}",
+                )
+                for index, code in enumerate(("600001", "600002"), start=1)
+            ]
+            state = {"cash": 100000.0, "positions": {}, "trade_log": []}
+            decision = {
+                "actions": [
+                    {
+                        "action": "BUY",
+                        "code": candidate["code"],
+                        "shares": 100,
+                        "reason": "牛牛领航确认",
+                    }
+                    for candidate in candidates
+                ]
+            }
+            market = {
+                "tone": "defensive",
+                "tone_label": "防守",
+                "allow_new_buys": False,
+                "max_open_positions": 0,
+                "max_new_buys_per_decision": 0,
+                "max_total_position_pct": 35,
+                "min_cash_reserve_pct": 60,
+                "buy_budget_multiplier": 0.35,
+            }
+
+            refinement = trader.refine_overlimit_buy_actions(
+                decision,
+                state,
+                candidates,
+                {
+                    "positions": [],
+                    "trade_log": [],
+                    "cash": 100000.0,
+                    "total_equity": 100000.0,
+                },
+                market,
+            )
+            executed = trader.execute_actions(
+                state,
+                decision,
+                candidates,
+                True,
+                "连续竞价交易时段",
+                market,
+            )
+        finally:
+            trader.is_a_share_execution_time = original_time
+            trader.execution_quote = original_quote
+
+        self.assertIsNone(refinement)
+        self.assertEqual([item["code"] for item in executed], ["600001", "600002"])
+        self.assertEqual(set(state["positions"]), {"600001", "600002"})
+        self.assertFalse(any(
+            block["category"] == "market_guidance"
+            for block in decision["execution_blocks"]
+        ))
+
     def test_niuone_new_positions_are_not_limited_across_decision_cycles(self):
         original_time = trader.is_a_share_execution_time
         original_quote = trader.execution_quote

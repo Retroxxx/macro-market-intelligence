@@ -243,6 +243,8 @@ v34 removes NiuOne morning/afternoon, per-decision, and per-day opening-count li
 
 v35 adds same-name, same-strategy score-ladder scaling. Every filled BUY advances a holding-period score high-water mark; another signal may add only when its score sets a strict new high, while ties, declines, and missing scores fail closed. Probe cannot add on its entry day or average down, and mature paths retain the Markup, strong-leader, and 2%–12% profit-window gates. Stage upgrades, post-trim wave re-entry, and all portfolio controls remain independent. Strict-forward/admin-backtest advance to `niuone-strict-forward-v35`/`niuone-backtest-v36`; the not-yet-started default cohort remains `2026-08-19`.
 
+v36 decouples the current-market summary/evaluation from NiuOne opening counts. Its dynamic holding count, per-decision BUY count, and pause fields no longer limit NiuOne; model prompts, over-limit refinement, and execution enforce only the five-name ceiling and full-book replacement priority. Per-trade, portfolio, and theme risk budgets, total exposure, cash, the candidate's own compound market hard stop, and the daily-loss budget remain effective. Standalone strict-forward advances to `niuone-strict-forward-v36`; admin backtest remains `niuone-backtest-v36` because it already uses the same capacity semantics, and the default cohort remains `2026-08-19`.
+
 ### One-Click Enablement
 
 `--service` first performs the same directory initialization, virtual-environment creation, and dependency installation as a normal startup, then registers and immediately starts the native services for the current platform. Running it again updates the existing registrations, which is useful after code or configuration changes.

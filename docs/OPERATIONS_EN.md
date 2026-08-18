@@ -292,6 +292,8 @@ v34 removes NiuOne morning/afternoon, per-decision, and per-day opening-count li
 
 v35 adds score-ladder scaling for repeated BUY signals on the same name under the same strategy. The execution layer compares the new score with the highest score of every filled BUY in the current holding period and permits an add only on a strict new high; positions and durable fills retain the before/after score, high-water mark, and BUY count. Probe still cannot add on its entry day or average down, while mature paths retain the Markup, strong-leader, and 2%–12% profit-window gates. Stage upgrades, post-trim wave re-entry, and all risk budgets remain unchanged. Strict-forward/admin-backtest advance to `niuone-strict-forward-v35`/`niuone-backtest-v36`; the not-yet-started default cohort remains `2026-08-19`.
 
+v36 fully decouples the current-market summary/evaluation from NiuOne opening counts. Dynamic holding counts, per-decision BUY counts, and pause fields in that shared context continue to govern non-NiuOne strategies only; NiuOne prompts, over-limit refinement, and execution use only the hard five-name book plus strict full-book replacement priority. Market context may still tighten per-trade, portfolio, and theme risk budgets, total exposure, and cash, while a candidate's own confirmed compound market hard stop and the independent daily-loss budget still block entries. Strict-forward advances to `niuone-strict-forward-v36`; admin backtest already uses the same capacity semantics and remains `niuone-backtest-v36`, with the default cohort still dated `2026-08-19`.
+
 When a strategy appears not to trigger, check in this order:
 
 1. Confirm that `DASHBOARD_ACTIVE_STRATEGY` in `.local-data/dashboard.env` names the expected suite.

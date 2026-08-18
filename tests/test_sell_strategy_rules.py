@@ -1795,6 +1795,8 @@ class SellStrategyRuleTests(unittest.TestCase):
 
         self.assertEqual(ctx["tone"], "offensive")
         self.assertIn("仓位倾向：可提高集中度", prompt)
+        self.assertIn("牛牛开仓数量不受本次盘面评价影响", prompt)
+        self.assertIn("非牛牛节奏", prompt)
         self.assertNotIn("单票≤", prompt)
         self.assertNotIn("总仓≤", prompt)
         self.assertNotIn("现金≥", prompt)
@@ -1816,6 +1818,63 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertFalse(ctx["allow_new_buys"])
         self.assertEqual(ctx["max_new_buys_per_decision"], 0)
         self.assertEqual(ctx["buy_budget_multiplier"], 0.0)
+
+    def test_market_guidance_pause_still_blocks_non_niuone_execution(self):
+        original_execution_time = trader.is_a_share_execution_time
+        original_quote = trader.execution_quote
+        try:
+            trader.is_a_share_execution_time = lambda dt=None: (
+                True,
+                "上午连续竞价交易时段",
+            )
+            trader.execution_quote = lambda code: {
+                "price": 10.0,
+                "name": "普通候选",
+                "source": "test",
+            }
+            state = {"cash": 100000.0, "positions": {}, "trade_log": []}
+            decision = {
+                "actions": [{
+                    "action": "BUY",
+                    "code": "601999",
+                    "name": "普通候选",
+                    "shares": 100,
+                }]
+            }
+            candidates = [{
+                "code": "601999",
+                "name": "普通候选",
+                "best_strategy": "b3_accelerate",
+                "best_score": 10.0,
+                "entry_threshold": 8.5,
+                "distance_pct": 1.0,
+                "actionable": True,
+                "hard_blockers": [],
+            }]
+            market = {
+                **permissive_market_context(),
+                "tone_label": "防守",
+                "allow_new_buys": False,
+                "max_new_buys_per_decision": 0,
+            }
+
+            executed = trader.execute_actions(
+                state,
+                decision,
+                candidates,
+                True,
+                "上午连续竞价交易时段",
+                market,
+            )
+        finally:
+            trader.is_a_share_execution_time = original_execution_time
+            trader.execution_quote = original_quote
+
+        self.assertEqual(executed, [])
+        self.assertTrue(any(
+            block["category"] == "market_guidance"
+            for block in decision["execution_blocks"]
+        ))
 
     def test_after_1430_does_not_automatically_block_new_buys(self):
         reports = [{

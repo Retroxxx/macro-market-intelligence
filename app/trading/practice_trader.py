@@ -3291,6 +3291,8 @@ def _market_context_base(now: datetime | None = None) -> dict[str, Any]:
         "phase": phase,
         "max_open_positions": MAX_OPEN_POSITIONS,
         "max_new_buys_per_decision": MAX_NEW_BUYS_PER_DECISION,
+        "niuone_opening_count_independent": True,
+        "niuone_max_open_positions": NIUONE_MAX_OPEN_POSITIONS,
         "max_total_position_pct": MAX_TOTAL_POSITION_PCT,
         "min_cash_reserve_pct": MIN_CASH_RESERVE_PCT,
         "buy_budget_multiplier": 1.0,
@@ -3759,6 +3761,9 @@ def compact_market_strategy_context(ctx: dict[str, Any]) -> dict[str, Any]:
         "buy_budget_multiplier", "allow_new_buys", "source_title", "source_time",
         "session_note", "guidance_lines", "overnight_us", "context_kind", "context_as_of",
         "refresh_mode", "market_snapshot", "source_kind", "trigger", "summary", "model_used",
+        "niuone_opening_count_independent", "niuone_max_open_positions",
+        "daily_loss_budget_exceeded", "daily_loss_budget_pnl_pct",
+        "daily_loss_budget_limit_pct",
     ):
         value = ctx.get(key)
         if key == "overnight_us" and not (isinstance(value, dict) and value.get("available")):
@@ -3820,12 +3825,22 @@ def format_market_strategy_context_for_prompt(ctx: dict[str, Any]) -> str:
         "【今日盘面监控指引】",
         (
             f"风险级别：{ctx.get('tone_label', '中性')}；阶段：{ctx.get('phase', '-')}; "
-            f"节奏：最多{ctx.get('max_open_positions')}只、单轮新仓≤{ctx.get('max_new_buys_per_decision')}笔；"
+            f"非牛牛节奏：最多{ctx.get('max_open_positions')}只、单轮新仓≤{ctx.get('max_new_buys_per_decision')}笔；"
             f"仓位倾向：{position_bias}。"
         ),
+        (
+            f"牛牛开仓数量不受本次盘面评价影响，只受最多"
+            f"{ctx.get('niuone_max_open_positions', NIUONE_MAX_OPEN_POSITIONS)}只持仓约束；"
+            "盘面仍参与单笔/组合/主题风险预算、总仓、现金及候选自身复合硬停止判断。"
+        ),
     ]
-    if not ctx.get("allow_new_buys", True):
-        lines.append("执行层当前按盘面指引暂停买入，只允许卖出/持有。")
+    if ctx.get("daily_loss_budget_exceeded"):
+        lines.append("日内亏损预算已经触发，所有策略本轮均暂停BUY；该独立风控不属于盘面评价限数。")
+    elif not ctx.get("allow_new_buys", True):
+        lines.append(
+            "执行层当前按盘面指引暂停非牛牛策略买入；牛牛不按该字段限数，"
+            "仍由候选自身复合硬停止和其他风险规则复核。"
+        )
     if ctx.get("session_note"):
         lines.append(str(ctx.get("session_note")))
     if ctx.get("source_title") or ctx.get("source_time"):
@@ -8214,7 +8229,7 @@ def current_trade_discipline_text(position_limit_desc: str, adaptive: dict[str, 
             custom += (
                 "\n- 牛牛战法执行层动态风险预算：进攻/轮动/修复/防守的单笔权益风险分别≤1.50%/1.00%/0.60%/0.30%，"
                 "策略内组合风险≤4.50%/3.00%/1.80%/0.90%，总仓≤70%/55%/35%/20%，主题风险≤3.00%/2.00%/1.20%/0.60%，主题敞口≤55%/40%/25%/12%；仅市场复合硬停止禁止新仓。"
-                f"领涨/转强/启动/试仓单票30%/25%/15%/6.25%仅为绝对上限，同一主题最多2只；新开仓不设上午/下午、单轮或单日数量上限，但同时最多持有{NIUONE_MAX_OPEN_POSITIONS}只。满仓时仅当新候选当前优先级严格高于可卖出的最低优先级牛牛持仓，才先卖后买完成换仓。"
+                f"领涨/转强/启动/试仓单票30%/25%/15%/6.25%仅为绝对上限，同一主题最多2只；新开仓不设上午/下午、单轮或单日数量上限，盘面总结/评价产生的动态数量或暂停字段也不作用于牛牛，但同时最多持有{NIUONE_MAX_OPEN_POSITIONS}只。满仓时仅当新候选当前优先级严格高于可卖出的最低优先级牛牛持仓，才先卖后买完成换仓。"
                 "\n- 牛牛战法按主线酝酿→主升→高潮→分歧→退幕识别；试仓只参与酝酿候选和启动早段，主升阶段围绕启动/领涨，高潮不追普遍新仓，分歧只观察核心股调整后转强或减仓，持续回落不触发买点，退幕只退出。最近30根日K还须满足：左侧至少回落5日和8%，低点后至少修复3日和6%，收复左侧跌幅须在60%（含）至200%（不含）之间，并确认右侧持续抬高；达到200%后不再按早期试仓。"
                 "试仓在进攻/轮动/修复/防守的单笔权益风险分别≤0.35%/0.30%/0.25%/0.15%，以右侧最近3根日K低点为止损；试仓/启动持仓浮盈在2%～12%、仍处主升且个股保持强势领涨时，跨日延续先向10%上限加仓，主线确认后再向20%上限加仓。此后同一战法再次出现BUY且评分严格刷新持仓期实际买入最高分时，可继续在原风险与阶段上限内加仓；分歧/高潮/退幕不加仓。"
                 "\n- 牛牛战法退出：试仓所属题材首次进入退幕即退出，3个交易日未延续右侧趋势也退出；成熟路径另按连续两个交易日跌出行业前三龙头梯队、主线连续转弱、市场硬停止叠加退幕和策略时间窗退出；高潮且不亏先减仓1/3，进攻/修复/防守试仓盘中达到0.75R先减仓50%，轮动试仓及成熟路径达到1R先减仓45%，余仓成本保护并按2ATR跟踪。"
@@ -8696,11 +8711,16 @@ def _fallback_refine_overlimit_buys(
         return (-score, risk_count, dist)
 
     ranked_actions = sorted(buy_actions, key=fallback_rank)
+    limited_codes = _action_code_set(buy_actions)
     kept_codes = _action_code_set(ranked_actions[:max(0, max_new_buys)])
     dropped = []
     for action in decision.get("actions") or []:
         code = normalize_code(action.get("code") or "")
-        if str(action.get("action") or "").upper() == "BUY" and code and code not in kept_codes:
+        if (
+            str(action.get("action") or "").upper() == "BUY"
+            and code in limited_codes
+            and code not in kept_codes
+        ):
             action["action"] = "HOLD"
             action["reason"] = f"二次取舍降级为HOLD：{reason}"
             dropped.append({
@@ -8737,8 +8757,10 @@ def refine_overlimit_buy_actions(
         for item in candidates
         if isinstance(item, dict)
     }
-    if max_new_buys > 0 and buy_actions and all(
-        is_niuone_strategy(
+    buy_actions = [
+        action
+        for action in buy_actions
+        if not is_niuone_strategy(
             str(
                 candidate_by_code.get(
                     normalize_code(action.get("code") or ""),
@@ -8751,10 +8773,11 @@ def refine_overlimit_buy_actions(
                 or ""
             )
         )
-        for action in buy_actions
-    ):
+    ]
+    if not buy_actions:
         # NiuOne capacity is governed by the five-name book and deterministic
-        # replacement ranking, not a per-cycle count chosen from market tone.
+        # replacement ranking. Market-summary counts, including a zero-count
+        # pause, do not consume or suppress NiuOne opening slots.
         return None
     if max_new_buys <= 0:
         if buy_actions:
@@ -9283,7 +9306,15 @@ def execute_actions(
                         category="strategy_policy",
                     )
                     continue
-            if not allow_market_guidance_buys:
+            buy_strategy = (
+                STRATEGY_SOURCE_PRESET_TEXT
+                if preset_strategy_buy
+                else classify_buy_strategy(reason, candidate)
+            )
+            if (
+                not allow_market_guidance_buys
+                and not is_niuone_strategy(buy_strategy)
+            ):
                 add_execution_block(
                     decision,
                     code,
@@ -9291,11 +9322,6 @@ def execute_actions(
                     category="market_guidance",
                 )
                 continue
-            buy_strategy = (
-                STRATEGY_SOURCE_PRESET_TEXT
-                if preset_strategy_buy
-                else classify_buy_strategy(reason, candidate)
-            )
             niuone_selection_context = (
                 niuone_candidate_selection_context(
                     candidate,
@@ -11812,7 +11838,7 @@ def build_trade_rule_note() -> str:
         f"板块潮汐另行按市场状态硬执行单笔/组合/行业动态风险预算、总仓45%/30%/15%、行业敞口12%/10%/6%；"
         f"单票8%/6%/4%仅为绝对天花板。"
         f"牛牛战法按主线酝酿→主升→高潮→分歧→退幕识别，试仓只参与酝酿候选和启动早段，酝酿候选中的强势股等待启动确认；主升围绕启动/领涨，高潮不追普遍新仓，分歧只观察核心股调整后转强或减仓，持续回落不触发买点，退幕只退出。"
-        f"新开仓不设上午/下午、单轮或单日数量上限，最多同时持有{NIUONE_MAX_OPEN_POSITIONS}只；满仓只在新候选优先级严格高于可卖出的最低优先级牛牛持仓时先卖后买，并硬执行单笔/组合/主题风险预算；总仓70%/55%/35%、主题敞口55%/40%/25%，"
+        f"新开仓不设上午/下午、单轮或单日数量上限，盘面总结/评价不改变开仓数量，最多同时持有{NIUONE_MAX_OPEN_POSITIONS}只；满仓只在新候选优先级严格高于可卖出的最低优先级牛牛持仓时先卖后买，并硬执行单笔/组合/主题风险预算；总仓70%/55%/35%、主题敞口55%/40%/25%，"
         f"领涨/转强/启动/试仓单票绝对上限30%/25%/15%/6.25%，试仓单笔风险仅0.35%/0.30%/0.25%。"
         f"同股同战法再次BUY只在评分严格刷新持仓期实际买入最高分时加仓；试仓当日禁加、亏损不补，成熟路径仍须主升强领涨且浮盈2%～12%。"
         f"允许无明确主线；单只股票独强不得确认主线，日线V型结构则按独立试仓路径评估。"
