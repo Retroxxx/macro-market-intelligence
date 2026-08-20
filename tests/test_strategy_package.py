@@ -87,7 +87,8 @@ class StrategyPackageTests(unittest.TestCase):
         )
         self.assertIn("达到200%后不再按早期试仓", active)
         self.assertIn("上涨交易日占比至少2/3", active)
-        self.assertIn("每天最多保留评分最高的2只", active)
+        self.assertIn("不设固定单日涨幅或每日候选数量上限", active)
+        self.assertNotIn("每天最多保留评分最高的2只", active)
         self.assertIn("至少有6只强势股", active)
         self.assertIn("酝酿状态已连续3个交易日", active)
         self.assertIn("单票绝对上限6.25%", active)
@@ -137,6 +138,7 @@ class StrategyPackageTests(unittest.TestCase):
         self.assertIn("总仓≤70%/55%/35%/20%", discipline)
         self.assertIn("仅市场复合硬停止禁止新仓", discipline)
         self.assertIn("领涨/转强/启动/试仓单票30%/25%/15%/6.25%", discipline)
+        self.assertIn("不设固定同板块或同题材持仓只数上限", discipline)
         self.assertIn("同时最多持有5只", discipline)
         self.assertNotIn("单笔权益风险分别≤0.25%/0.18%/0.10%", discipline)
 

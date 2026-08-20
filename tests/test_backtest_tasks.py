@@ -70,7 +70,7 @@ class BacktestTaskTests(unittest.TestCase):
             "app.screening.multi_strategy",
         ))
 
-    def test_niuone_backtest_caps_reversal_without_capping_mature_paths(self):
+    def test_niuone_backtest_does_not_cap_reversal_candidate_count(self):
         eligible = tuple(f"sh{600000 + index:06d}" for index in range(8))
         selector = _selector_for_request(
             {
@@ -85,7 +85,7 @@ class BacktestTaskTests(unittest.TestCase):
         self.assertEqual(selector.max_signals_per_session, len(eligible))
         self.assertEqual(
             dict(selector.max_signals_per_strategy_per_session),
-            {"niu_reversal_probe": 2},
+            {},
         )
         self.assertEqual(selector.eligible_symbols, frozenset(eligible))
 
@@ -363,7 +363,8 @@ class BacktestTaskTests(unittest.TestCase):
                 "max_new_positions_per_session": None,
                 "new_position_count_limited": False,
                 "max_open_positions": 5,
-                "max_industry_positions": 3,
+                "max_industry_positions": 5,
+                "same_theme_position_count_limited": False,
                 "board_lot": 100,
                 "model_order_units_replayed": False,
             },

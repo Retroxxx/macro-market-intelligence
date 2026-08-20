@@ -1171,7 +1171,7 @@ class NiuOneStrategyBacktestPolicy(NiuOneDailyExitStrategy):
             NIUONE_MAX_NEW_POSITIONS_PER_SESSION
         ),
         max_open_positions: int = NIUONE_MAX_OPEN_POSITIONS,
-        max_industry_positions: int = 2,
+        max_industry_positions: int = NIUONE_MAX_OPEN_POSITIONS,
         entry_order_scale: float = 1.0,
         risk_budget_scale: float = 1.0,
         position_budget_scale: float = 1.0,

@@ -569,6 +569,8 @@ def _build_protocol_identity(
             "niuone_reversal_minimum_state_streak",
             "niuone_reversal_continuation_rule",
             "niuone_reversal_daily_candidate_limit",
+            "niuone_same_theme_position_count_limit",
+            "niuone_same_theme_capacity_rule",
             "niuone_reversal_absolute_position_cap_pct",
             "niuone_leader_minimum_sector_rank_inclusive",
             "niuone_leader_minimum_today_strength_inclusive",

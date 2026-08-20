@@ -77,21 +77,21 @@ BACKTEST_STATE_SCHEMA_VERSION = 2
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BACKTEST_RISK_PROFILE = "aggressive"
 GENERIC_BACKTEST_RISK_PROFILE = "balanced"
-NIUONE_BACKTEST_PROTOCOL_VERSION = "niuone-backtest-v36"
+NIUONE_BACKTEST_PROTOCOL_VERSION = "niuone-backtest-v37"
 GENERIC_BACKTEST_PROTOCOL_VERSION = "selection-backtest-v2"
 NIUONE_BACKTEST_RISK_PROFILES: dict[str, dict[str, Any]] = {
     "aggressive": {
         "id": "aggressive",
         "label": "进取",
         "description": (
-            "默认档位；允许更高账户风险、总仓和同题材持仓以争取收益；"
-            "仍保留结构止损、涨停、T+1 和单票绝对上限。"
+            "默认档位；允许更高账户风险和总仓以争取收益；同题材不再按只数限制，"
+            "仍保留主题风险/敞口、结构止损、涨停、T+1 和单票绝对上限。"
         ),
         "policy_options": {
             "risk_budget_scale": 1.35,
             "position_budget_scale": 1.15,
             "max_open_positions": 5,
-            "max_industry_positions": 3,
+            "max_industry_positions": 5,
         },
     },
 }
@@ -757,6 +757,7 @@ def run_strategy_backtest_request(
             "max_industry_positions": (
                 position_exit_strategy.max_industry_positions
             ),
+            "same_theme_position_count_limited": False,
             "board_lot": position_exit_strategy.board_lot,
             "model_order_units_replayed": False,
         }
@@ -773,9 +774,9 @@ def run_strategy_backtest_request(
         )
         if risk_profile_id == "aggressive":
             payload["warnings"].append(
-                "NiuOne aggressive backtest profile increases account-risk, "
-                "portfolio/theme exposure, and same-theme capacity; it does "
-                "not weaken price-pattern, structural-stop, limit-up, or T+1 rules"
+                "NiuOne aggressive backtest profile increases account-risk and "
+                "portfolio/theme exposure; same-theme names have no separate count "
+                "cap, while price-pattern, structural-stop, limit-up, and T+1 rules remain"
             )
     elif suite_id == PROMPT_SUITE_ID and prompt_version is not None:
         prompt_strategy = prompt_version["execution_plan"]["strategy"]

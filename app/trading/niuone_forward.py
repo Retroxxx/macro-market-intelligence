@@ -48,7 +48,7 @@ from app.strategies.policy import (
 from app.strategies.selection import strategy_daily_candidate_limit
 
 
-DEFAULT_COHORT_START = "2026-08-19"
+DEFAULT_COHORT_START = "2026-08-21"
 DEFAULT_MIN_COMPLETED_TRADES = 30
 DEFAULT_MIN_CALENDAR_MONTHS = 3
 DEFAULT_SHADOW_EXECUTION_GAP_PCT = 1.0
@@ -57,7 +57,7 @@ DEFAULT_HISTORICAL_REFERENCE_WIN_RATE_PCT = 59.71
 DEFAULT_WIN_RATE_CONFIDENCE_LEVEL = 0.95
 DEFAULT_MAX_PORTFOLIO_DRAWDOWN_PCT = 6.0
 DEFAULT_MIN_RETURN_TO_DRAWDOWN_RATIO = 1.0
-FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v37"
+FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v38"
 FORWARD_PERFORMANCE_CLUSTER_UNIT = "entry_date_x_entry_theme"
 FORWARD_SHADOW_CANDIDATES = {
     "execution_gap": "round13_execution_gap_le_1pct",
@@ -3328,6 +3328,12 @@ def evaluate_niuone_forward(
             ),
             "niuone_reversal_daily_candidate_limit": (
                 strategy_daily_candidate_limit("niu_reversal_probe")
+            ),
+            "niuone_same_theme_position_count_limit": None,
+            "niuone_same_theme_capacity_rule": (
+                "no fixed same-sector or same-theme position-count limit; "
+                "theme risk, theme exposure, portfolio risk, and the five-name "
+                "book remain binding"
             ),
             "niuone_reversal_absolute_position_cap_pct": (
                 NIUONE_ABSOLUTE_POSITION_CAP_PCT["niu_reversal_probe"]

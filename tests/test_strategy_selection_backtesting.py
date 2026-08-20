@@ -507,7 +507,7 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
     def test_niuone_strategy_portfolio_accepts_research_slot_limits(self):
         production = NiuOneStrategyBacktestPolicy()
         self.assertEqual(production.max_open_positions, 5)
-        self.assertEqual(production.max_industry_positions, 2)
+        self.assertEqual(production.max_industry_positions, 5)
 
         concentrated = NiuOneStrategyBacktestPolicy(
             max_open_positions=4,

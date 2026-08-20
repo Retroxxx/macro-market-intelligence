@@ -785,24 +785,26 @@ class NiuOneStrategyTests(unittest.TestCase):
         self.assertAlmostEqual(two_thirds["daily_v_rising_ratio"], 2 / 3, places=4)
         self.assertTrue(two_thirds["daily_v_reversal"])
 
-    def test_trade_candidates_keep_two_best_daily_reversals(self):
+    def test_trade_candidates_do_not_cap_daily_reversals_at_two(self):
         candidates = [
             reversal_candidate(code="600001", best_score=8.9, score=8.9),
             reversal_candidate(code="600002", best_score=8.7, score=8.7),
-            niu_candidate(code="600003", best_score=8.6, score=8.6),
+            reversal_candidate(code="600003", best_score=8.6, score=8.6),
+            niu_candidate(code="600004", best_score=8.5, score=8.5),
         ]
 
-        selected = select_trade_candidates(candidates, limit=3)
+        selected = select_trade_candidates(candidates, limit=4)
 
         self.assertEqual(
             [item["code"] for item in selected],
-            ["600001", "600002", "600003"],
+            ["600001", "600002", "600003", "600004"],
         )
-        self.assertEqual(selected[0]["selection_candidate_pool_size"], 3)
-        self.assertEqual(selected[0]["selection_same_stage_candidate_count"], 2)
+        self.assertEqual(selected[0]["selection_candidate_pool_size"], 4)
+        self.assertEqual(selected[0]["selection_same_stage_candidate_count"], 3)
         self.assertEqual(selected[0]["selection_same_stage_candidate_rank"], 1)
         self.assertEqual(selected[0]["selection_same_stage_top_score_gap"], 0.2)
         self.assertEqual(selected[1]["selection_same_stage_candidate_rank"], 2)
+        self.assertEqual(selected[2]["selection_same_stage_candidate_rank"], 3)
 
     def test_context_confirms_mainline_from_multiple_strong_stocks(self):
         prepared = self._prepared_market()
@@ -4929,7 +4931,7 @@ class NiuOneStrategyTests(unittest.TestCase):
             for block in decision["execution_blocks"]
         ))
 
-    def test_niuone_new_positions_are_not_limited_across_decision_cycles(self):
+    def test_niuone_new_positions_are_not_limited_by_day_or_same_theme_count(self):
         original_time = trader.is_a_share_execution_time
         original_quote = trader.execution_quote
         original_today_key = trader.today_key
@@ -4956,15 +4958,12 @@ class NiuOneStrategyTests(unittest.TestCase):
             }
             state = {"cash": 100000.0, "positions": {}, "trade_log": []}
 
-            for index, code in enumerate(
-                ("600001", "600002", "600003"),
-                start=1,
-            ):
+            for code in ("600001", "600002", "600003"):
                 candidate = niu_candidate(
                     code=code,
-                    industry=f"行业{index}",
-                    sector=f"行业{index}",
-                    signal_theme=f"行业{index}",
+                    industry="化学制药",
+                    sector="化学制药",
+                    signal_theme="化学制药",
                 )
                 decision = {
                     "actions": [{

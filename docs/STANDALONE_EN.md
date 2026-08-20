@@ -169,7 +169,7 @@ By default, runtime data is stored in:
 | `DASHBOARD_NIUONE_FORWARD_PREFLIGHT_CRON` | `5 9 * * 1-5` | Verify the strict-forward protocol immediately at Scheduler startup and again at 09:05 Monday through Friday |
 | `DASHBOARD_NIUONE_EQUITY_SNAPSHOT_CRON` | `15 15 * * 1-5` | Refresh marks without trading and persist account equity after each actual A-share session |
 | `DASHBOARD_NIUONE_FORWARD_CRON` | `20 15 * * 1-5` | Recompute the NiuOne strict-forward report from the durable fill ledger after each Monday-through-Friday session; applies on the next Cron cycle |
-| `DASHBOARD_NIUONE_FORWARD_COHORT_START` | `2026-08-19` | Strict-forward cohort start; archive the old protocol lock and restart from a new trading day after a rule change |
+| `DASHBOARD_NIUONE_FORWARD_COHORT_START` | `2026-08-21` | Strict-forward cohort start; archive the old protocol lock and restart from a new trading day after a rule change |
 | `DASHBOARD_ACTIVE_STRATEGY` | `niuone` | Active independent strategy; changes apply to the next scan without a restart |
 | `DASHBOARD_PRACTICE_SCHEDULE_TIMES` | `09:25,10:00,10:30,11:00,11:20,13:00,13:30,14:00,14:30,14:50` | Shared schedule for market summaries, screening, and simulated decisions |
 | `DASHBOARD_KLINE_BOOTSTRAP_ENABLED` | `1` | Prepare full-market daily K lines immediately after a first deployment or cache expiry; requires a restart |
@@ -246,6 +246,8 @@ v35 adds same-name, same-strategy score-ladder scaling. Every filled BUY advance
 v36 decouples the current-market summary/evaluation from NiuOne opening counts. Its dynamic holding count, per-decision BUY count, and pause fields no longer limit NiuOne; model prompts, over-limit refinement, and execution enforce only the five-name ceiling and full-book replacement priority. Per-trade, portfolio, and theme risk budgets, total exposure, cash, the candidate's own compound market hard stop, and the daily-loss budget remain effective. Standalone strict-forward advances to `niuone-strict-forward-v36`; admin backtest remains `niuone-backtest-v36` because it already uses the same capacity semantics, and the default cohort remains `2026-08-19`.
 
 v37 assigns zero decision weight to failed news prechecks. Failed, timed-out, unchecked, pending, or unavailable records stay available for diagnostics but are omitted from model news evidence and mapped to neutral in candidate summaries. They cannot reduce score, priority, or sizing, or justify no entry, HOLD, or SELL; completed positive, negative, and neutral results continue to participate. Standalone strict-forward advances to `niuone-strict-forward-v37`; admin backtest remains `niuone-backtest-v36`, and the default cohort remains `2026-08-19`.
+
+v38 removes NiuOne's fixed two-Probe daily candidate cap and fixed two-position same-sector/same-theme cap. The five-position ceiling plus single-name, theme-risk, theme-exposure, portfolio-risk, total-exposure, cash, limit-up, and T+1 controls remain; Sector Tide is unchanged. Standalone strict-forward/admin-backtest advance to `niuone-strict-forward-v38`/`niuone-backtest-v37`, with a new default cohort on `2026-08-21`; archive old locks, reports, and backtests before deployment.
 
 ### One-Click Enablement
 
