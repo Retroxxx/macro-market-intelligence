@@ -251,6 +251,8 @@ v38 removes NiuOne's fixed two-Probe daily candidate cap and fixed two-position 
 
 v39 scopes the shared market prompt's pre-lunch position count and reserved afternoon slots explicitly to non-NiuOne strategies. NiuOne BUY/HOLD decisions compare the book only with the five-position ceiling. Standalone strict-forward advances to `niuone-strict-forward-v39`, the administrator backtest remains `niuone-backtest-v37`, and the new default cohort starts on `2026-08-24`; archive the v38 lock and report before deployment.
 
+v40 raises the Probe absolute cap to 10% and raises both rotation Probe per-trade NAV risk and theme risk to 1%. The local lifecycle rule deterministically emits 10%/20% staged scale-ins for holdings with cross-session Markup persistence, strong leadership, and 2%–12% unrealized profit. Explicit SELL remains exit-first and all existing risk, exposure, cash, and T+1 boundaries remain active. Standalone strict-forward/admin-backtest advance to `niuone-strict-forward-v40`/`niuone-backtest-v38`; the default cohort remains `2026-08-24`. Archive the v39 lock, report, and older backtests before deployment.
+
 ### One-Click Enablement
 
 `--service` first performs the same directory initialization, virtual-environment creation, and dependency installation as a normal startup, then registers and immediately starts the native services for the current platform. Running it again updates the existing registrations, which is useful after code or configuration changes.

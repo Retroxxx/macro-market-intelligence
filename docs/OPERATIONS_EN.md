@@ -300,6 +300,8 @@ v38 removes NiuOne's fixed two-Probe daily candidate cap and fixed two-position 
 
 v39 fixes the remaining pre-lunch count ambiguity in the shared market prompt: `max_open_positions`, the morning position count, and reserved afternoon slots apply only to non-NiuOne strategies. The model must not use them to call a NiuOne book full or HOLD before the five-position ceiling is reached. Strict-forward advances to `niuone-strict-forward-v39`, the administrator backtest remains `niuone-backtest-v37`, and the new default cohort starts on `2026-08-24`; archive the v38 lock and report before deployment and do not pool pre-fix and post-fix decision evidence.
 
+v40 raises the NiuOne Probe absolute cap to 10% and raises both its rotation per-trade NAV-risk and theme-risk ceiling to 1%, preventing the previous 0.60% theme ceiling from silently clipping the requested budget. Holdings with cross-session Markup persistence, strong leadership, and 2%–12% unrealized profit receive deterministic local 10%/20% staged scale-in actions rather than depending on the model to emit ADD. An explicit model SELL remains exit-first, while the executor rechecks all single-name, theme, portfolio, total-exposure, cash, and T+1 boundaries. Strict-forward/admin-backtest advance to `niuone-strict-forward-v40`/`niuone-backtest-v38`; the default cohort remains `2026-08-24`. Archive the v39 lock, report, and older backtests before deployment.
+
 When a strategy appears not to trigger, check in this order:
 
 1. Confirm that `DASHBOARD_ACTIVE_STRATEGY` in `.local-data/dashboard.env` names the expected suite.

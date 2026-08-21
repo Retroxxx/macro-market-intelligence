@@ -79,7 +79,7 @@ class StrategyPackageTests(unittest.TestCase):
         self.assertIn("30%是单票绝对上限", active)
         self.assertIn("25%是单票绝对上限", active)
         self.assertIn("15%是单票绝对上限", active)
-        self.assertIn("牛牛试仓仅≤0.35%/0.30%/0.25%/0.15%", active)
+        self.assertIn("牛牛试仓仅≤0.35%/1.00%/0.25%/0.15%", active)
         self.assertIn("左侧回落至少5个交易日且跌幅≥8%", active)
         self.assertIn(
             "右侧反弹≥6%、收复左侧跌幅须在60%（含）至200%（不含）之间",
@@ -91,7 +91,7 @@ class StrategyPackageTests(unittest.TestCase):
         self.assertNotIn("每天最多保留评分最高的2只", active)
         self.assertIn("至少有6只强势股", active)
         self.assertIn("酝酿状态已连续3个交易日", active)
-        self.assertIn("单票绝对上限6.25%", active)
+        self.assertIn("单票绝对上限10%", active)
         self.assertIn("已确认主线阶段必须改走牛牛领涨", active)
         self.assertNotIn("已确认mainline", active)
         self.assertNotIn("mainline再加速", active)
@@ -137,7 +137,8 @@ class StrategyPackageTests(unittest.TestCase):
         self.assertIn("单笔权益风险分别≤1.50%/1.00%/0.60%/0.30%", discipline)
         self.assertIn("总仓≤70%/55%/35%/20%", discipline)
         self.assertIn("仅市场复合硬停止禁止新仓", discipline)
-        self.assertIn("领涨/转强/启动/试仓单票30%/25%/15%/6.25%", discipline)
+        self.assertIn("领涨/转强/启动/试仓单票30%/25%/15%/10%", discipline)
+        self.assertIn("不依赖模型主动提出ADD", discipline)
         self.assertIn("不设固定同板块或同题材持仓只数上限", discipline)
         self.assertIn("同时最多持有5只", discipline)
         self.assertNotIn("单笔权益风险分别≤0.25%/0.18%/0.10%", discipline)

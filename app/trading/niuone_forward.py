@@ -32,6 +32,7 @@ from app.strategies.niuone_risk import (
     NIUONE_MARKUP_UPGRADE_POSITION_CAP_PCT,
     NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY,
     NIUONE_MAX_OPEN_POSITIONS,
+    NIUONE_REVERSAL_RISK_BUDGETS,
 )
 from app.strategies.exits import (
     NIUONE_LIFECYCLE_CLIMAX_MIN_PNL_PCT,
@@ -57,7 +58,7 @@ DEFAULT_HISTORICAL_REFERENCE_WIN_RATE_PCT = 59.71
 DEFAULT_WIN_RATE_CONFIDENCE_LEVEL = 0.95
 DEFAULT_MAX_PORTFOLIO_DRAWDOWN_PCT = 6.0
 DEFAULT_MIN_RETURN_TO_DRAWDOWN_RATIO = 1.0
-FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v39"
+FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v40"
 FORWARD_PERFORMANCE_CLUSTER_UNIT = "entry_date_x_entry_theme"
 FORWARD_SHADOW_CANDIDATES = {
     "execution_gap": "round13_execution_gap_le_1pct",
@@ -3337,6 +3338,22 @@ def evaluate_niuone_forward(
             ),
             "niuone_reversal_absolute_position_cap_pct": (
                 NIUONE_ABSOLUTE_POSITION_CAP_PCT["niu_reversal_probe"]
+            ),
+            "niuone_reversal_rotation_per_trade_risk_pct": (
+                NIUONE_REVERSAL_RISK_BUDGETS["rotation"][
+                    "per_trade_risk_pct"
+                ]
+            ),
+            "niuone_reversal_rotation_max_theme_risk_pct": (
+                NIUONE_REVERSAL_RISK_BUDGETS["rotation"][
+                    "max_sector_risk_pct"
+                ]
+            ),
+            "niuone_markup_scale_in_decision_rule": (
+                "qualifying 10% early-markup and 20% confirmed-markup adds "
+                "are generated deterministically by local lifecycle rules; "
+                "explicit SELL remains exit-first and the executor rechecks "
+                "all sizing and risk ceilings"
             ),
             "niuone_markup_upgrade_minimum_pnl_pct": (
                 NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT

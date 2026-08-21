@@ -569,7 +569,21 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
         self.assertEqual(
             identity["protocol"]
             ["niuone_reversal_absolute_position_cap_pct"],
-            6.25,
+            10.0,
+        )
+        self.assertEqual(
+            identity["protocol"]
+            ["niuone_reversal_rotation_per_trade_risk_pct"],
+            1.0,
+        )
+        self.assertEqual(
+            identity["protocol"]
+            ["niuone_reversal_rotation_max_theme_risk_pct"],
+            1.0,
+        )
+        self.assertIn(
+            "generated deterministically",
+            identity["protocol"]["niuone_markup_scale_in_decision_rule"],
         )
         self.assertEqual(
             identity["protocol"]["niuone_reversal_recovery_rule"],
@@ -2660,7 +2674,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
 
         self.assertEqual(report["overall"]["completed_trade_count"], 1)
         self.assertEqual(report["coverage"]["duplicate_trade_count"], 2)
-        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v39")
+        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v40")
         self.assertEqual(
             report["protocol"][
                 "niuone_markup_upgrade_absolute_position_cap_pct"

@@ -247,7 +247,7 @@ def reversal_candidate(**updates) -> dict:
         execution_buffer_pct=0.2,
         effective_loss_distance_pct=4.2,
         per_trade_risk_budget_pct=0.35,
-        max_position_pct_by_risk=6.25,
+        max_position_pct_by_risk=8.3333,
     )
     candidate.update(updates)
     return candidate
@@ -521,7 +521,7 @@ class NiuOneStrategyTests(unittest.TestCase):
         self.assertEqual(result["min_entry_extension_atr"], 1.0)
         self.assertEqual(result["stop_source"], "niu_reversal_right_low")
         self.assertEqual(result["per_trade_risk_budget_pct"], 0.35)
-        self.assertEqual(result["absolute_position_cap_pct"], 6.25)
+        self.assertEqual(result["absolute_position_cap_pct"], 10.0)
         self.assertEqual(result["hard_blockers"], [])
         self.assertTrue(result["actionable"])
         self.assertTrue(candidate_is_trade_ready(result))
@@ -3569,6 +3569,187 @@ class NiuOneStrategyTests(unittest.TestCase):
             trader.is_a_share_execution_time = original_time
             trader.execution_quote = original_quote
 
+    def test_niuone_local_rule_adds_qualifying_markup_holding_without_model_add(self):
+        original_suite = trader.current_strategy_suite
+        original_time = trader.is_a_share_execution_time
+        original_quote = trader.execution_quote
+        try:
+            trader.current_strategy_suite = lambda: "niuone"
+            trader.is_a_share_execution_time = lambda dt=None: (
+                True,
+                "连续竞价交易时段",
+            )
+            trader.execution_quote = lambda code: {
+                "price": 10.2,
+                "name": "本地分级加仓",
+                "source": "test",
+            }
+            position = {
+                "code": "600000",
+                "name": "本地分级加仓",
+                "qty": 100,
+                "avg_cost": 10.0,
+                "last_price": 10.0,
+                "buy_strategy": "niu_emerging",
+                "initial_buy_strategy": "niu_emerging",
+                "strategy_mark": {"strategy_id": "niu_emerging"},
+                "industry": "半导体",
+                "signal_theme": "半导体",
+                "entry_stop_price": 9.5,
+                "gap_buffer_pct": 1.0,
+                "execution_buffer_pct": 0.2,
+                "buy_date_lots": {"2000-01-01": 100},
+                "entry_signal_score": 9.8,
+                "last_buy_signal_score": 9.8,
+                "highest_buy_signal_score": 9.8,
+                "niuone_buy_signal_count": 1,
+            }
+            state = {
+                "cash": 99000.0,
+                "positions": {"600000": position},
+                "trade_log": [],
+            }
+            decision = {
+                "actions": [{
+                    "action": "HOLD",
+                    "code": "600000",
+                    "reason": "模型未主动提出加仓",
+                }],
+            }
+            candidate = niu_candidate(
+                name="本地分级加仓",
+                best_strategy="niu_emerging",
+                best_score=9.0,
+                recent_close=10.2,
+                mainline_state="emerging",
+                sector_status="emerging",
+                mainline_cross_day_persistent=True,
+                mainline_confirmed=False,
+                niuone_lifecycle_stage="markup",
+            )
+
+            generated = trader.append_niuone_deterministic_scale_in_actions(
+                decision,
+                state,
+                [candidate],
+                {"daily_loss_budget_exceeded": False},
+            )
+
+            self.assertEqual(len(generated), 1)
+            self.assertEqual(decision["actions"][0]["action"], "BUY")
+            self.assertEqual(
+                decision["actions"][0]["target_position_pct"],
+                NIUONE_MARKUP_EARLY_UPGRADE_POSITION_CAP_PCT,
+            )
+            self.assertIs(
+                decision["actions"][0]["niuone_deterministic_scale_in"],
+                True,
+            )
+            executed = trader.execute_actions(
+                state,
+                decision,
+                [candidate],
+                True,
+                "连续竞价交易时段",
+                {
+                    "allow_new_buys": True,
+                    "max_total_position_pct": 80,
+                    "min_cash_reserve_pct": 20,
+                },
+            )
+            self.assertEqual(len(executed), 1)
+            self.assertEqual(state["positions"]["600000"]["qty"], 900)
+            self.assertIs(
+                state["positions"]["600000"][
+                    "niuone_markup_early_scale_in_done"
+                ],
+                True,
+            )
+            self.assertEqual(
+                state["positions"]["600000"][
+                    "niuone_buy_signal_score_history"
+                ][-1]["route"],
+                "deterministic_stage_scale_in",
+            )
+            self.assertIs(executed[0]["niuone_deterministic_scale_in"], True)
+
+            sell_decision = {
+                "actions": [{
+                    "action": "SELL",
+                    "code": "600000",
+                    "shares": 100,
+                    "reason": "模型明确退出",
+                }],
+            }
+            self.assertEqual(
+                trader.append_niuone_deterministic_scale_in_actions(
+                    sell_decision,
+                    state,
+                    [candidate],
+                    {},
+                ),
+                [],
+            )
+            self.assertEqual(sell_decision["actions"][0]["action"], "SELL")
+        finally:
+            trader.current_strategy_suite = original_suite
+            trader.is_a_share_execution_time = original_time
+            trader.execution_quote = original_quote
+
+    def test_rotation_reversal_probe_can_use_one_percent_risk_budget(self):
+        original_time = trader.is_a_share_execution_time
+        original_quote = trader.execution_quote
+        try:
+            trader.is_a_share_execution_time = lambda dt=None: (
+                True,
+                "连续竞价交易时段",
+            )
+            trader.execution_quote = lambda code: {
+                "price": 10.0,
+                "name": "轮动试仓",
+                "source": "test",
+            }
+            state = {"cash": 100000.0, "positions": {}, "trade_log": []}
+            decision = {
+                "actions": [{
+                    "action": "BUY",
+                    "code": "600000",
+                    "shares": 2000,
+                    "reason": "轮动V形试仓",
+                }],
+            }
+            candidate = reversal_candidate(
+                name="轮动试仓",
+                market_regime="rotation",
+                stop_price=9.41,
+                stop_distance_pct=5.9,
+                gap_buffer_pct=2.0,
+            )
+
+            executed = trader.execute_actions(
+                state,
+                decision,
+                [candidate],
+                True,
+                "连续竞价交易时段",
+                {
+                    "allow_new_buys": True,
+                    "max_total_position_pct": 80,
+                    "min_cash_reserve_pct": 20,
+                },
+            )
+
+            self.assertEqual(len(executed), 1)
+            position = state["positions"]["600000"]
+            self.assertEqual(position["qty"], 1000)
+            self.assertEqual(position["absolute_position_cap_pct"], 10.0)
+            self.assertEqual(position["per_trade_risk_budget_pct"], 1.0)
+            self.assertGreater(position["position_open_risk_pct"], 0.60)
+            self.assertLessEqual(position["position_open_risk_pct"], 1.0)
+        finally:
+            trader.is_a_share_execution_time = original_time
+            trader.execution_quote = original_quote
+
     def test_niuone_markup_rebalance_can_readd_after_each_new_wave(self):
         original_time = trader.is_a_share_execution_time
         original_quote = trader.execution_quote
@@ -3699,7 +3880,7 @@ class NiuOneStrategyTests(unittest.TestCase):
             self.assertEqual(position["buy_strategy"], "niu_reversal_probe")
             self.assertEqual(position["reversal_basis"], "daily_v")
             self.assertEqual(position["entry_stop_source"], "niu_reversal_right_low")
-            self.assertEqual(position["absolute_position_cap_pct"], 6.25)
+            self.assertEqual(position["absolute_position_cap_pct"], 10.0)
             self.assertEqual(position["per_trade_risk_budget_pct"], 0.35)
 
             add_decision = {
@@ -4225,7 +4406,7 @@ class NiuOneStrategyTests(unittest.TestCase):
     def test_niuone_uses_one_r_partial_and_independent_risk_budget(self):
         self.assertEqual(
             NIUONE_ABSOLUTE_POSITION_CAP_PCT["niu_reversal_probe"],
-            6.25,
+            10.0,
         )
         self.assertEqual(niuone_risk_budget("offensive")["per_trade_risk_pct"], 1.5)
         self.assertEqual(
@@ -4242,6 +4423,18 @@ class NiuOneStrategyTests(unittest.TestCase):
         )
         self.assertEqual(niuone_risk_budget("offensive")["max_total_position_pct"], 70.0)
         self.assertEqual(niuone_risk_budget("rotation")["max_total_position_pct"], 55.0)
+        self.assertEqual(
+            niuone_risk_budget("rotation", "niu_reversal_probe")[
+                "per_trade_risk_pct"
+            ],
+            1.0,
+        )
+        self.assertEqual(
+            niuone_risk_budget("rotation", "niu_reversal_probe")[
+                "max_sector_risk_pct"
+            ],
+            1.0,
+        )
         self.assertEqual(niuone_risk_budget("defensive")["per_trade_risk_pct"], 0.30)
         self.assertEqual(niuone_risk_budget("defensive")["max_open_risk_pct"], 0.90)
         self.assertEqual(

@@ -8324,9 +8324,9 @@ def current_trade_discipline_text(position_limit_desc: str, adaptive: dict[str, 
             custom += (
                 "\n- 牛牛战法执行层动态风险预算：进攻/轮动/修复/防守的单笔权益风险分别≤1.50%/1.00%/0.60%/0.30%，"
                 "策略内组合风险≤4.50%/3.00%/1.80%/0.90%，总仓≤70%/55%/35%/20%，主题风险≤3.00%/2.00%/1.20%/0.60%，主题敞口≤55%/40%/25%/12%；仅市场复合硬停止禁止新仓。"
-                f"领涨/转强/启动/试仓单票30%/25%/15%/6.25%仅为绝对上限；不设固定同板块或同题材持仓只数上限，集中风险继续由主题风险和主题敞口预算约束。新开仓不设上午/下午、单轮或单日数量上限，盘面总结/评价产生的动态数量或暂停字段也不作用于牛牛，但同时最多持有{NIUONE_MAX_OPEN_POSITIONS}只。满仓时仅当新候选当前优先级严格高于可卖出的最低优先级牛牛持仓，才先卖后买完成换仓。"
+                f"领涨/转强/启动/试仓单票30%/25%/15%/10%仅为绝对上限；不设固定同板块或同题材持仓只数上限，集中风险继续由主题风险和主题敞口预算约束。新开仓不设上午/下午、单轮或单日数量上限，盘面总结/评价产生的动态数量或暂停字段也不作用于牛牛，但同时最多持有{NIUONE_MAX_OPEN_POSITIONS}只。满仓时仅当新候选当前优先级严格高于可卖出的最低优先级牛牛持仓，才先卖后买完成换仓。"
                 "\n- 牛牛战法按主线酝酿→主升→高潮→分歧→退幕识别；试仓只参与酝酿候选和启动早段，主升阶段围绕启动/领涨，高潮不追普遍新仓，分歧只观察核心股调整后转强或减仓，持续回落不触发买点，退幕只退出。最近30根日K还须满足：左侧至少回落5日和8%，低点后至少修复3日和6%，收复左侧跌幅须在60%（含）至200%（不含）之间，并确认右侧持续抬高；达到200%后不再按早期试仓。"
-                "试仓在进攻/轮动/修复/防守的单笔权益风险分别≤0.35%/0.30%/0.25%/0.15%，以右侧最近3根日K低点为止损；试仓/启动持仓浮盈在2%～12%、仍处主升且个股保持强势领涨时，跨日延续先向10%上限加仓，主线确认后再向20%上限加仓。此后同一战法再次出现BUY且评分严格刷新持仓期实际买入最高分时，可继续在原风险与阶段上限内加仓；分歧/高潮/退幕不加仓。"
+                "试仓在进攻/轮动/修复/防守的单笔权益风险分别≤0.35%/1.00%/0.25%/0.15%，以右侧最近3根日K低点为止损；试仓/启动持仓浮盈在2%～12%、仍处主升且个股保持强势领涨时，本地规则在跨日延续后向10%上限加仓，主线确认后再向20%上限加仓，不依赖模型主动提出ADD。此后同一战法再次出现BUY且评分严格刷新持仓期实际买入最高分时，可继续在原风险与阶段上限内加仓；分歧/高潮/退幕不加仓。"
                 "\n- 牛牛战法退出：试仓所属题材首次进入退幕即退出，3个交易日未延续右侧趋势也退出；成熟路径另按连续两个交易日跌出行业前三龙头梯队、主线连续转弱、市场硬停止叠加退幕和策略时间窗退出；高潮且不亏先减仓1/3，进攻/修复/防守试仓盘中达到0.75R先减仓50%，轮动试仓及成熟路径达到1R先减仓45%，余仓成本保护并按2ATR跟踪。"
             )
         return custom
@@ -9561,6 +9561,17 @@ def execute_actions(
                     "niuone_markup_rebalance_armed"
                 ) is True
             )
+            niuone_deterministic_scale_in = bool(
+                old_qty > 0
+                and action.get("niuone_deterministic_scale_in") is True
+                and any(
+                    isinstance(item, Mapping)
+                    and normalize_code(item.get("code") or "") == code
+                    for item in (
+                        decision.get("niuone_deterministic_scale_ins") or []
+                    )
+                )
+            )
             niuone_stage_add_attempt = bool(
                 old_qty > 0
                 and (
@@ -9572,6 +9583,7 @@ def execute_actions(
                         }
                     )
                     or niuone_rebalance_reentry
+                    or niuone_deterministic_scale_in
                 )
                 and is_niuone_strategy(buy_strategy)
             )
@@ -9584,7 +9596,11 @@ def execute_actions(
             )
             niuone_score_scale_add = False
             niuone_score_scale_blocker = ""
-            if niuone_same_strategy_add and not niuone_rebalance_reentry:
+            if (
+                niuone_same_strategy_add
+                and not niuone_rebalance_reentry
+                and not niuone_deterministic_scale_in
+            ):
                 previous_score = niuone_signal_score_audit.get(
                     "previous_score"
                 )
@@ -10822,6 +10838,8 @@ def execute_actions(
                         "route": (
                             "score_progression"
                             if niuone_score_scale_add
+                            else "deterministic_stage_scale_in"
+                            if niuone_deterministic_scale_in
                             else "markup_rebalance"
                             if niuone_rebalance_reentry
                             else "stage_upgrade"
@@ -11017,6 +11035,7 @@ def execute_actions(
                 "niuone_priority_before",
                 "niuone_priority_after",
                 "niuone_add_signal_score_audit",
+                "niuone_deterministic_scale_in",
                 "niuone_buy_signal_score",
                 "niuone_buy_signal_score_source",
                 "niuone_highest_buy_signal_score",
@@ -11395,6 +11414,169 @@ def decision_has_executable_actions(decision: dict[str, Any]) -> bool:
     return False
 
 
+def append_niuone_deterministic_scale_in_actions(
+    decision: dict[str, Any],
+    state: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    market_strategy_ctx: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Add locally-qualified NiuOne Markup scale-ins to a model decision.
+
+    The model may still request an exit or its own BUY, but HOLD/omission no
+    longer prevents the frozen 10%/20% lifecycle tiers from being exercised.
+    The executor rechecks every lifecycle, risk, exposure, cash, and lot-size
+    boundary and may reduce or reject the generated order.
+    """
+    if current_strategy_suite() != "niuone":
+        return []
+    market_ctx = (
+        market_strategy_ctx
+        if isinstance(market_strategy_ctx, Mapping)
+        else {}
+    )
+    if market_ctx.get("daily_loss_budget_exceeded") is True:
+        return []
+    positions = state.get("positions") or {}
+    if not isinstance(positions, dict):
+        return []
+    actions = decision.setdefault("actions", [])
+    if not isinstance(actions, list):
+        actions = []
+        decision["actions"] = actions
+
+    # Model output is untrusted for this privileged bypass. Only actions
+    # generated below may carry the deterministic lifecycle marker.
+    decision.pop("niuone_deterministic_scale_ins", None)
+    for action in actions:
+        if isinstance(action, dict):
+            action.pop("niuone_deterministic_scale_in", None)
+
+    explicit_by_code: dict[str, set[str]] = {}
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        code = normalize_code(action.get("code") or "")
+        if code:
+            explicit_by_code.setdefault(code, set()).add(
+                str(action.get("action") or "HOLD").upper()
+            )
+
+    total_equity = portfolio_total_equity_for_limits(
+        _safe_float(state.get("cash"), 0.0),
+        positions,
+    )
+    generated: list[dict[str, Any]] = []
+    if total_equity <= 0:
+        return generated
+
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        code = normalize_code(candidate.get("code") or "")
+        pos = positions.get(code)
+        if not code or not isinstance(pos, dict) or position_qty(pos) <= 0:
+            continue
+        explicit_actions = explicit_by_code.get(code, set())
+        if "SELL" in explicit_actions or "BUY" in explicit_actions:
+            continue
+        if candidate_buy_blockers(candidate):
+            continue
+
+        source_strategy = str(
+            pos.get("initial_buy_strategy")
+            or position_entry_strategy(pos)
+        )
+        incoming_strategy = str(
+            candidate.get("best_strategy")
+            or candidate.get("strategy_id")
+            or ""
+        )
+        if source_strategy not in {"niu_reversal_probe", "niu_emerging"}:
+            continue
+        if incoming_strategy not in {"niu_emerging", "niu_leader"}:
+            continue
+        done_field = (
+            "niuone_markup_early_scale_in_done"
+            if incoming_strategy == "niu_emerging"
+            else "niuone_markup_confirmed_scale_in_done"
+        )
+        if pos.get(done_field) is True:
+            continue
+
+        signal_price = _safe_float(
+            candidate.get("price")
+            or candidate.get("recent_close")
+            or candidate.get("close")
+            or pos.get("last_price")
+            or pos.get("avg_cost"),
+            0.0,
+        )
+        avg_cost = _safe_float(pos.get("avg_cost"), 0.0)
+        if signal_price <= 0 or avg_cost <= 0:
+            continue
+        current_pnl_pct = (signal_price / avg_cost - 1.0) * 100.0
+        if niuone_markup_upgrade_blocker(
+            source_strategy,
+            candidate,
+            current_pnl_pct=current_pnl_pct,
+        ):
+            continue
+
+        target_cap_pct = (
+            NIUONE_MARKUP_EARLY_UPGRADE_POSITION_CAP_PCT
+            if incoming_strategy == "niu_emerging"
+            else NIUONE_MARKUP_UPGRADE_POSITION_CAP_PCT
+        )
+        current_value = position_qty(pos) * signal_price
+        target_value = total_equity * target_cap_pct / 100.0
+        requested_shares = int(
+            max(0.0, target_value - current_value) // (signal_price * 100)
+        ) * 100
+        if requested_shares <= 0:
+            continue
+
+        # A strict local lifecycle rule may replace HOLD, but never an explicit
+        # model BUY or SELL for the same security.
+        actions[:] = [
+            action
+            for action in actions
+            if not (
+                isinstance(action, dict)
+                and normalize_code(action.get("code") or "") == code
+                and str(action.get("action") or "HOLD").upper() == "HOLD"
+            )
+        ]
+        tier_label = "主升早期" if incoming_strategy == "niu_emerging" else "确认主升"
+        generated_action = {
+            "action": "BUY",
+            "code": code,
+            "name": candidate.get("name") or pos.get("name") or code,
+            "shares": requested_shares,
+            "target_position_pct": target_cap_pct,
+            "intent": "ADD",
+            "niuone_deterministic_scale_in": True,
+            "reason": (
+                f"牛牛本地分级加仓：{tier_label}条件满足，向"
+                f"{target_cap_pct:g}%阶段上限加仓；执行层继续按单票、"
+                "主题、组合、总仓、现金和T+1边界裁单"
+            ),
+        }
+        actions.append(generated_action)
+        generated.append(generated_action)
+        explicit_by_code.setdefault(code, set()).add("BUY")
+
+    if generated:
+        decision["niuone_deterministic_scale_ins"] = [
+            {
+                "code": action["code"],
+                "target_position_pct": action["target_position_pct"],
+                "shares": action["shares"],
+            }
+            for action in generated
+        ]
+    return generated
+
+
 def _json_safe_copy(value: Any) -> Any:
     try:
         return json.loads(json.dumps(value, ensure_ascii=False))
@@ -11733,28 +11915,35 @@ def run_decision_after_b1(b1_payload: dict[str, Any], force: bool = False) -> di
 
     def make_decision(reason: str) -> dict[str, Any]:
         if frozen_prompt_version is not None:
-            local_decision = build_local_prompt_decision(
+            resolved_decision = build_local_prompt_decision(
                 candidates,
                 state,
                 frozen_prompt_version,
                 market_strategy_ctx,
             )
-            local_decision["market_guidance"] = compact_market_ctx
-            local_decision["decision_intelligence"] = safe_decision_intelligence_context(
+            resolved_decision["market_guidance"] = compact_market_ctx
+            resolved_decision["decision_intelligence"] = safe_decision_intelligence_context(
                 portfolio,
                 candidates,
                 market_strategy_ctx,
                 "",
             )
-            local_decision["decision_reason"] = reason
-            return local_decision
-        return call_model_decision(
+            resolved_decision["decision_reason"] = reason
+        else:
+            resolved_decision = call_model_decision(
+                candidates,
+                portfolio,
+                True,
+                reason,
+                market_strategy_ctx,
+            )
+        append_niuone_deterministic_scale_in_actions(
+            resolved_decision,
+            state,
             candidates,
-            portfolio,
-            True,
-            reason,
             market_strategy_ctx,
         )
+        return resolved_decision
 
     try:
         if not has_open_positions and (not candidates or buy_budget_exceeded):
@@ -11962,7 +12151,7 @@ def build_trade_rule_note() -> str:
         f"单票8%/6%/4%仅为绝对天花板。"
         f"牛牛战法按主线酝酿→主升→高潮→分歧→退幕识别，试仓只参与酝酿候选和启动早段，酝酿候选中的强势股等待启动确认；主升围绕启动/领涨，高潮不追普遍新仓，分歧只观察核心股调整后转强或减仓，持续回落不触发买点，退幕只退出。"
         f"新开仓不设上午/下午、单轮或单日数量上限，盘面总结/评价不改变开仓数量，最多同时持有{NIUONE_MAX_OPEN_POSITIONS}只；满仓只在新候选优先级严格高于可卖出的最低优先级牛牛持仓时先卖后买，并硬执行单笔/组合/主题风险预算；总仓70%/55%/35%、主题敞口55%/40%/25%，"
-        f"领涨/转强/启动/试仓单票绝对上限30%/25%/15%/6.25%，试仓单笔风险仅0.35%/0.30%/0.25%。"
+        f"领涨/转强/启动/试仓单票绝对上限30%/25%/15%/10%，试仓单笔风险为0.35%/1.00%/0.25%。"
         f"同股同战法再次BUY只在评分严格刷新持仓期实际买入最高分时加仓；试仓当日禁加、亏损不补，成熟路径仍须主升强领涨且浮盈2%～12%。"
         f"允许无明确主线；单只股票独强不得确认主线，日线V型结构则按独立试仓路径评估。"
         f"系统底线风控：峰值回撤/ATR吊灯保护、持仓超25日退出；"

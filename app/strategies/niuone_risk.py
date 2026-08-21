@@ -10,7 +10,7 @@ NIUONE_ABSOLUTE_POSITION_CAP_PCT = {
     "niu_leader": 30.0,
     "niu_pullback": 25.0,
     "niu_emerging": 15.0,
-    "niu_reversal_probe": 6.25,
+    "niu_reversal_probe": 10.0,
 }
 
 NIUONE_MAX_OPEN_POSITIONS = 5
@@ -66,7 +66,7 @@ NIUONE_MARKUP_MOMENTUM_PROBE_MAX_STOP_ATR = 3.0
 NIUONE_MARKUP_MOMENTUM_PROBE_POSITION_CAP_PCT = 4.0
 NIUONE_MARKUP_MOMENTUM_PROBE_MAX_EXECUTION_GAP_PCT = 3.0
 
-# A 6.25% reversal probe is only the brewing-stage starting size. During
+# A 10% reversal probe is only the brewing-stage starting size. During
 # markup, a persistent emerging leader may first scale toward the early cap;
 # once the mainline is confirmed it may continue toward the final cap. The
 # structural-stop distance and portfolio risk budgets below still determine
@@ -183,8 +183,11 @@ NIUONE_REVERSAL_RISK_BUDGETS = {
     },
     "rotation": {
         **NIUONE_REGIME_RISK_BUDGETS["rotation"],
-        "per_trade_risk_pct": 0.30,
-        "max_sector_risk_pct": 0.60,
+        "per_trade_risk_pct": 1.00,
+        # Keep the theme ceiling at least as wide as one isolated Probe order;
+        # otherwise the requested 1% rotation budget would still be clipped to
+        # the old 0.60% theme-risk limit before execution.
+        "max_sector_risk_pct": 1.00,
         "max_sector_position_pct": 10.0,
     },
     "recovery": {
