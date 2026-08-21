@@ -3805,7 +3805,24 @@ def select_current_market_strategy_context(
     return selected
 
 
-def format_market_strategy_context_for_prompt(ctx: dict[str, Any]) -> str:
+def _niuone_irrelevant_market_count_guidance(line: Any) -> bool:
+    """Return whether a shared market note is a count/pause rule NiuOne ignores."""
+    text = re.sub(r"\s+", "", str(line or ""))
+    quantity_rule = any(marker in text for marker in ("单轮", "单日", "午盘前", "上午最多", "下午最多"))
+    if not quantity_rule and any(marker in text for marker in ("最多", "至多", "不超过")):
+        quantity_rule = "只" in text or "笔" in text
+    pause_rule = any(
+        marker in text
+        for marker in ("暂停新开仓", "暂停买入", "不新开仓", "只卖不买")
+    )
+    return quantity_rule or pause_rule
+
+
+def format_market_strategy_context_for_prompt(
+    ctx: dict[str, Any],
+    *,
+    niuone_only: bool = False,
+) -> str:
     if not ctx.get("enabled"):
         return "【今日盘面监控指引】已关闭。"
     tone = str(ctx.get("tone") or "neutral")
@@ -3821,19 +3838,41 @@ def format_market_strategy_context_for_prompt(ctx: dict[str, Any]) -> str:
         position_bias = "轻仓观察，除非极高确定性否则不加仓"
     else:
         position_bias = "按候选确定性和账户状态自定仓位"
-    lines = [
-        "【今日盘面监控指引】",
-        (
-            f"风险级别：{ctx.get('tone_label', '中性')}；阶段：{ctx.get('phase', '-')}; "
-            f"非牛牛节奏：最多{ctx.get('max_open_positions')}只、单轮新仓≤{ctx.get('max_new_buys_per_decision')}笔；"
-            f"仓位倾向：{position_bias}。"
-        ),
-        (
-            f"牛牛开仓数量不受本次盘面评价影响，只受最多"
-            f"{ctx.get('niuone_max_open_positions', NIUONE_MAX_OPEN_POSITIONS)}只持仓约束；"
-            "盘面仍参与单笔/组合/主题风险预算、总仓、现金及候选自身复合硬停止判断。"
-        ),
-    ]
+    if niuone_only:
+        if not ctx.get("allow_new_buys", True):
+            position_bias = "盘面暂停字段不作用于牛牛开仓数量，仍按候选复合硬停止和风险预算复核"
+        lines = [
+            "【今日盘面监控指引】",
+            (
+                f"风险级别：{ctx.get('tone_label', '中性')}；阶段：{ctx.get('phase', '-')}; "
+                f"牛牛节奏：最多{ctx.get('niuone_max_open_positions', NIUONE_MAX_OPEN_POSITIONS)}只；"
+                f"仓位倾向：{position_bias}。"
+            ),
+            (
+                "本轮新开仓只执行牛牛规则：盘面仍参与单笔/组合/主题风险预算、总仓、现金及候选"
+                "自身复合硬停止判断，但不输出也不使用非牛牛持仓数、午盘保留名额、盘面单轮新仓数"
+                "或盘面暂停字段。"
+            ),
+        ]
+    else:
+        lines = [
+            "【今日盘面监控指引】",
+            (
+                f"风险级别：{ctx.get('tone_label', '中性')}；阶段：{ctx.get('phase', '-')}; "
+                f"非牛牛节奏：最多{ctx.get('max_open_positions')}只、单轮新仓≤{ctx.get('max_new_buys_per_decision')}笔；"
+                f"仓位倾向：{position_bias}。"
+            ),
+            (
+                f"牛牛开仓数量不受本次盘面评价影响，只受最多"
+                f"{ctx.get('niuone_max_open_positions', NIUONE_MAX_OPEN_POSITIONS)}只持仓约束；"
+                "盘面仍参与单笔/组合/主题风险预算、总仓、现金及候选自身复合硬停止判断。"
+            ),
+            (
+                "判断牛牛BUY时，禁止把当前持仓数与上述非牛牛上限比较，也禁止把午盘保留名额、"
+                "盘面单轮新仓数或盘面暂停字段作为HOLD理由；只有牛牛持仓达到"
+                f"{ctx.get('niuone_max_open_positions', NIUONE_MAX_OPEN_POSITIONS)}只才按满仓处理。"
+            ),
+        ]
     if ctx.get("daily_loss_budget_exceeded"):
         lines.append("日内亏损预算已经触发，所有策略本轮均暂停BUY；该独立风控不属于盘面评价限数。")
     elif not ctx.get("allow_new_buys", True):
@@ -3841,8 +3880,11 @@ def format_market_strategy_context_for_prompt(ctx: dict[str, Any]) -> str:
             "执行层当前按盘面指引暂停非牛牛策略买入；牛牛不按该字段限数，"
             "仍由候选自身复合硬停止和其他风险规则复核。"
         )
-    if ctx.get("session_note"):
-        lines.append(str(ctx.get("session_note")))
+    if ctx.get("session_note") and not niuone_only:
+        lines.append(
+            "非牛牛策略专属午盘节奏（不得用于牛牛开仓数量判断）："
+            + str(ctx.get("session_note"))
+        )
     if ctx.get("source_title") or ctx.get("source_time"):
         lines.append(f"最新来源：{ctx.get('source_title') or '盘面监控'} {ctx.get('source_time') or ''}".strip())
     overnight_us = ctx.get("overnight_us") if isinstance(ctx.get("overnight_us"), dict) else {}
@@ -3868,11 +3910,26 @@ def format_market_strategy_context_for_prompt(ctx: dict[str, Any]) -> str:
         ]
         lines.extend(f"- {line}" for line in us_guidance[:6])
     guidance = ctx.get("guidance_lines") or []
+    if niuone_only:
+        guidance = [
+            line
+            for line in guidance
+            if not _niuone_irrelevant_market_count_guidance(line)
+        ]
     if guidance:
         lines.extend(f"- {line}" for line in guidance[:8])
     else:
         if ctx.get("phase") in {"morning", "lunch"}:
-            lines.append("- 暂无此刻盘面总结，按午盘前保留仓位和静态风控执行。")
+            if niuone_only:
+                lines.append(
+                    "- 暂无此刻盘面总结；牛牛仍只按最多"
+                    f"{ctx.get('niuone_max_open_positions', NIUONE_MAX_OPEN_POSITIONS)}只及静态风险预算执行。"
+                )
+            else:
+                lines.append(
+                    "- 暂无此刻盘面总结；非牛牛策略按午盘前保留仓位，"
+                    f"牛牛仍只按最多{ctx.get('niuone_max_open_positions', NIUONE_MAX_OPEN_POSITIONS)}只及静态风险预算执行。"
+                )
         else:
             lines.append("- 暂无此刻盘面总结，按静态风控执行。")
     return "\n".join(lines)
@@ -8366,7 +8423,15 @@ def call_model_decision(
     market_env = check_market_environment()
     market_sent = check_market_sentiment()
     market_strategy_ctx = market_strategy_ctx or current_market_strategy_context()
-    market_strategy_prompt = format_market_strategy_context_for_prompt(market_strategy_ctx)
+    strategy_suite = current_strategy_suite()
+    active_strategy_ids = active_strategy_ids_for_decision()
+    niuone_only = bool(active_strategy_ids) and all(
+        is_niuone_strategy(strategy_id) for strategy_id in active_strategy_ids
+    )
+    market_strategy_prompt = format_market_strategy_context_for_prompt(
+        market_strategy_ctx,
+        niuone_only=niuone_only,
+    )
     sentiment_note = ""
     if market_sent.get("sentiment") == "cold":
         sentiment_note = f"⚠️市场情绪偏冷({market_sent.get('detail','')})，建议仓位减半"
@@ -8385,13 +8450,11 @@ def call_model_decision(
         news_precheck_error = f"precheck_{type(exc).__name__}"
         news_context = ""
     
-    strategy_suite = current_strategy_suite()
     compact_candidates = candidates[:100] if strategy_suite == STRATEGY_SOURCE_PRESET_TEXT else candidates[:8]
     # 自适应参数（市场情绪驱动）
     adaptive = get_adaptive_params()
     # 多战法上下文：统计战法分布，给每个候选标注最优战法
     preset_strategy_text = current_preset_strategy_text()
-    active_strategy_ids = active_strategy_ids_for_decision()
     portfolio_positions = [p for p in (portfolio.get("positions") or []) if isinstance(p, dict)]
     position_strategy_ids = position_strategy_ids_for_prompt(portfolio_positions)
     strategy_prompt_sections = build_strategy_prompt_sections(

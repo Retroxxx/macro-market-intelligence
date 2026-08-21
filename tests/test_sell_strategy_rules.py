@@ -1449,6 +1449,35 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertEqual(ctx["max_new_buys_per_decision"], 1)
         self.assertIn("午盘前", ctx["session_note"])
 
+    def test_morning_market_prompt_scopes_position_cap_to_non_niuone(self):
+        ctx = trader.derive_market_strategy_context([], datetime(2026, 8, 21, 10, 0, 0))
+
+        shared_prompt = trader.format_market_strategy_context_for_prompt(ctx)
+        niuone_prompt = trader.format_market_strategy_context_for_prompt(ctx, niuone_only=True)
+
+        self.assertEqual(ctx["max_open_positions"], 3)
+        self.assertEqual(ctx["niuone_max_open_positions"], trader.NIUONE_MAX_OPEN_POSITIONS)
+        self.assertIn("非牛牛策略专属午盘节奏（不得用于牛牛开仓数量判断）", shared_prompt)
+        self.assertIn("禁止把当前持仓数与上述非牛牛上限比较", shared_prompt)
+        self.assertIn(
+            f"只有牛牛持仓达到{trader.NIUONE_MAX_OPEN_POSITIONS}只才按满仓处理",
+            shared_prompt,
+        )
+        self.assertNotIn("\n午盘前最多持有3只", shared_prompt)
+        self.assertNotIn("暂无此刻盘面总结，按午盘前保留仓位", shared_prompt)
+        self.assertIn(f"牛牛节奏：最多{trader.NIUONE_MAX_OPEN_POSITIONS}只", niuone_prompt)
+        self.assertNotIn("3只", niuone_prompt)
+        self.assertNotIn("午盘前最多持有", niuone_prompt)
+        self.assertNotIn("非牛牛节奏", niuone_prompt)
+
+        ctx["guidance_lines"] = [
+            "开仓节奏：上午最多2-3只；先试错1笔",
+            "选股方向：只看有资金承接的主线候选",
+        ]
+        niuone_prompt = trader.format_market_strategy_context_for_prompt(ctx, niuone_only=True)
+        self.assertNotIn("上午最多2-3只", niuone_prompt)
+        self.assertIn("只看有资金承接的主线候选", niuone_prompt)
+
     def test_defensive_market_guidance_allows_reduced_buy_budget(self):
         reports = [{
             "title": "A股竞价盘前总结",
@@ -3085,6 +3114,79 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertIn("不得作为不开仓、HOLD或SELL的理由", prompt)
         self.assertNotIn("单次决策最多给2条新买入", prompt)
         self.assertNotIn("当前持仓达到", prompt)
+
+    def test_niuone_decision_prompt_omits_non_niuone_morning_position_cap(self):
+        saved_env = {
+            trader.ACTIVE_STRATEGY_ENV: os.environ.get(trader.ACTIVE_STRATEGY_ENV),
+            trader.STRATEGY_SOURCE_ENV: os.environ.get(trader.STRATEGY_SOURCE_ENV),
+            trader.PERSONA_STRATEGY_ENV: os.environ.get(trader.PERSONA_STRATEGY_ENV),
+            trader.TRADE_DISCIPLINE_TEXT_ENV: os.environ.get(trader.TRADE_DISCIPLINE_TEXT_ENV),
+        }
+        originals = {
+            "load_crossdesk_config": trader.load_crossdesk_config,
+            "check_market_environment": trader.check_market_environment,
+            "check_market_sentiment": trader.check_market_sentiment,
+            "check_candidate_news_precheck": trader.check_candidate_news_precheck,
+            "request_chat_content": trader.request_chat_content,
+        }
+        captured: dict[str, dict] = {}
+        market_ctx = {
+            **permissive_market_context(),
+            "enabled": True,
+            "phase": "morning",
+            "max_open_positions": 3,
+            "niuone_max_open_positions": trader.NIUONE_MAX_OPEN_POSITIONS,
+            "session_note": "午盘前最多持有3只，保留2个仓位给午后确认",
+            "guidance_lines": ["开仓节奏：上午最多2-3只；先试错1笔"],
+        }
+        try:
+            os.environ[trader.ACTIVE_STRATEGY_ENV] = "niuone"
+            os.environ[trader.STRATEGY_SOURCE_ENV] = "builtin"
+            os.environ[trader.PERSONA_STRATEGY_ENV] = "niuone"
+            os.environ.pop(trader.TRADE_DISCIPLINE_TEXT_ENV, None)
+            trader.load_crossdesk_config = lambda *args, **kwargs: ("https://decision.example/v1", "key")
+            trader.check_market_environment = lambda: {"bullish": True, "detail": "test"}
+            trader.check_market_sentiment = lambda: {
+                "sentiment": "neutral",
+                "detail": "test",
+                "hot_sectors": [],
+            }
+            trader.check_candidate_news_precheck = lambda candidates: ""
+
+            def fake_request(base_url, api_key, payload, model_name, max_retries=3, timeout=60):
+                captured["payload"] = payload
+                return '{"summary":"ok","actions":[]}'
+
+            trader.request_chat_content = fake_request
+            trader.call_model_decision(
+                [],
+                {
+                    "positions": [
+                        {"code": f"60000{index}", "name": f"持仓{index}", "qty": 100}
+                        for index in range(3)
+                    ],
+                    "trade_log": [],
+                    "cash": 900000,
+                    "total_equity": 1000000,
+                },
+                True,
+                "测试交易时段",
+                market_ctx,
+            )
+        finally:
+            for name, value in originals.items():
+                setattr(trader, name, value)
+            for name, value in saved_env.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        prompt = captured["payload"]["messages"][0]["content"]
+        self.assertIn(f"牛牛节奏：最多{trader.NIUONE_MAX_OPEN_POSITIONS}只", prompt)
+        self.assertNotIn("午盘前最多持有3只", prompt)
+        self.assertNotIn("上午最多2-3只", prompt)
+        self.assertNotIn("非牛牛节奏：最多3只", prompt)
 
     def test_b3_next_day_no_progress_exits(self):
         pos = {
