@@ -53,11 +53,17 @@ MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 8
 REQUEST_RETRY_DELAYS_SECONDS = (0.5, 1.0)
 MAX_REQUEST_ATTEMPTS = len(REQUEST_RETRY_DELAYS_SECONDS) + 1
+SNAPSHOT_RETRY_DELAYS_SECONDS = (1.0, 2.0, 4.0)
+MIN_USABLE_ROWS = 20
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 FIELDS = (
     "f12,f14,f2,f3,f62,f184,f66,f69,f72,f75,f78,f81,"
     "f84,f87,f204,f205,f124"
 )
+
+
+class _IncompleteSnapshotError(RuntimeError):
+    """The source responded, but its current money-flow snapshot is not usable."""
 
 
 def _beijing_now() -> datetime:
@@ -289,7 +295,7 @@ def _normalize_row(raw: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _compute() -> dict[str, Any]:
+def _compute_once() -> dict[str, Any]:
     first_rows, total = _fetch_page(1)
     raw_rows = list(first_rows)
     page_count = min(MAX_PAGES, max(1, math.ceil(total / PAGE_SIZE)))
@@ -305,8 +311,10 @@ def _compute() -> dict[str, Any]:
         key = row["code"] or row["name"]
         deduplicated[key] = row
     rows = list(deduplicated.values())
-    if len(rows) < 20:
-        raise RuntimeError(f"industry main-flow returned only {len(rows)} usable rows")
+    if len(rows) < MIN_USABLE_ROWS:
+        raise _IncompleteSnapshotError(
+            f"industry main-flow returned only {len(rows)} usable rows"
+        )
 
     inflow = sorted(
         (row for row in rows if row["net_flow_yi"] > 0),
@@ -327,6 +335,22 @@ def _compute() -> dict[str, Any]:
         "outflow": outflow,
         "count": len(rows),
     }
+
+
+def _compute(
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    """Build one complete snapshot, retrying transient all-zero source responses."""
+
+    for attempt in range(len(SNAPSHOT_RETRY_DELAYS_SECONDS) + 1):
+        try:
+            return _compute_once()
+        except _IncompleteSnapshotError:
+            if attempt >= len(SNAPSHOT_RETRY_DELAYS_SECONDS):
+                raise
+            sleep(SNAPSHOT_RETRY_DELAYS_SECONDS[attempt])
+    raise AssertionError("unreachable")
 
 
 def fetch_money_flow(force_refresh: bool = False) -> dict[str, Any]:

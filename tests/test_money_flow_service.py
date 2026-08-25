@@ -202,6 +202,57 @@ class MoneyFlowServiceTests(unittest.TestCase):
         self.assertEqual([row["name"] for row in payload["outflow"][:2]], ["负10", "负9"])
         self.assertNotIn("零", {row["name"] for row in payload["inflow"] + payload["outflow"]})
 
+    def test_compute_retries_transient_zero_main_net_snapshot(self):
+        zero_rows = [
+            eastmoney_row(f"ZERO{i}", f"零行业{i}", 0)
+            for i in range(20)
+        ]
+        valid_rows = [
+            *(eastmoney_row(f"P{i}", f"正{i}", i * 100_000_000) for i in range(1, 11)),
+            *(eastmoney_row(f"N{i}", f"负{i}", -i * 100_000_000) for i in range(1, 11)),
+        ]
+        snapshots = [zero_rows, valid_rows]
+        calls = []
+        sleeps = []
+
+        def fake_fetch_page(page):
+            calls.append(page)
+            return snapshots.pop(0), 20
+
+        with patch.object(money_flow_service, "_fetch_page", side_effect=fake_fetch_page):
+            payload = money_flow_service._compute(sleep=sleeps.append)
+
+        self.assertEqual(calls, [1, 1])
+        self.assertEqual(sleeps, [money_flow_service.SNAPSHOT_RETRY_DELAYS_SECONDS[0]])
+        self.assertEqual(payload["count"], 20)
+        self.assertEqual(len(payload["inflow"]), 10)
+        self.assertEqual(len(payload["outflow"]), 10)
+
+    def test_compute_stops_retrying_persistently_incomplete_snapshots(self):
+        zero_rows = [
+            eastmoney_row(f"ZERO{i}", f"零行业{i}", 0)
+            for i in range(20)
+        ]
+        calls = []
+        sleeps = []
+
+        def fake_fetch_page(page):
+            calls.append(page)
+            return zero_rows, 20
+
+        with patch.object(money_flow_service, "_fetch_page", side_effect=fake_fetch_page):
+            with self.assertRaisesRegex(RuntimeError, "returned only 0 usable rows"):
+                money_flow_service._compute(sleep=sleeps.append)
+
+        self.assertEqual(
+            len(calls),
+            len(money_flow_service.SNAPSHOT_RETRY_DELAYS_SECONDS) + 1,
+        )
+        self.assertEqual(
+            sleeps,
+            list(money_flow_service.SNAPSHOT_RETRY_DELAYS_SECONDS),
+        )
+
     def test_download_json_retries_with_bounded_curl_runner(self):
         calls = []
         sleeps = []
