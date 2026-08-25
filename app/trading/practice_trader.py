@@ -9442,6 +9442,16 @@ def execute_actions(
                     category="candidate_eligibility",
                 )
                 continue
+            existing_pos = positions.get(code)
+            old_qty = position_qty(existing_pos or {})
+            if decision.get("holding_cycle_only") is True and old_qty <= 0:
+                add_execution_block(
+                    decision,
+                    code,
+                    "持仓快周期只允许对当前仍持有的股票加仓，不允许首次建仓或卖出后回补",
+                    category="candidate_eligibility",
+                )
+                continue
             candidate_strategy_id = str(
                 candidate.get("best_strategy")
                 or candidate.get("buy_strategy")
@@ -9535,8 +9545,6 @@ def execute_actions(
                     category="market_mechanics",
                 )
                 continue
-            existing_pos = positions.get(code)
-            old_qty = position_qty(existing_pos or {})
             existing_entry_strategy = position_entry_strategy(existing_pos or {}) if old_qty > 0 else ""
             if (
                 old_qty > 0
@@ -11862,6 +11870,15 @@ def run_decision_after_b1(b1_payload: dict[str, Any], force: bool = False) -> di
     state = load_state()
     auto_exit_refresh_baseline = _auto_exit_refresh_baseline(state)
     generated_at = b1_payload.get("generated_at") or now_ts()
+    decision_cycle_kind = str(
+        b1_payload.get("decision_cycle_kind") or ""
+    ).strip()
+    holding_cycle_only = b1_payload.get("holding_cycle_only") is True
+    holding_cycle_codes = {
+        normalize_code(code)
+        for code in (b1_payload.get("holding_cycle_codes") or [])
+        if normalize_code(code)
+    }
     schedule_slot = b1_payload.get("schedule_slot") or ""
     schedule_run_kind = b1_payload.get("schedule_run_kind") or ""
     schedule_triggered_at = b1_payload.get("schedule_triggered_at") or ""
@@ -11966,6 +11983,19 @@ def run_decision_after_b1(b1_payload: dict[str, Any], force: bool = False) -> di
             and candidate_is_buyable(c)
         )
     ]
+    if holding_cycle_only:
+        open_holding_codes = {
+            normalize_code(code)
+            for code, position in (state.get("positions") or {}).items()
+            if isinstance(position, dict) and position_qty(position) > 0
+        }
+        allowed_holding_codes = open_holding_codes & holding_cycle_codes
+        candidates = [
+            candidate
+            for candidate in candidates
+            if normalize_code(candidate.get("code") or "")
+            in allowed_holding_codes
+        ]
     if frozen_prompt_version is not None:
         frozen_version_id = str(frozen_prompt_version.get("version_id") or "")
         prompt_exit_codes = {
@@ -12049,6 +12079,11 @@ def run_decision_after_b1(b1_payload: dict[str, Any], force: bool = False) -> di
             candidates,
             market_strategy_ctx,
         )
+        if holding_cycle_only:
+            resolved_decision["holding_cycle_only"] = True
+            resolved_decision["decision_cycle_kind"] = (
+                decision_cycle_kind or "holding_fast"
+            )
         return resolved_decision
 
     try:
@@ -12174,6 +12209,9 @@ def run_decision_after_b1(b1_payload: dict[str, Any], force: bool = False) -> di
         }
         executed = []
         state["last_error"] = decision["error"]
+    if holding_cycle_only:
+        decision["holding_cycle_only"] = True
+        decision["decision_cycle_kind"] = decision_cycle_kind or "holding_fast"
     state["last_b1_generated_at"] = generated_at
     state["last_decision_at"] = now_ts()
     log_entry = {
@@ -12192,8 +12230,14 @@ def run_decision_after_b1(b1_payload: dict[str, Any], force: bool = False) -> di
     }
     if schedule_slot:
         log_entry["schedule_slot"] = schedule_slot
+    if schedule_run_kind:
         log_entry["schedule_run_kind"] = schedule_run_kind
+    if schedule_triggered_at:
         log_entry["schedule_triggered_at"] = schedule_triggered_at
+    if decision_cycle_kind:
+        log_entry["decision_cycle_kind"] = decision_cycle_kind
+    if holding_cycle_only:
+        log_entry["holding_cycle_only"] = True
     state.setdefault("decision_log", []).append(log_entry)
     del state["decision_log"][:-50]
     candidate_evidence_valid = _decision_has_candidate_evidence(log_entry)

@@ -250,9 +250,11 @@ NiuOne 的盘面总结和买卖决策需要接入大模型。美股机构评级�
 | `DASHBOARD_NIUONE_FORWARD_PREFLIGHT_CRON` | `5 9 * * 1-5` | Scheduler 启动时立即预检，周一至周五 09:05 再校验严格前向协议 |
 | `DASHBOARD_NIUONE_EQUITY_SNAPSHOT_CRON` | `15 15 * * 1-5` | 实际 A 股运行日盘后刷新行情并保存无交易副作用的账户权益快照 |
 | `DASHBOARD_NIUONE_FORWARD_CRON` | `20 15 * * 1-5` | 周一至周五盘后从耐久成交账本重算牛牛严格前向报告；下一轮 Cron 生效 |
-| `DASHBOARD_NIUONE_FORWARD_COHORT_START` | `2026-08-24` | 严格前向队列起始日；修改规则时归档旧协议锁并从新交易日重新累计 |
+| `DASHBOARD_NIUONE_FORWARD_COHORT_START` | `2026-08-27` | 严格前向队列起始日；修改规则时归档旧协议锁并从新交易日重新累计 |
 | `DASHBOARD_ACTIVE_STRATEGY` | `niuone` | 当前独立策略；保存后下一轮扫描热生效 |
 | `DASHBOARD_PRACTICE_SCHEDULE_TIMES` | `09:25,10:00,10:30,11:00,11:20,13:00,13:30,14:00,14:30,14:50` | 盘面总结、选股和模拟决策的共享时间点 |
+| `DASHBOARD_PRACTICE_FAST_CYCLE_ENABLED` | `0` | 是否启用仅重评当前持仓的同策略快周期；运行时热生效，默认关闭 |
+| `DASHBOARD_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS` | `300` | 持仓快周期触发间隔，允许 60～900 秒；运行时热生效 |
 | `DASHBOARD_KLINE_BOOTSTRAP_ENABLED` | `1` | 首次部署或缓存过期后立即准备全市场日 K；重启生效 |
 | `DASHBOARD_KLINE_READINESS_MIN_COVERAGE_PERCENT` | `90` | 实战扫描放行所需的日期有效日 K 覆盖率；允许 90～100，重启生效 |
 | `DASHBOARD_TENCENT_QUOTE_STAGE_TIMEOUT_SECONDS` | `90` | 全市场实时行情阶段总预算；允许 15～300 秒，重启生效 |
@@ -266,6 +268,8 @@ NiuOne 的盘面总结和买卖决策需要接入大模型。美股机构评级�
 | `DASHBOARD_AUTO_VERSION_CHECK_ENABLED` | `1` | 页面加载时是否检查 Docker Hub 新版本；运行时热生效，不会自动安装更新 |
 
 保存设置后，运行时可热应用的配置会立即用于后续请求；需要重启的配置请重启本地服务。
+
+开启持仓快周期后，Dashboard 只把当前持仓作为增量评分范围，但继续复用完整周期的当前策略评分器、统一盘面总结、模型决策、SELL 优先和成交风控。快周期不会发现新股票，BUY 只允许对执行时仍存在的持仓加仓；首次建仓和同轮卖出后回补都会失败关闭。行情或日 K 不完整时仍执行正常 SELL/HOLD 检查，但不给予快周期 BUY 资格。快慢周期共享账户决策锁，发生重叠时快周期直接跳过。
 
 ## 独立进程与长期运行
 
@@ -333,6 +337,8 @@ v38 解除牛牛试仓每日 2 个候选和同板块/同题材 2 只持仓的固
 v39 将共享盘面提示中的午盘数量和午后保留名额明确限定为非牛牛规则，牛牛 BUY/HOLD 只与 5 只硬上限比较。独立部署严格前向协议升级为 `niuone-strict-forward-v39`，管理员回测仍为 `niuone-backtest-v37`，默认新队列日期为 `2026-08-24`；部署前归档 v38 锁和报告。
 
 v40 将牛牛试仓绝对上限提高到 10%，轮动试仓单笔权益风险和单主题风险同步提高到 1%；本地生命周期规则对满足跨日主升、强势领涨且浮盈 2%～12% 的持仓确定性生成 10%/20% 分级加仓，明确 SELL 仍退出优先，原风险、敞口、现金与 T+1 边界继续有效。独立部署严格前向/管理员回测协议升级为 `niuone-strict-forward-v40`/`niuone-backtest-v38`，默认队列日期保持 `2026-08-24`；部署前归档 v39 锁、报告和旧回测结果。
+
+v41 增加默认关闭的持仓快周期，只缩小增量评分范围，不改变当前策略评分、统一盘面总结、模型决策、SELL 优先或成交风控。快周期 BUY 只允许加到执行时仍存在的持仓，不能发现、首次买入或卖后回补新仓；运行来源以 `holding_fast` 耐久归因，开关和 60～900 秒间隔进入协议指纹。独立部署严格前向协议升级为 `niuone-strict-forward-v41`，管理员日线回测仍为 `niuone-backtest-v38`，默认新队列从 `2026-08-27` 开始；部署前归档 v40 锁和报告。
 
 ### 一键启用
 

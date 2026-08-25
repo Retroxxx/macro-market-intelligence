@@ -163,6 +163,10 @@ from screening.candidate_cache import (
     build_practice_candidates_cache_payload,
     write_practice_candidates_cache,
 )
+from screening.holding_cycle import (
+    HOLDING_CYCLE_KIND,
+    build_holding_cycle_payload,
+)
 from screening.niuone_mainline_cache import (
     build_niuone_mainline_summary_cache_payload,
     write_niuone_mainline_cache,
@@ -353,8 +357,15 @@ B1_SCAN_TIMEOUT_SECONDS = int(os.environ.get("DASHBOARD_B1_SCAN_TIMEOUT_SECONDS"
 PRACTICE_SCHEDULE_TIMES_ENV = "DASHBOARD_PRACTICE_SCHEDULE_TIMES"
 LEGACY_B1_SCHEDULE_TIMES_ENV = "DASHBOARD_B1_SCHEDULE_TIMES"
 DEFAULT_PRACTICE_SCHEDULE_TIMES = "09:25,10:00,10:30,11:00,11:20,13:00,13:30,14:00,14:30,14:50"
+PRACTICE_FAST_CYCLE_ENABLED_ENV = "DASHBOARD_PRACTICE_FAST_CYCLE_ENABLED"
+PRACTICE_FAST_CYCLE_INTERVAL_ENV = (
+    "DASHBOARD_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS"
+)
+DEFAULT_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS = 300
+MIN_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS = 60
+MAX_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS = 900
 NIUONE_FORWARD_COHORT_START_ENV = "DASHBOARD_NIUONE_FORWARD_COHORT_START"
-DEFAULT_NIUONE_FORWARD_COHORT_START = "2026-08-24"
+DEFAULT_NIUONE_FORWARD_COHORT_START = "2026-08-27"
 
 
 def resolve_practice_schedule_times(values: Mapping[str, str] | None = None) -> tuple[str, ...]:
@@ -373,6 +384,15 @@ def resolve_practice_schedule_times(values: Mapping[str, str] | None = None) -> 
 
 
 PRACTICE_SCHEDULE_TIMES = resolve_practice_schedule_times()
+PRACTICE_FAST_CYCLE_ENABLED = str(
+    os.environ.get(PRACTICE_FAST_CYCLE_ENABLED_ENV, "0") or "0"
+).strip().lower() not in {"0", "false", "no", "off"}
+PRACTICE_FAST_CYCLE_INTERVAL_SECONDS = _bounded_int_value(
+    os.environ.get(PRACTICE_FAST_CYCLE_INTERVAL_ENV),
+    DEFAULT_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS,
+    MIN_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS,
+    MAX_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS,
+)
 B1_SCHEDULE_ENABLED = os.environ.get("DASHBOARD_B1_SCHEDULE_ENABLED", "1").lower() not in {"0", "false", "no"}
 B1_SCHEDULE_STATE_FILE = CRON_STATE_DIR / "b1_schedule_state.json"
 B1_SCHEDULE_HISTORY_RETENTION_DAYS = 400
@@ -381,6 +401,7 @@ B1_SCHEDULE_STALE_SECONDS = int(os.environ.get("DASHBOARD_B1_SCHEDULE_STALE_SECO
 B1_SCHEDULE_RUN_KEYS: set[str] = set()
 B1_SCHEDULE_LOCK = threading.RLock()
 B1_SCHEDULE_THREAD: threading.Thread | None = None
+PRACTICE_FAST_CYCLE_THREAD: threading.Thread | None = None
 NIUONE_MAINLINE_SCAN_LOCK = threading.Lock()
 NIUONE_MAINLINE_SCAN_THREAD: threading.Thread | None = None
 DEFAULT_KLINE_PREWARM_TIME = "09:10"
@@ -775,6 +796,8 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
 
     {"name": "DASHBOARD_B1_SCHEDULE_ENABLED", "label": "启用实战定时运行", "group": "任务调度", "kind": "bool", "default": "1", "effect": "restart"},
     {"name": PRACTICE_SCHEDULE_TIMES_ENV, "label": "实战盘面总结、选股及交易时间点", "group": "选股与买卖设置", "kind": "time_list", "default": DEFAULT_PRACTICE_SCHEDULE_TIMES, "effect": "runtime"},
+    {"name": PRACTICE_FAST_CYCLE_ENABLED_ENV, "label": "启用持仓快周期", "group": "选股与买卖设置", "kind": "bool", "default": "0", "effect": "runtime", "help_title": "同策略持仓快周期", "help_summary": "仅缩小到当前持仓并提高触发频率，评分、模型决策、退出优先和成交风控与完整选股周期共用。", "help_footer": "快周期 BUY 只表示已有持仓加仓，不发现或首次买入新股票；默认关闭。"},
+    {"name": PRACTICE_FAST_CYCLE_INTERVAL_ENV, "label": "持仓快周期间隔（秒）", "group": "选股与买卖设置", "kind": "int", "default": str(DEFAULT_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS), "effect": "runtime", "min": str(MIN_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS), "max": str(MAX_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS), "help_title": "持仓重评频率", "help_summary": "在A股可成交时段按该间隔重新评判当前持仓，默认300秒。", "help_footer": "设置越短，行情与模型调用越频繁；同一时刻仍只允许一个账户决策事务。"},
     {"name": STOCK_UNIVERSE_ENV, "label": "选股范围（限制最终候选与新买入）", "group": "选股与买卖设置", "kind": "stock_universe", "default": DEFAULT_STOCK_UNIVERSE, "effect": "runtime"},
     {"name": "DASHBOARD_DISPLAY_CANDIDATE_LIMIT", "label": "候选池展示数量", "group": "选股与买卖设置", "kind": "int", "default": "10", "effect": "runtime"},
     {"name": "DASHBOARD_TRADE_CANDIDATE_LIMIT", "label": "买卖决策候选数量", "group": "选股与买卖设置", "kind": "int", "default": "10", "effect": "runtime"},
@@ -971,6 +994,8 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "DASHBOARD_TELEGRAM_BOT_TOKEN",
     "DASHBOARD_TELEGRAM_CHAT_ID",
     PRACTICE_SCHEDULE_TIMES_ENV,
+    PRACTICE_FAST_CYCLE_ENABLED_ENV,
+    PRACTICE_FAST_CYCLE_INTERVAL_ENV,
     STOCK_UNIVERSE_ENV,
     "DASHBOARD_DISPLAY_CANDIDATE_LIMIT",
     "DASHBOARD_TRADE_CANDIDATE_LIMIT",
@@ -1877,17 +1902,44 @@ def normalize_b1_payload_for_trader(b1_payload: dict[str, Any]) -> dict[str, Any
         payload["market_summary"] = b1_payload.get("market_summary")
     if isinstance(b1_payload.get("market_decision_context"), dict):
         payload["market_decision_context"] = b1_payload.get("market_decision_context")
+    if b1_payload.get("holding_cycle_only") is True:
+        payload["holding_cycle_only"] = True
+        payload["holding_cycle_codes"] = [
+            str(code)
+            for code in (b1_payload.get("holding_cycle_codes") or [])
+            if str(code)
+        ]
+    for key in (
+        "decision_cycle_kind",
+        "holding_cycle_data_status",
+        "holding_cycle_error",
+    ):
+        if b1_payload.get(key):
+            payload[key] = b1_payload.get(key)
     for key in ("schedule_slot", "schedule_run_kind", "schedule_triggered_at"):
         if b1_payload.get(key):
             payload[key] = b1_payload.get(key)
     return payload
 
-def run_practice_decision(b1_payload: dict[str, Any]) -> dict[str, Any]:
+def run_practice_decision(
+    b1_payload: dict[str, Any],
+    *,
+    blocking: bool = True,
+) -> dict[str, Any]:
     # Different schedule slots may finish their scans out of order. Serialize
     # the account read/decision/execute/save transaction so a later slot cannot
     # trade against a portfolio snapshot captured before an earlier fill.
-    with PRACTICE_DECISION_LOCK:
+    acquired = PRACTICE_DECISION_LOCK.acquire(blocking=blocking)
+    if not acquired:
+        return {
+            "skipped": True,
+            "reason": "practice_decision_busy",
+            "decision_cycle_kind": b1_payload.get("decision_cycle_kind") or "",
+        }
+    try:
         return get_trader_module().run_decision_after_b1(b1_payload)
+    finally:
+        PRACTICE_DECISION_LOCK.release()
 
 
 def _tencent_key_for_code(code: str) -> str:
@@ -2308,6 +2360,7 @@ def run_practice_decision_logged(
     *,
     record_start: bool = False,
     refresh_market_summary: bool = True,
+    decision_blocking: bool = True,
 ) -> dict[str, Any]:
     payload = normalize_b1_payload_for_trader(b1_payload)
     try:
@@ -2347,7 +2400,7 @@ def run_practice_decision_logged(
             f"选股后买卖决策开始{slot_note}：候选池{observed_count}只，决策池{item_count}只",
         )
     try:
-        return run_practice_decision(payload)
+        return run_practice_decision(payload, blocking=decision_blocking)
     except Exception as exc:
         err = f"{type(exc).__name__}: {exc}"
         record_practice_decision_event(
@@ -4087,6 +4140,146 @@ def b1_schedule_loop() -> None:
         time.sleep(15)
 
 
+def practice_fast_cycle_context_payload() -> dict[str, Any]:
+    """Combine the latest complete scan with the freshest NiuOne context."""
+
+    payload: dict[str, Any] = {}
+    for path in (MULTI_STRATEGY_CACHE_FILE, B1_CACHE_FILE):
+        candidate = read_json_cache(path, None)
+        if not isinstance(candidate, dict):
+            continue
+        if not payload or str(candidate.get("generated_at") or "") > str(
+            payload.get("generated_at") or ""
+        ):
+            payload = dict(candidate)
+    niuone_payload = load_niuone_mainline_cache_payload()
+    niuone_context = niuone_payload.get("niuone_context")
+    if isinstance(niuone_context, dict):
+        payload["niuone_context"] = dict(niuone_context)
+        payload["niuone_context_generated_at"] = str(
+            niuone_payload.get("generated_at") or ""
+        )
+    return payload
+
+
+def run_practice_fast_cycle_once(
+    now: datetime | None = None,
+    *,
+    trader: Any | None = None,
+    payload_builder: Callable[..., dict[str, Any]] = build_holding_cycle_payload,
+) -> dict[str, Any]:
+    """Run one holdings-only decision cycle without widening the symbol set."""
+
+    current = now or current_cn_datetime()
+    if not PRACTICE_FAST_CYCLE_ENABLED:
+        return {"skipped": True, "reason": "practice_fast_cycle_disabled"}
+    trader = trader or get_trader_module()
+    trade_allowed, trade_reason = trader.is_a_share_execution_time(current)
+    if not trade_allowed:
+        return {
+            "skipped": True,
+            "reason": "outside_a_share_execution_time",
+            "trade_reason": trade_reason,
+        }
+    state = trader.load_state()
+    holdings: list[dict[str, Any]] = []
+    for code, position in (state.get("positions") or {}).items():
+        if not isinstance(position, dict):
+            continue
+        quantity = (
+            trader.position_qty(position)
+            if hasattr(trader, "position_qty")
+            else int(position.get("qty") or position.get("quantity") or 0)
+        )
+        if quantity <= 0:
+            continue
+        holdings.append({
+            **position,
+            "code": str(position.get("code") or code),
+            "qty": quantity,
+        })
+    if not holdings:
+        return {"skipped": True, "reason": "no_open_positions"}
+
+    payload = payload_builder(
+        holdings,
+        practice_fast_cycle_context_payload(),
+        now=current,
+    )
+    if not isinstance(payload, dict):
+        raise TypeError("持仓快周期评分结果必须为字典")
+    payload["holding_cycle_only"] = True
+    payload["holding_cycle_codes"] = sorted(
+        str(holding.get("code") or "")
+        for holding in holdings
+        if str(holding.get("code") or "")
+    )
+    payload["decision_cycle_kind"] = HOLDING_CYCLE_KIND
+    payload["schedule_run_kind"] = HOLDING_CYCLE_KIND
+    payload["schedule_triggered_at"] = current.strftime("%Y-%m-%d %H:%M:%S")
+    result = run_practice_decision_logged(
+        payload,
+        record_start=True,
+        refresh_market_summary=True,
+        decision_blocking=False,
+    )
+    if result.get("reason") != "practice_decision_busy":
+        invalidate_api_cache(
+            "niuniu_practice",
+            PRACTICE_FAST_CACHE_KEY,
+            "practice_benchmarks",
+        )
+    return {
+        **result,
+        "decision_cycle_kind": HOLDING_CYCLE_KIND,
+        "holding_cycle_data_status": payload.get(
+            "holding_cycle_data_status",
+            "",
+        ),
+    }
+
+
+def practice_fast_cycle_loop(
+    *,
+    stop_event: threading.Event | None = None,
+    poll_seconds: float = 5.0,
+) -> None:
+    """Poll the hot-applied switch and run at the configured bounded cadence."""
+
+    stop_event = stop_event or threading.Event()
+    last_attempt = 0.0
+    while not stop_event.is_set():
+        now_monotonic = time.monotonic()
+        interval = float(PRACTICE_FAST_CYCLE_INTERVAL_SECONDS)
+        if (
+            PRACTICE_FAST_CYCLE_ENABLED
+            and now_monotonic - last_attempt >= interval
+        ):
+            last_attempt = now_monotonic
+            try:
+                result = run_practice_fast_cycle_once()
+                if not result.get("skipped"):
+                    print(
+                        "[practice fast cycle] "
+                        f"status={result.get('holding_cycle_data_status') or 'ready'} "
+                        f"executed={len(result.get('executed') or [])}",
+                        flush=True,
+                    )
+            except Exception as exc:
+                print(
+                    "[WARN] 持仓快周期失败: "
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+            finally:
+                # Keep the configured interval between completed attempts so
+                # a slow upstream/model call cannot create an immediate retry
+                # loop after it returns.
+                last_attempt = time.monotonic()
+        if stop_event.wait(max(1.0, min(float(poll_seconds), interval))):
+            return
+
+
 def pending_decision_loop() -> None:
     while True:
         try:
@@ -5135,6 +5328,29 @@ def start_b1_scheduler() -> None:
     B1_SCHEDULE_THREAD = threading.Thread(target=b1_schedule_loop, name="b1-scheduler", daemon=True)
     B1_SCHEDULE_THREAD.start()
     print(f"Practice schedule enabled: {', '.join(PRACTICE_SCHEDULE_TIMES)}", flush=True)
+
+
+def start_practice_fast_cycle() -> None:
+    """Keep one dormant-capable worker so the setting can hot-apply."""
+
+    global PRACTICE_FAST_CYCLE_THREAD
+    if (
+        PRACTICE_FAST_CYCLE_THREAD
+        and PRACTICE_FAST_CYCLE_THREAD.is_alive()
+    ):
+        return
+    PRACTICE_FAST_CYCLE_THREAD = threading.Thread(
+        target=practice_fast_cycle_loop,
+        name="practice-fast-cycle",
+        daemon=True,
+    )
+    PRACTICE_FAST_CYCLE_THREAD.start()
+    print(
+        "Practice holding fast cycle "
+        f"{'enabled' if PRACTICE_FAST_CYCLE_ENABLED else 'available'}: "
+        f"{PRACTICE_FAST_CYCLE_INTERVAL_SECONDS}s",
+        flush=True,
+    )
 
 
 def start_kline_prewarm_scheduler() -> None:
@@ -6842,6 +7058,16 @@ def validate_business_updates(updates: dict[str, str]) -> None:
             }[name]
             if number < minimum or number > maximum:
                 raise ValueError(f"{name} 必须在 {minimum} 到 {maximum} 之间")
+        elif name == PRACTICE_FAST_CYCLE_INTERVAL_ENV and str(value or "").strip():
+            number = int(value)
+            if (
+                number < MIN_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS
+                or number > MAX_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS
+            ):
+                raise ValueError(
+                    f"{name} 必须在 {MIN_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS} 到 "
+                    f"{MAX_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS} 之间"
+                )
         elif (
             name == "DASHBOARD_MARKET_BREADTH_SAMPLE_INTERVAL_SECONDS"
             and str(value or "").strip()
@@ -6982,6 +7208,7 @@ def sync_business_runtime_settings(
     sync_names: list[str] | set[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     global ADMIN_PASSWORD, B1_CANDIDATE_REFRESH_LAST_TS, PRACTICE_SCHEDULE_TIMES
+    global PRACTICE_FAST_CYCLE_ENABLED, PRACTICE_FAST_CYCLE_INTERVAL_SECONDS
     global INDUSTRY_FLOW_PLAYBACK_SPEED, INDUSTRY_FLOW_SAMPLE_INTERVAL_SECONDS, INDUSTRY_FLOW_SIDE_LIMIT
     global INDUSTRY_FLOW_SAMPLING_WINDOWS
     global TRADER_MODULE, TRADER_MODULE_MTIME, TRADER_SELL_SIGNALS_MTIME
@@ -7011,6 +7238,22 @@ def sync_business_runtime_settings(
         )
         applied.append("practice_schedule_times")
         start_b1_scheduler()
+    fast_cycle_names = {
+        PRACTICE_FAST_CYCLE_ENABLED_ENV,
+        PRACTICE_FAST_CYCLE_INTERVAL_ENV,
+    }
+    if changed_names & fast_cycle_names:
+        PRACTICE_FAST_CYCLE_ENABLED = str(
+            env_values.get(PRACTICE_FAST_CYCLE_ENABLED_ENV, "0") or "0"
+        ).strip().lower() not in {"0", "false", "no", "off"}
+        PRACTICE_FAST_CYCLE_INTERVAL_SECONDS = _bounded_int_value(
+            env_values.get(PRACTICE_FAST_CYCLE_INTERVAL_ENV),
+            DEFAULT_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS,
+            MIN_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS,
+            MAX_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS,
+        )
+        applied.append("practice_fast_cycle")
+        start_practice_fast_cycle()
 
     if "DASHBOARD_INDICES_TTL_SECONDS" in changed_names:
         try:

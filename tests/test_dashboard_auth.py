@@ -1498,6 +1498,23 @@ console.log(JSON.stringify({
         self.assertEqual(payload['sector_tide_context'], tide_context)
         self.assertEqual(payload['schedule_slot'], '2026-07-10 10:00')
 
+    def test_b1_payload_preserves_holding_fast_cycle_boundary(self):
+        payload = dashboard.normalize_b1_payload_for_trader({
+            'generated_at': '2026-08-27 10:05:00',
+            'items': [{'code': '600001'}],
+            'holding_cycle_only': True,
+            'holding_cycle_codes': ['600001'],
+            'decision_cycle_kind': 'holding_fast',
+            'holding_cycle_data_status': 'ready',
+            'schedule_run_kind': 'holding_fast',
+        })
+
+        self.assertTrue(payload['holding_cycle_only'])
+        self.assertEqual(payload['holding_cycle_codes'], ['600001'])
+        self.assertEqual(payload['decision_cycle_kind'], 'holding_fast')
+        self.assertEqual(payload['holding_cycle_data_status'], 'ready')
+        self.assertEqual(payload['schedule_run_kind'], 'holding_fast')
+
     def test_b1_payload_preserves_explicit_empty_trade_candidates(self):
         display_candidate = {'code': '600001', 'actionable': False}
 
@@ -8199,7 +8216,7 @@ process.stdout.write(JSON.stringify({{
             if item['name'] == dashboard.NIUONE_FORWARD_COHORT_START_ENV
         )
 
-        self.assertEqual(item['default'], '2026-08-24')
+        self.assertEqual(item['default'], '2026-08-27')
         self.assertEqual(item['effect'], 'next_run')
         preflight = next(
             item
@@ -8615,6 +8632,123 @@ process.stdout.write(JSON.stringify({{
             }),
             (),
         )
+
+    def test_holding_fast_cycle_settings_are_bounded_and_hot_applied(self):
+        by_name = {
+            item['name']: item
+            for item in dashboard.ENV_CONFIG_SCHEMA
+        }
+        enabled = by_name[dashboard.PRACTICE_FAST_CYCLE_ENABLED_ENV]
+        interval = by_name[dashboard.PRACTICE_FAST_CYCLE_INTERVAL_ENV]
+
+        self.assertEqual(enabled['default'], '0')
+        self.assertEqual(enabled['effect'], 'runtime')
+        self.assertEqual(interval['default'], '300')
+        self.assertEqual(interval['min'], '60')
+        self.assertEqual(interval['max'], '900')
+        for invalid in ('59', '901'):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                dashboard.validate_business_updates({
+                    dashboard.PRACTICE_FAST_CYCLE_INTERVAL_ENV: invalid,
+                })
+
+        original_enabled = dashboard.PRACTICE_FAST_CYCLE_ENABLED
+        original_interval = dashboard.PRACTICE_FAST_CYCLE_INTERVAL_SECONDS
+        original_start = dashboard.start_practice_fast_cycle
+        starts = []
+        try:
+            dashboard.DASHBOARD_ENV_FILE.write_text(
+                f'{dashboard.PRACTICE_FAST_CYCLE_ENABLED_ENV}=1\n'
+                f'{dashboard.PRACTICE_FAST_CYCLE_INTERVAL_ENV}=120\n',
+                encoding='utf-8',
+            )
+            dashboard.start_practice_fast_cycle = lambda: starts.append(True)
+            result = dashboard.sync_business_runtime_settings({
+                dashboard.PRACTICE_FAST_CYCLE_ENABLED_ENV,
+                dashboard.PRACTICE_FAST_CYCLE_INTERVAL_ENV,
+            })
+        finally:
+            dashboard.PRACTICE_FAST_CYCLE_ENABLED = original_enabled
+            dashboard.PRACTICE_FAST_CYCLE_INTERVAL_SECONDS = original_interval
+            dashboard.start_practice_fast_cycle = original_start
+
+        self.assertEqual(starts, [True])
+        self.assertIn('practice_fast_cycle', result['applied'])
+
+    def test_holding_fast_cycle_runs_only_current_positions(self):
+        class FakeTrader:
+            @staticmethod
+            def is_a_share_execution_time(_now=None):
+                return True, '连续竞价交易时段'
+
+            @staticmethod
+            def load_state():
+                return {
+                    'positions': {
+                        '600001': {
+                            'code': '600001',
+                            'name': '持仓股',
+                            'qty': 200,
+                        },
+                        '600002': {
+                            'code': '600002',
+                            'name': '已清仓',
+                            'qty': 0,
+                        },
+                    },
+                }
+
+            @staticmethod
+            def position_qty(position):
+                return int(position.get('qty') or 0)
+
+        original_enabled = dashboard.PRACTICE_FAST_CYCLE_ENABLED
+        original_context = dashboard.practice_fast_cycle_context_payload
+        original_run = dashboard.run_practice_decision_logged
+        original_invalidate = dashboard.invalidate_api_cache
+        calls = {'builder': None, 'decision': None}
+
+        def payload_builder(holdings, context, *, now):
+            calls['builder'] = (holdings, context, now)
+            return {
+                'generated_at': '2026-08-27 10:05:00',
+                'items': [{'code': '999999'}],
+                'holding_cycle_data_status': 'ready',
+            }
+
+        def run_logged(payload, **kwargs):
+            calls['decision'] = (payload, kwargs)
+            return {'executed': []}
+
+        try:
+            dashboard.PRACTICE_FAST_CYCLE_ENABLED = True
+            dashboard.practice_fast_cycle_context_payload = lambda: {
+                'niuone_context': {'market': {'regime': 'balanced'}},
+            }
+            dashboard.run_practice_decision_logged = run_logged
+            dashboard.invalidate_api_cache = lambda *_keys: None
+            result = dashboard.run_practice_fast_cycle_once(
+                datetime(2026, 8, 27, 10, 5, 0),
+                trader=FakeTrader(),
+                payload_builder=payload_builder,
+            )
+        finally:
+            dashboard.PRACTICE_FAST_CYCLE_ENABLED = original_enabled
+            dashboard.practice_fast_cycle_context_payload = original_context
+            dashboard.run_practice_decision_logged = original_run
+            dashboard.invalidate_api_cache = original_invalidate
+
+        holdings, context, current = calls['builder']
+        self.assertEqual([item['code'] for item in holdings], ['600001'])
+        self.assertIn('niuone_context', context)
+        self.assertEqual(current, datetime(2026, 8, 27, 10, 5, 0))
+        payload, kwargs = calls['decision']
+        self.assertTrue(payload['holding_cycle_only'])
+        self.assertEqual(payload['holding_cycle_codes'], ['600001'])
+        self.assertEqual(payload['decision_cycle_kind'], 'holding_fast')
+        self.assertEqual(payload['schedule_run_kind'], 'holding_fast')
+        self.assertFalse(kwargs['decision_blocking'])
+        self.assertEqual(result['decision_cycle_kind'], 'holding_fast')
 
     def test_practice_schedule_setting_migrates_legacy_dashboard_env_key(self):
         original_env_file = dashboard.DASHBOARD_ENV_FILE

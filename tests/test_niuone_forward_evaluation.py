@@ -419,7 +419,7 @@ def operating_settings(*times: str) -> dict[str, str]:
 
 class NiuOneForwardEvaluationTests(unittest.TestCase):
     def test_protocol_identity_covers_evidence_pipeline_and_effective_paths(self):
-        self.assertEqual(DEFAULT_COHORT_START, "2026-08-24")
+        self.assertEqual(DEFAULT_COHORT_START, "2026-08-27")
         expected_sources = {
             "app/automation/cron.py",
             "app/automation/scheduler_service.py",
@@ -427,6 +427,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
             "app/entrypoints/evaluate_niuone_forward.py",
             "app/storage/practice_db.py",
             "app/strategies/display.py",
+            "app/screening/holding_cycle.py",
             "app/trading/niuone_forward.py",
             "app/trading/niuone_forward_service.py",
             "app/trading/practice_trader.py",
@@ -907,8 +908,8 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
 
         self.assertEqual(first_code, 0)
         self.assertEqual(first_report["protocol_integrity"]["status"], "frozen")
-        self.assertEqual(first_report["protocol_integrity"]["source_file_count"], 22)
-        self.assertEqual(first_report["protocol_integrity"]["runtime_setting_count"], 51)
+        self.assertEqual(first_report["protocol_integrity"]["source_file_count"], 23)
+        self.assertEqual(first_report["protocol_integrity"]["runtime_setting_count"], 53)
         self.assertEqual(
             first_report["evidence_gate"]["status"],
             "operations_blocked",
@@ -2340,6 +2341,45 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
             },
         )
 
+    def test_holding_fast_entry_does_not_require_a_schedule_slot(self):
+        rows = [
+            trade(
+                "2026-08-04 10:05:00",
+                "BUY",
+                "holding-fast",
+                100,
+                1000,
+                before_qty=0,
+                after_qty=100,
+                context=complete_context(
+                    entry_schedule_slot="",
+                    entry_schedule_run_kind="holding_fast",
+                    entry_schedule_triggered_at="2026-08-04 10:05:00",
+                    entry_execution_mode="direct",
+                ),
+            ),
+            trade(
+                "2026-08-05 10:00:00",
+                "SELL",
+                "holding-fast",
+                100,
+                1010,
+                before_qty=100,
+                after_qty=0,
+            ),
+        ]
+
+        report = evaluate_niuone_forward(rows, as_of="2026-08-06")
+
+        self.assertNotIn(
+            "entry_schedule_slot",
+            report["coverage"]["missing_entry_attribution_fields"],
+        )
+        self.assertIn(
+            "holding_fast",
+            report["protocol"]["allowed_schedule_run_kinds"],
+        )
+
     def test_missing_entry_industry_blocks_performance_attribution(self):
         rows = [
             trade(
@@ -2674,7 +2714,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
 
         self.assertEqual(report["overall"]["completed_trade_count"], 1)
         self.assertEqual(report["coverage"]["duplicate_trade_count"], 2)
-        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v40")
+        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v41")
         self.assertEqual(
             report["protocol"][
                 "niuone_markup_upgrade_absolute_position_cap_pct"

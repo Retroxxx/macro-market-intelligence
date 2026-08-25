@@ -250,9 +250,11 @@ By default, runtime data is stored in:
 | `DASHBOARD_NIUONE_FORWARD_PREFLIGHT_CRON` | `5 9 * * 1-5` | Verify the strict-forward protocol immediately at Scheduler startup and again at 09:05 Monday through Friday |
 | `DASHBOARD_NIUONE_EQUITY_SNAPSHOT_CRON` | `15 15 * * 1-5` | Refresh marks without trading and persist account equity after each actual A-share session |
 | `DASHBOARD_NIUONE_FORWARD_CRON` | `20 15 * * 1-5` | Recompute the NiuOne strict-forward report from the durable fill ledger after each Monday-through-Friday session; applies on the next Cron cycle |
-| `DASHBOARD_NIUONE_FORWARD_COHORT_START` | `2026-08-24` | Strict-forward cohort start; archive the old protocol lock and restart from a new trading day after a rule change |
+| `DASHBOARD_NIUONE_FORWARD_COHORT_START` | `2026-08-27` | Strict-forward cohort start; archive the old protocol lock and restart from a new trading day after a rule change |
 | `DASHBOARD_ACTIVE_STRATEGY` | `niuone` | Active independent strategy; changes apply to the next scan without a restart |
 | `DASHBOARD_PRACTICE_SCHEDULE_TIMES` | `09:25,10:00,10:30,11:00,11:20,13:00,13:30,14:00,14:30,14:50` | Shared schedule for market summaries, screening, and simulated decisions |
+| `DASHBOARD_PRACTICE_FAST_CYCLE_ENABLED` | `0` | Enable same-policy rescoring of current holdings only; hot-applied and disabled by default |
+| `DASHBOARD_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS` | `300` | Holding fast-cycle interval, from 60 through 900 seconds; hot-applied |
 | `DASHBOARD_KLINE_BOOTSTRAP_ENABLED` | `1` | Prepare full-market daily K lines immediately after a first deployment or cache expiry; requires a restart |
 | `DASHBOARD_KLINE_READINESS_MIN_COVERAGE_PERCENT` | `90` | Valid-date daily-K-line coverage required to admit a Practice scan, from 90 through 100; requires a restart |
 | `DASHBOARD_TENCENT_QUOTE_STAGE_TIMEOUT_SECONDS` | `90` | Aggregate budget for the full-market live-quote stage, from 15 through 300 seconds; requires a restart |
@@ -266,6 +268,8 @@ By default, runtime data is stored in:
 | `DASHBOARD_AUTO_VERSION_CHECK_ENABLED` | `1` | Check Docker Hub for a newer release on page load; applies at runtime and never installs an update automatically |
 
 After settings are saved, configurations that support hot application are used immediately for subsequent requests. Restart the local service for configurations that require a restart.
+
+When the holding fast cycle is enabled, the Dashboard narrows only the incremental scoring universe to current positions while retaining the complete cycle's active scorers, unified market summary, model decision, exit-first ordering, and execution controls. It never discovers a new symbol: BUY is add-only for a position that still exists at execution, while first entries and same-cycle sell-then-rebuy attempts fail closed. Missing live quotes or daily bars remove fast-cycle BUY eligibility without disabling normal SELL/HOLD checks. Fast and complete cycles share the account-decision lock, so an overlap skips the fast cycle.
 
 ## Independent Processes and Long-Term Operation
 
@@ -333,6 +337,8 @@ v38 removes NiuOne's fixed two-Probe daily candidate cap and fixed two-position 
 v39 scopes the shared market prompt's pre-lunch position count and reserved afternoon slots explicitly to non-NiuOne strategies. NiuOne BUY/HOLD decisions compare the book only with the five-position ceiling. Standalone strict-forward advances to `niuone-strict-forward-v39`, the administrator backtest remains `niuone-backtest-v37`, and the new default cohort starts on `2026-08-24`; archive the v38 lock and report before deployment.
 
 v40 raises the Probe absolute cap to 10% and raises both rotation Probe per-trade NAV risk and theme risk to 1%. The local lifecycle rule deterministically emits 10%/20% staged scale-ins for holdings with cross-session Markup persistence, strong leadership, and 2%–12% unrealized profit. Explicit SELL remains exit-first and all existing risk, exposure, cash, and T+1 boundaries remain active. Standalone strict-forward/admin-backtest advance to `niuone-strict-forward-v40`/`niuone-backtest-v38`; the default cohort remains `2026-08-24`. Archive the v39 lock, report, and older backtests before deployment.
+
+v41 adds a holding fast cycle that is disabled by default. It narrows only the incremental scoring universe and keeps the complete cycle's scoring, unified market summary, model policy, exit-first ordering, and execution controls. A fast-cycle BUY is add-only for a position that still exists at execution and cannot discover, open, or reopen a symbol. The durable origin is `holding_fast`, and the switch plus 60–900-second interval enter the protocol fingerprint. Standalone strict-forward advances to `niuone-strict-forward-v41`, the administrator daily-bar backtest remains `niuone-backtest-v38`, and the new default cohort starts on `2026-08-27`; archive the v40 lock and report before deployment.
 
 ### One-Click Enablement
 

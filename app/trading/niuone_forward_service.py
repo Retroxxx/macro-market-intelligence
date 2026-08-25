@@ -69,6 +69,7 @@ PROTOCOL_SOURCE_PATHS = (
     "app/strategies/scoring/engine.py",
     "app/strategies/scoring/niuone.py",
     "app/strategies/selection.py",
+    "app/screening/holding_cycle.py",
     "app/screening/multi_strategy.py",
     "app/trading/fees.py",
     "app/trading/niuone_forward.py",
@@ -87,6 +88,8 @@ PROTOCOL_RUNTIME_SETTING_DEFAULTS = {
     "DASHBOARD_PRACTICE_SCHEDULE_TIMES": (
         "09:25,10:00,10:30,11:00,11:20,13:00,13:30,14:00,14:30,14:50"
     ),
+    "DASHBOARD_PRACTICE_FAST_CYCLE_ENABLED": "0",
+    "DASHBOARD_PRACTICE_FAST_CYCLE_INTERVAL_SECONDS": "300",
     "DASHBOARD_B1_SCHEDULE_ENABLED": "1",
     "DASHBOARD_B1_SCHEDULE_CATCHUP_MINUTES": "35",
     "DASHBOARD_B1_SCAN_TIMEOUT_SECONDS": "480",
@@ -134,6 +137,7 @@ PROTOCOL_DERIVED_RUNTIME_SETTING_NAMES = (
 )
 _BOOLEAN_PROTOCOL_SETTINGS = {
     "DASHBOARD_B1_SCHEDULE_ENABLED",
+    "DASHBOARD_PRACTICE_FAST_CYCLE_ENABLED",
     "DASHBOARD_KLINE_CACHE_ENABLED",
     "DASHBOARD_KLINE_PREWARM_ENABLED",
     "DASHBOARD_MARKET_GUIDANCE_ENABLED",

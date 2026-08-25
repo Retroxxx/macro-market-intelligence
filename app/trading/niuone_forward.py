@@ -49,7 +49,7 @@ from app.strategies.policy import (
 from app.strategies.selection import strategy_daily_candidate_limit
 
 
-DEFAULT_COHORT_START = "2026-08-24"
+DEFAULT_COHORT_START = "2026-08-27"
 DEFAULT_MIN_COMPLETED_TRADES = 30
 DEFAULT_MIN_CALENDAR_MONTHS = 3
 DEFAULT_SHADOW_EXECUTION_GAP_PCT = 1.0
@@ -58,7 +58,7 @@ DEFAULT_HISTORICAL_REFERENCE_WIN_RATE_PCT = 59.71
 DEFAULT_WIN_RATE_CONFIDENCE_LEVEL = 0.95
 DEFAULT_MAX_PORTFOLIO_DRAWDOWN_PCT = 6.0
 DEFAULT_MIN_RETURN_TO_DRAWDOWN_RATIO = 1.0
-FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v40"
+FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v41"
 FORWARD_PERFORMANCE_CLUSTER_UNIT = "entry_date_x_entry_theme"
 FORWARD_SHADOW_CANDIDATES = {
     "execution_gap": "round13_execution_gap_le_1pct",
@@ -120,7 +120,11 @@ FORWARD_REQUIRED_EXIT_CONTEXT_FIELDS = (
     "path",
 )
 FORWARD_SCHEDULED_RUN_KINDS = frozenset({"scheduled", "catchup"})
-FORWARD_ALLOWED_RUN_KINDS = frozenset({*FORWARD_SCHEDULED_RUN_KINDS, "manual"})
+FORWARD_ALLOWED_RUN_KINDS = frozenset({
+    *FORWARD_SCHEDULED_RUN_KINDS,
+    "holding_fast",
+    "manual",
+})
 FORWARD_ALLOWED_EXECUTION_MODES = frozenset({"direct", "deferred"})
 FORWARD_CONDITIONAL_ENTRY_CONTEXT_RULES = {
     "entry_schedule_slot": (
@@ -3354,6 +3358,13 @@ def evaluate_niuone_forward(
                 "are generated deterministically by local lifecycle rules; "
                 "explicit SELL remains exit-first and the executor rechecks "
                 "all sizing and risk ceilings"
+            ),
+            "holding_fast_cycle_rule": (
+                "when enabled, the bounded fast cycle rescans only currently "
+                "open holdings with the same active strategy scorers, model "
+                "decision policy, exit-first ordering, and execution risk "
+                "gates as a full Practice cycle; BUY is add-only and cannot "
+                "open or reopen a symbol"
             ),
             "niuone_markup_upgrade_minimum_pnl_pct": (
                 NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT

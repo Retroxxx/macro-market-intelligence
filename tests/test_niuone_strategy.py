@@ -2803,6 +2803,58 @@ class NiuOneStrategyTests(unittest.TestCase):
             trader.is_a_share_execution_time = original_time
             trader.execution_quote = original_quote
 
+    def test_holding_fast_cycle_cannot_open_a_new_position(self):
+        state = {"cash": 100000.0, "positions": {}, "trade_log": []}
+        decision = {
+            "holding_cycle_only": True,
+            "decision_cycle_kind": "holding_fast",
+            "actions": [{
+                "action": "BUY",
+                "code": "600000",
+                "shares": 100,
+                "reason": "快周期模型建议买入",
+            }],
+        }
+        market = {
+            "allow_new_buys": True,
+            "max_open_positions": 6,
+            "max_new_buys_per_decision": 2,
+            "max_total_position_pct": 80,
+            "min_cash_reserve_pct": 20,
+        }
+
+        original_time = trader.is_a_share_execution_time
+        original_quote = trader.execution_quote
+        try:
+            trader.is_a_share_execution_time = lambda _now=None: (
+                True,
+                "连续竞价交易时段",
+            )
+            trader.execution_quote = lambda _code: {
+                "price": 10.0,
+                "name": "牛牛测试",
+                "source": "test",
+            }
+            executed = trader.execute_actions(
+                state,
+                decision,
+                [niu_candidate()],
+                True,
+                "连续竞价交易时段",
+                market,
+            )
+        finally:
+            trader.is_a_share_execution_time = original_time
+            trader.execution_quote = original_quote
+
+        self.assertEqual(executed, [])
+        self.assertNotIn("600000", state["positions"])
+        self.assertEqual(
+            decision["execution_blocks"][0]["category"],
+            "candidate_eligibility",
+        )
+        self.assertIn("不允许首次建仓", decision["execution_blocks"][0]["reason"])
+
     def test_execution_allows_defensive_niuone_opening_with_reduced_budget(self):
         original_time = trader.is_a_share_execution_time
         original_quote = trader.execution_quote
