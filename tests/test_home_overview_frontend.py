@@ -18,6 +18,21 @@ TABS_PATH = WEB_SRC / "composables" / "useDashboardTabs.js"
 
 
 class HomeOverviewFrontendTests(unittest.TestCase):
+    def test_mobile_dashboard_tabs_fill_header_width_symmetrically(self):
+        stylesheet = DASHBOARD_HEADER_STYLES_PATH.read_text(encoding="utf-8")
+
+        self.assertIn(
+            ".dashboard-site-header .category-tabs { width:auto; max-width:none; "
+            "margin:8px -9px 0; padding:3px 9px; overflow-x:auto; border-right:0; "
+            "border-left:0; border-radius:0; box-shadow:none;",
+            stylesheet,
+        )
+        self.assertIn(
+            ".dashboard-site-header .tab { flex:0 0 auto; padding:7px 10px; "
+            "font-size:12px; scroll-snap-align:start; }",
+            stylesheet,
+        )
+
     def test_overview_display_model_preserves_missing_values_and_ranks_candidates(self):
         scenario = f"""
 const module = await import({json.dumps(DISPLAY_PATH.as_uri())} + '?overview-display-test=1');
