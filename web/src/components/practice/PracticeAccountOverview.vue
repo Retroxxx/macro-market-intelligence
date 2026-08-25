@@ -137,6 +137,7 @@ const manualButtonText = computed(() => {
       :sold-stocks="practice.today_sold_stocks || []"
       :total-equity="Number(practice.total_equity || 0)"
       :strategy-meta="strategyMeta"
+      :current-date="practice.current_date || practice.trading_calendar?.date || ''"
     >
       <template #candidate-entry><slot name="candidates" /></template>
     </PracticePositions>

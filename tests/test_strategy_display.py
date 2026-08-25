@@ -109,6 +109,38 @@ console.log(JSON.stringify({{
             },
         )
 
+    def test_frontend_labels_stale_position_quotes_with_their_market_date(self):
+        module_uri = (ROOT / "web" / "src" / "utils" / "practiceDisplay.js").as_uri()
+        scenario = f"""
+const {{ practicePositionQuotePresentation }} = await import({json.dumps(module_uri)});
+console.log(JSON.stringify({{
+  stale: practicePositionQuotePresentation(
+    {{quote_time: '2026-08-11 15:24:36'}},
+    '2026-08-26',
+  ),
+  live: practicePositionQuotePresentation(
+    {{quote_time: '2026-08-26 10:00:00'}},
+    '2026-08-26',
+  ),
+}}));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", scenario],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=ROOT,
+        )
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["stale"]["historical"])
+        self.assertEqual(payload["stale"]["statusLabel"], "行情截至 2026-08-11 15:24")
+        self.assertEqual(payload["stale"]["changeLabel"], "8月11日涨幅")
+        self.assertEqual(payload["stale"]["pnlLabel"], "8月11日收益")
+        self.assertFalse(payload["live"]["historical"])
+        self.assertEqual(payload["live"]["changeLabel"], "实时涨幅")
+        self.assertEqual(payload["live"]["pnlLabel"], "今日收益")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1634,6 +1634,15 @@ def parse_tencent_quote_line(line: str) -> dict[str, Any] | None:
     price = normalize_quote_price(price, prev_close, open_price)
     if not price:
         return None
+    quote_time = ""
+    raw_quote_time = str(parts[30] if len(parts) > 30 else "").strip()
+    if len(raw_quote_time) >= 14 and raw_quote_time[:14].isdigit():
+        try:
+            quote_time = datetime.strptime(
+                raw_quote_time[:14], "%Y%m%d%H%M%S"
+            ).strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            quote_time = ""
     return build_quote(
         code=symbol,
         name=parts[1] if len(parts) > 1 else "",
@@ -1644,6 +1653,7 @@ def parse_tencent_quote_line(line: str) -> dict[str, Any] | None:
         low=low,
         turnover_yuan=turnover_wan * 10000 if turnover_wan is not None else None,
         source="Tencent qt realtime quote",
+        quote_time=quote_time or None,
         volume_lots=safe_quote_float(parts[6]),
     )
 
@@ -1877,6 +1887,7 @@ def refresh_realtime_prices(state: dict[str, Any]) -> dict[str, Any]:
         state["last_quote_refresh"] = meta
         return meta
     quotes, quote_meta = fetch_realtime_quotes(codes)
+    applied_quote_times: list[str] = []
     meta["channel_counts"] = quote_meta.get("channel_counts", meta["channel_counts"])
     errors = quote_meta.get("errors") or []
     for code in codes:
@@ -1902,7 +1913,11 @@ def refresh_realtime_prices(state: dict[str, Any]) -> dict[str, Any]:
             pos["day_low"] = quote.get("low")
         if quote.get("name"):
             pos["name"] = pos.get("name") or quote["name"]
+        if quote.get("quote_time"):
+            applied_quote_times.append(str(quote["quote_time"]))
         meta["updated"] += 1
+    if applied_quote_times:
+        meta["quote_time"] = max(applied_quote_times)
     if errors:
         meta["error"] = " | ".join(errors)
     state["last_quote_refresh"] = meta
@@ -1943,10 +1958,46 @@ def apply_realtime_price_snapshot(
                 position[field] = refreshed[field]
         if not position.get("name") and refreshed.get("name"):
             position["name"] = refreshed["name"]
-
     refresh_meta = refreshed_state.get("last_quote_refresh")
     if isinstance(refresh_meta, dict):
         state["last_quote_refresh"] = dict(refresh_meta)
+
+
+def refresh_position_marks_without_trading() -> bool:
+    """Refresh open-position quote fields without creating trades or equity history."""
+
+    refreshed_state = load_state()
+    if not any(
+        isinstance(position, dict) and position_qty(position) > 0
+        for position in (refreshed_state.get("positions") or {}).values()
+    ):
+        return False
+
+    try:
+        refresh_realtime_prices(refreshed_state)
+    except Exception as exc:
+        refreshed_state["last_quote_refresh"] = {
+            "time": now_ts(),
+            "updated": 0,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    with state_file_write_lock():
+        state = load_state()
+        apply_realtime_price_snapshot(state, refreshed_state)
+        state["last_quote_refresh"] = dict(
+            refreshed_state.get("last_quote_refresh") or {}
+        )
+        save_state(state)
+    return True
+
+
+def refresh_position_marks_on_startup() -> bool:
+    """Recover stale marks after downtime; the live heartbeat owns session refreshes."""
+
+    if is_a_share_equity_heartbeat_clock(datetime.now()):
+        return False
+    return refresh_position_marks_without_trading()
 
 
 def refresh_position_intraday(state: dict[str, Any]) -> dict[str, Any]:

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import copy
 import os
 import json
 import subprocess
@@ -8,6 +9,7 @@ import threading
 import time
 import types
 import unittest
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
@@ -91,6 +93,76 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertEqual([p["minute"] for p in points], [0, 120, 120, 240])
         self.assertEqual(points[-1]["pct"], 8.0)
 
+    def test_tencent_quote_uses_provider_timestamp_instead_of_wall_clock(self):
+        parts = [""] * 38
+        parts[1] = "测试股"
+        parts[3] = "10.50"
+        parts[4] = "10.00"
+        parts[5] = "10.10"
+        parts[6] = "1234"
+        parts[30] = "20260825161452"
+        parts[33] = "10.80"
+        parts[34] = "9.90"
+        parts[37] = "2000"
+
+        quote = trader.parse_tencent_quote_line(
+            f'v_sh600000="{"~".join(parts)}";'
+        )
+
+        self.assertEqual(quote["quote_time"], "2026-08-25 16:14:52")
+
+    def test_startup_mark_refresh_preserves_concurrent_account_state(self):
+        fetched_state = {
+            "cash": 100000.0,
+            "positions": {
+                "600000": {
+                    "qty": 1000,
+                    "avg_cost": 10.0,
+                    "last_price": 10.0,
+                }
+            },
+            "trade_log": [],
+            "equity_history": [{"time": "2026-08-11 15:00:00", "equity": 100000.0}],
+        }
+        canonical_state = copy.deepcopy(fetched_state)
+        canonical_state["cash"] = 90000.0
+        canonical_state["positions"]["600000"]["qty"] = 800
+        canonical_state["trade_log"] = [{"time": "2026-08-26 09:35:00", "action": "SELL"}]
+        saved = []
+        load_results = iter([copy.deepcopy(fetched_state), canonical_state])
+        originals = {
+            "load_state": trader.load_state,
+            "save_state": trader.save_state,
+            "refresh_realtime_prices": trader.refresh_realtime_prices,
+            "state_file_write_lock": trader.state_file_write_lock,
+        }
+
+        def refresh_marks(state):
+            state["positions"]["600000"].update({
+                "last_price": 10.8,
+                "quote_time": "2026-08-25 16:14:52",
+                "quote_source": "test",
+            })
+            state["last_quote_refresh"] = {"updated": 1}
+            return state["last_quote_refresh"]
+
+        try:
+            trader.load_state = lambda: next(load_results)
+            trader.save_state = lambda state: saved.append(copy.deepcopy(state))
+            trader.refresh_realtime_prices = refresh_marks
+            trader.state_file_write_lock = nullcontext
+
+            self.assertTrue(trader.refresh_position_marks_without_trading())
+        finally:
+            for name, value in originals.items():
+                setattr(trader, name, value)
+
+        self.assertEqual(saved[0]["cash"], 90000.0)
+        self.assertEqual(saved[0]["positions"]["600000"]["qty"], 800)
+        self.assertEqual(saved[0]["positions"]["600000"]["last_price"], 10.8)
+        self.assertEqual(saved[0]["trade_log"], canonical_state["trade_log"])
+        self.assertEqual(saved[0]["equity_history"], fetched_state["equity_history"])
+
     def test_realtime_high_low_pct_are_exposed_in_portfolio_rows(self):
         state = {
             "cash": 0.0,
@@ -127,7 +199,7 @@ class SellStrategyRuleTests(unittest.TestCase):
                 }
             }, {"channel_counts": {"tencent": 1}, "errors": []})
 
-            trader.refresh_realtime_prices(state)
+            refresh_meta = trader.refresh_realtime_prices(state)
             row = trader.enrich_portfolio(state)["positions"][0]
         finally:
             trader.fetch_realtime_quotes = original_fetch
@@ -141,6 +213,7 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertEqual(row["today_buy_qty"], 0)
         self.assertEqual(row["buy_strategy"], "b3_accelerate")
         self.assertEqual(row["entry_reason"], "B3中继评分10.0达标")
+        self.assertEqual(refresh_meta["quote_time"], "2026-06-24 10:00:00")
 
     def test_portfolio_marks_only_today_bought_positions(self):
         original_today_key = trader.today_key

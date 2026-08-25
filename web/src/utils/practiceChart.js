@@ -14,6 +14,15 @@ export function currentChinaDateKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
+export function practiceCalendarDateState(date, currentDate = currentChinaDateKey()) {
+  const value = String(date || '').slice(0, 10)
+  const today = String(currentDate || '').slice(0, 10)
+  return {
+    today: Boolean(value && today && value === today),
+    future: Boolean(value && today && value > today),
+  }
+}
+
 export function tradingClockMinuteOfDay(timeText) {
   const match = String(timeText || '').match(/(\d{2}):(\d{2})(?::(\d{2}))?/)
   if (!match) return null

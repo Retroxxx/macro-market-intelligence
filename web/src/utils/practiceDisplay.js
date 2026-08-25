@@ -111,6 +111,27 @@ export function practiceValueColor(value) {
   return number >= 0 ? 'var(--red-text)' : 'var(--green-text)'
 }
 
+export function practicePositionQuotePresentation(position = {}, currentDate = '') {
+  const quoteTime = String(position?.quote_time || '')
+  const quoteDate = /^\d{4}-\d{2}-\d{2}/.test(quoteTime) ? quoteTime.slice(0, 10) : ''
+  const today = /^\d{4}-\d{2}-\d{2}/.test(String(currentDate || ''))
+    ? String(currentDate).slice(0, 10)
+    : ''
+  const historical = Boolean(quoteDate && today && quoteDate !== today)
+  const dateLabel = historical
+    ? `${Number(quoteDate.slice(5, 7))}月${Number(quoteDate.slice(8, 10))}日`
+    : ''
+  return {
+    quoteDate,
+    historical,
+    statusLabel: historical ? `行情截至 ${quoteTime.slice(0, 16)}` : '',
+    priceLabel: historical ? '成本/行情价' : '成本/现价',
+    changeLabel: historical ? `${dateLabel}涨幅` : '实时涨幅',
+    rangeLabel: historical ? `${dateLabel}最低/最高` : '最低/最高',
+    pnlLabel: historical ? `${dateLabel}收益` : '今日收益',
+  }
+}
+
 export function splitPracticeTags(value) {
   if (Array.isArray(value)) return value.map(item => String(item || '').trim()).filter(Boolean)
   return String(value || '').split(/[，,]/).map(item => item.trim()).filter(Boolean)

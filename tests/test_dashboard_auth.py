@@ -3295,6 +3295,7 @@ console.log(JSON.stringify(result));
         calls = []
         waits = []
         original_recorder = dashboard.record_practice_equity_heartbeat
+        original_startup_refresh = dashboard.refresh_practice_position_marks_on_startup
 
         class StopAfterFirstPoll:
             @staticmethod
@@ -3307,6 +3308,9 @@ console.log(JSON.stringify(result));
                 return True
 
         try:
+            dashboard.refresh_practice_position_marks_on_startup = (
+                lambda: calls.append('startup_refresh') or True
+            )
             dashboard.record_practice_equity_heartbeat = lambda: calls.append('heartbeat') or True
             dashboard.practice_equity_heartbeat_loop(
                 stop_event=StopAfterFirstPoll(),
@@ -3314,9 +3318,27 @@ console.log(JSON.stringify(result));
             )
         finally:
             dashboard.record_practice_equity_heartbeat = original_recorder
+            dashboard.refresh_practice_position_marks_on_startup = original_startup_refresh
 
-        self.assertEqual(calls, ['heartbeat'])
+        self.assertEqual(calls, ['startup_refresh', 'heartbeat'])
         self.assertEqual(waits, [5.0])
+
+    def test_startup_position_mark_refresh_invalidates_practice_snapshots(self):
+        calls = []
+
+        class FakeTrader:
+            @staticmethod
+            def refresh_position_marks_on_startup():
+                calls.append('refreshed')
+                return True
+
+        dashboard.API_RESPONSE_CACHE['niuniu_practice'] = {'ts': 1.0, 'payload': b'{}'}
+        dashboard.API_RESPONSE_CACHE[dashboard.PRACTICE_FAST_CACHE_KEY] = {'ts': 1.0, 'payload': b'{}'}
+
+        self.assertTrue(dashboard.refresh_practice_position_marks_on_startup(FakeTrader()))
+        self.assertEqual(calls, ['refreshed'])
+        self.assertNotIn('niuniu_practice', dashboard.API_RESPONSE_CACHE)
+        self.assertNotIn(dashboard.PRACTICE_FAST_CACHE_KEY, dashboard.API_RESPONSE_CACHE)
 
     def test_equity_heartbeat_starts_as_single_daemon_worker(self):
         created = []
@@ -5169,8 +5191,12 @@ console.log(JSON.stringify([
         self.assertIn('var(--candidate-card-surface, var(--panel))', PRACTICE_CANDIDATE_COMPONENTS)
         self.assertIn('grid-template-columns: repeat(2, minmax(0, 1fr))', PRACTICE_CANDIDATE_COMPONENTS)
 
-        for label in ('买入理由', '卖出归因', '最低/最高', '仓位占比', '可卖/持有'):
+        for label in ('买入理由', '卖出归因', '仓位占比', '可卖/持有'):
             self.assertIn(label, PRACTICE_COMPONENTS)
+        for label in ('最低/最高', '实时涨幅', '今日收益'):
+            self.assertIn(label, DASHBOARD_FRONTEND)
+        self.assertIn('quotePresentation.rangeLabel', PRACTICE_COMPONENTS)
+        self.assertIn('quotePresentation.pnlLabel', PRACTICE_COMPONENTS)
         self.assertIn('<PracticePositionCard', PRACTICE_COMPONENTS)
         self.assertIn('<PracticeSoldCard', PRACTICE_COMPONENTS)
         self.assertIn('<template #candidates>', PRACTICE_COMPONENTS)

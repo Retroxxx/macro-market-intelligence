@@ -1637,6 +1637,27 @@ def record_practice_equity_heartbeat(trader: Any | None = None) -> bool:
     finally:
         PRACTICE_EQUITY_HEARTBEAT_LOCK.release()
 
+
+def refresh_practice_position_marks_on_startup(trader: Any | None = None) -> bool:
+    """Refresh stale quote marks once without running trading decisions."""
+
+    if not PRACTICE_EQUITY_HEARTBEAT_LOCK.acquire(blocking=False):
+        return False
+    try:
+        trader = trader or get_trader_module()
+        refresher = getattr(trader, "refresh_position_marks_on_startup", None)
+        if refresher is None:
+            return False
+        refreshed = bool(refresher())
+        if refreshed:
+            invalidate_api_cache("niuniu_practice", PRACTICE_FAST_CACHE_KEY)
+        return refreshed
+    except Exception as exc:
+        print(f"[WARN] 模拟持仓启动刷新失败: {type(exc).__name__}: {exc}", flush=True)
+        return False
+    finally:
+        PRACTICE_EQUITY_HEARTBEAT_LOCK.release()
+
 def downsample_sequence(items: list[Any], max_points: int) -> list[Any]:
     return practice_payload_impl.downsample_sequence(items, max_points)
 
@@ -4096,6 +4117,7 @@ def practice_equity_heartbeat_loop(
     """Keep minute equity snapshots flowing even when no dashboard is open."""
 
     stop_event = stop_event or threading.Event()
+    refresh_practice_position_marks_on_startup()
     while not stop_event.is_set():
         record_practice_equity_heartbeat()
         if stop_event.wait(max(1.0, float(poll_seconds))):
