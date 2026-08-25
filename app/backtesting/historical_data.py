@@ -19,7 +19,9 @@ from typing import Any
 
 
 EASTMONEY_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-TENCENT_KLINE_URL = "https://ifzq.gtimg.cn/appstock/app/fqkline/get"
+TENCENT_KLINE_URL = (
+    "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get"
+)
 SINA_KLINE_URL = (
     "https://quotes.sina.cn/cn/api/jsonp_v2.php/"
     "var%20_{symbol}_niuone=/CN_MarketDataService.getKLineData"

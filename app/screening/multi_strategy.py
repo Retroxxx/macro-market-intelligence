@@ -5,10 +5,10 @@
 评估多战法（趋势/突破策略 + Z哥），每只票输出多战法分数
 + 最优战法标签，供实战页面模型决策时参考。
 
-数据源（全部绕过Eastmoney代理封锁）：
+数据源（主链路优先绕过 Eastmoney 代理封锁）：
   1. akshare.stock_info_a_code_name() — 代码池
   2. 腾讯 qt.gtimg.cn 批量行情 — 实时报价
-  3. 腾讯 web.ifzq.gtimg.cn fqkline — 日K数据
+  3. 腾讯双入口 fqkline，东方财富备用 — 前复权日K数据
 
 用法：
   cd /path/to/NiuOne/app
@@ -63,7 +63,7 @@ from market_data.eastmoney_boards import (
 from market_data.tencent_kline_cache import (
     DEFAULT_KLINE_COUNT,
     DEFAULT_PREWARM_WORKERS,
-    fetch_tencent_daily_klines,
+    fetch_a_share_daily_klines,
     kline_cache_path,
     load_kline_series_map,
     merge_live_quote,
@@ -159,7 +159,6 @@ from strategies.selection import (
 
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 TENCENT_QUOTE = "https://qt.gtimg.cn/q="
-TENCENT_KLINE = "https://ifzq.gtimg.cn/appstock/app/fqkline/get"
 TENCENT_QUOTE_TIMEOUT_SECONDS = 10
 TENCENT_QUOTE_MAX_ATTEMPTS = 3
 TENCENT_QUOTE_BACKOFF_SECONDS = 0.5
@@ -704,8 +703,8 @@ def build_index_risk_snapshot(
 
 
 def tencent_klines(symbol, count=120):
-    """Backward-compatible Tencent loader now owned by market_data."""
-    return fetch_tencent_daily_klines(symbol, count)
+    """Backward-compatible loader backed by the shared multi-source client."""
+    return fetch_a_share_daily_klines(symbol, count)
 
 
 # ========== Multi-Strategy Analysis ==========

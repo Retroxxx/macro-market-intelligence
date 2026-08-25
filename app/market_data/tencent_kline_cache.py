@@ -14,6 +14,7 @@ import re
 import sqlite3
 import threading
 import time
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
@@ -32,7 +33,13 @@ MAX_KLINE_COUNT = 500
 MAX_KLINE_MERGED_COUNT = MAX_KLINE_COUNT + 1
 DEFAULT_PREWARM_WORKERS = 12
 DEFAULT_HTTP_TIMEOUT_SECONDS = 15.0
-TENCENT_KLINE_URL = "https://ifzq.gtimg.cn/appstock/app/fqkline/get"
+TENCENT_KLINE_URLS = (
+    "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get",
+    "https://web.ifzq.gtimg.cn/appstock/app/newfqkline/get",
+    "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+)
+TENCENT_KLINE_URL = TENCENT_KLINE_URLS[0]
+EASTMONEY_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CACHE_PATH = get_dashboard_home(PROJECT_ROOT) / "market_data" / "tencent_daily_klines.sqlite3"
@@ -181,7 +188,7 @@ def fetch_tencent_daily_klines(
     *,
     timeout_seconds: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
 ) -> list[dict[str, Any]]:
-    """Fetch one bounded qfq daily series from Tencent."""
+    """Fetch one bounded qfq daily series through Tencent's bounded aliases."""
     normalized_symbol = re.sub(r"[^a-zA-Z0-9]", "", str(symbol or "")).lower()
     if not re.fullmatch(r"(?:sh|sz)\d{6}", normalized_symbol):
         return []
@@ -189,28 +196,119 @@ def fetch_tencent_daily_klines(
         1,
         min(MAX_KLINE_MERGED_COUNT, int(count or DEFAULT_KLINE_COUNT)),
     )
-    url = f"{TENCENT_KLINE_URL}?param={normalized_symbol},day,,,{bounded_count},qfq"
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    query = urllib.parse.urlencode({
+        "param": f"{normalized_symbol},day,,,{bounded_count},qfq",
+    })
+    for base_url in TENCENT_KLINE_URLS:
+        request = urllib.request.Request(
+            f"{base_url}?{query}",
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "application/json,text/plain,*/*",
+                "Referer": "https://gu.qq.com/",
+                "Connection": "close",
+            },
+        )
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=max(1.0, float(timeout_seconds)),
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8", "ignore"))
+        except (OSError, TypeError, ValueError):
+            continue
+        if not isinstance(payload, Mapping):
+            continue
+        data = payload.get("data")
+        symbol_payload = data.get(normalized_symbol) if isinstance(data, Mapping) else None
+        raw_rows = symbol_payload.get("qfqday") if isinstance(symbol_payload, Mapping) else None
+        parsed = []
+        for item in raw_rows or []:
+            if not isinstance(item, list) or len(item) < 6:
+                continue
+            parsed.append({
+                "date": item[0],
+                "open": item[1],
+                "close": item[2],
+                "high": item[3],
+                "low": item[4],
+                "volume": item[5],
+            })
+        normalized = normalize_kline_rows(parsed, limit=bounded_count)
+        if normalized:
+            return normalized
+    return []
+
+
+def fetch_eastmoney_daily_klines(
+    symbol: str,
+    count: int = DEFAULT_KLINE_COUNT,
+    *,
+    timeout_seconds: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
+) -> list[dict[str, Any]]:
+    """Fetch one bounded qfq daily series from Eastmoney."""
+    normalized_symbol = re.sub(r"[^a-zA-Z0-9]", "", str(symbol or "")).lower()
+    if not re.fullmatch(r"(?:sh|sz)\d{6}", normalized_symbol):
+        return []
+    bounded_count = max(
+        1,
+        min(MAX_KLINE_MERGED_COUNT, int(count or DEFAULT_KLINE_COUNT)),
+    )
+    market = "1" if normalized_symbol.startswith("sh") else "0"
+    query = urllib.parse.urlencode({
+        "secid": f"{market}.{normalized_symbol[-6:]}",
+        "klt": "101",
+        "fqt": "1",
+        "lmt": str(bounded_count),
+        "end": "20500101",
+        "fields1": "f1,f2,f3,f4,f5,f6",
+        "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+    })
+    request = urllib.request.Request(
+        f"{EASTMONEY_KLINE_URL}?{query}",
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json,text/plain,*/*",
+            "Referer": "https://quote.eastmoney.com/",
+            "Connection": "close",
+        },
+    )
     try:
-        with urllib.request.urlopen(request, timeout=max(1.0, float(timeout_seconds))) as response:
+        with urllib.request.urlopen(
+            request,
+            timeout=max(1.0, float(timeout_seconds)),
+        ) as response:
             payload = json.loads(response.read().decode("utf-8", "ignore"))
-        symbol_payload = (payload.get("data") or {}).get(normalized_symbol) or {}
-        raw_rows = symbol_payload.get("day") or symbol_payload.get("qfqday") or []
-    except Exception:
+        data = payload.get("data") if isinstance(payload, Mapping) else None
+        raw_rows = data.get("klines") if isinstance(data, Mapping) else None
+    except (OSError, TypeError, ValueError):
         return []
     parsed = []
-    for item in raw_rows:
-        if not isinstance(item, list) or len(item) < 6:
+    for item in raw_rows or []:
+        fields = str(item or "").split(",")
+        if len(fields) < 6:
             continue
         parsed.append({
-            "date": item[0],
-            "open": item[1],
-            "close": item[2],
-            "high": item[3],
-            "low": item[4],
-            "volume": item[5],
+            "date": fields[0],
+            "open": fields[1],
+            "close": fields[2],
+            "high": fields[3],
+            "low": fields[4],
+            "volume": fields[5],
         })
     return normalize_kline_rows(parsed, limit=bounded_count)
+
+
+def fetch_a_share_daily_klines(
+    symbol: str,
+    count: int = DEFAULT_KLINE_COUNT,
+) -> list[dict[str, Any]]:
+    """Fetch qfq daily bars with bounded Tencent-to-Eastmoney fallback."""
+    for fetcher in (fetch_tencent_daily_klines, fetch_eastmoney_daily_klines):
+        rows = fetcher(symbol, count)
+        if rows:
+            return rows
+    return []
 
 
 def store_kline_series(
@@ -601,7 +699,7 @@ def prewarm_kline_cache(
     run_date = str(target_date or datetime.now().strftime("%Y-%m-%d"))[:10]
     started_at = _now_text()
     started = time.monotonic()
-    active_fetcher = fetcher or fetch_tencent_daily_klines
+    active_fetcher = fetcher or fetch_a_share_daily_klines
     accepted = {
         str(value)[:10]
         for value in (accepted_last_dates or set())
@@ -735,6 +833,8 @@ __all__ = [
     "DEFAULT_CACHE_PATH",
     "DEFAULT_KLINE_COUNT",
     "DEFAULT_PREWARM_WORKERS",
+    "fetch_a_share_daily_klines",
+    "fetch_eastmoney_daily_klines",
     "fetch_tencent_daily_klines",
     "kline_cache_path",
     "kline_cache_readiness",

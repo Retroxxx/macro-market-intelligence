@@ -8,8 +8,12 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
+try:
+    from app.market_data.tencent_kline_cache import fetch_a_share_daily_klines
+except ImportError:  # pragma: no cover - legacy top-level import path
+    from market_data.tencent_kline_cache import fetch_a_share_daily_klines
+
 EASTMONEY_QUOTE = "https://push2.eastmoney.com/api/qt/stock/get"
-TENCENT_KLINE = "https://ifzq.gtimg.cn/appstock/app/fqkline/get"
 TENCENT_QUOTE = "https://qt.gtimg.cn/q="
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
@@ -140,25 +144,9 @@ def get_quote(symbol):
 
 def get_klines(symbol, count=120):
     sym = normalize_symbol(symbol)
-    key = sym["display"]
-    resp = http_get_json(TENCENT_KLINE, {
-        "param": f"{key},day,,,{count},qfq"
-    })
-    data = (resp.get("data") or {}).get(key) or {}
-    klines = data.get("qfqday") or data.get("day") or []
-    if not klines:
+    rows = fetch_a_share_daily_klines(sym["display"], count)
+    if not rows:
         raise RuntimeError("未获取到K线数据")
-    rows = []
-    for p in klines:
-        # [date, open, close, high, low, volume]
-        rows.append({
-            "date": p[0],
-            "open": float(p[1]),
-            "close": float(p[2]),
-            "high": float(p[3]),
-            "low": float(p[4]),
-            "volume": float(p[5]),
-        })
     return rows
 
 
