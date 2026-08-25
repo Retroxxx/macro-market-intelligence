@@ -2,7 +2,7 @@
 
 [简体中文](STANDALONE.md) | English
 
-This document explains how to run NiuOne locally as a standalone application. By default, runtime data is stored in `.local-data/` inside the project directory, keeping source code separate from real data.
+This guide is for users and developers running NiuOne on a personal computer or server. Native deployments store runtime data in `.local-data/` inside the project directory by default, while Docker Compose uses the named volume `niuone-data`. Both methods keep source code separate from real data, but they do not synchronize with each other automatically.
 
 ## One-Click Startup
 
@@ -96,6 +96,87 @@ $env:NIUONE_LOCAL_DATA_DIR = Join-Path $env:TEMP "niuone-smoke"
 ```
 
 After testing, stop the process and delete `$env:TEMP\niuone-smoke` if needed.
+
+Developers may also use a separate Compose project for integration or smoke testing. First confirm that the example port `8877` is free, then run:
+
+macOS / Linux:
+
+```bash
+NIUONE_PORT=8877 docker compose -p niuone-smoke up -d --build
+docker compose -p niuone-smoke ps
+```
+
+Windows PowerShell:
+
+```powershell
+$env:NIUONE_PORT = "8877"
+docker compose -p niuone-smoke up -d --build
+docker compose -p niuone-smoke ps
+Remove-Item Env:NIUONE_PORT
+```
+
+After testing, remove only this explicitly named temporary project:
+
+```bash
+docker compose -p niuone-smoke down -v
+```
+
+`-p niuone-smoke` isolates containers, networks, and data volumes. Use a unique project name and free port for parallel tests. `down -v` is appropriate here only for a temporary project that is known to contain no production data; never run it against a production project.
+
+## Docker Startup, Restart, and Data Volumes
+
+The commands below apply to the Compose configuration included with the project and should be run from the directory used for the initial deployment. Keep each production instance on either Docker or native entrypoints. Once Docker contains the authoritative history, manage that instance only through Compose. Developers may run isolated instances in parallel, but every instance needs a distinct port, Compose project name, and data volume.
+
+| Scenario | Command | Preserves `niuone-data` |
+|---|---|---|
+| Restore after a computer or container-engine restart | `docker compose up -d` | Yes |
+| Restart every container | `docker compose restart` | Yes |
+| Restart only the Dashboard and scheduler | `docker compose restart dashboard scheduler` | Yes |
+| Apply Compose, environment-variable, or port changes | `docker compose up -d` | Yes |
+| Update after source changes | `docker compose up -d --build` | Yes |
+| Update a Docker Hub image | Run `docker compose pull`, then `docker compose up -d --no-build` | Yes |
+| Stop and remove containers | `docker compose down` | Yes |
+| Follow service logs | `docker compose logs -f` | Yes |
+
+`docker compose restart` only restarts the current containers; it does not read updated Compose configuration, environment variables, ports, or images. Use the corresponding `up -d` command when any of those values changes. Compose services use `restart: unless-stopped`, but the container engine must be running first. Docker Desktop users may enable launch at sign-in, while Linux administrators should ensure that the Docker service starts at boot.
+
+Verify every restore or upgrade with:
+
+```bash
+docker compose ls
+docker compose ps
+docker compose port dashboard 8787
+curl -s -o /dev/null -w 'healthz=%{http_code}\n' http://127.0.0.1:8787/healthz
+curl -s -o /dev/null -w 'readyz=%{http_code}\n' http://127.0.0.1:8787/readyz
+```
+
+The `dashboard` service should be `healthy`, and `healthz` should return `200`. During first-time initialization, `readyz` may temporarily return `503` and should change to `200` when required data is ready. Check which process owns the default port:
+
+macOS / Linux:
+
+```bash
+lsof -nP -iTCP:8787 -sTCP:LISTEN
+```
+
+Windows PowerShell:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8787 -State Listen |
+    Select-Object LocalAddress, LocalPort, OwningProcess
+Get-Process -Id (Get-NetTCPConnection -LocalPort 8787 -State Listen |
+    Select-Object -First 1 -ExpandProperty OwningProcess)
+```
+
+A Docker deployment should show that Docker publishes port `8787`. If a Python process from the checkout owns it, stop that native instance before running `docker compose up -d`.
+
+The Compose project name may come from the working-directory name, `-p`, or `COMPOSE_PROJECT_NAME`, and it contributes to the physical volume name. Do not casually change the project name or start the deployment from a different checkout after the first deployment, because Compose may create a new empty volume. If history suddenly appears empty, identify the project and logical volume before copying or rebuilding any data:
+
+```bash
+docker compose ls
+docker volume ls --filter label=com.docker.compose.volume=niuone-data
+```
+
+> Do not use `docker compose down -v` or `docker volume rm` for routine restarts, upgrades, or troubleshooting. `niuone-data` is a logical volume name; the physical volume name usually has a Compose project prefix. Deleting it removes configuration, databases, the simulated account, and history. Ordinary `docker compose down`, `restart`, and `up -d` operations preserve named volumes.
 
 ## Model and Rating Data-Source Configuration
 

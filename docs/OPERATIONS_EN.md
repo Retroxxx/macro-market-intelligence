@@ -2,7 +2,7 @@
 
 [简体中文](OPERATIONS.md) | English
 
-This document records NiuOne's local operation, validation, deployment, log inspection, and rollback procedures. Real runtime data is stored centrally in `.local-data/`, which is not tracked by Git.
+This manual is for maintainers and developers and covers NiuOne operation, validation, deployment, log inspection, and rollback. Native deployments store real runtime data in `.local-data/`, while Docker Compose deployments use the named volume `niuone-data`. Neither is tracked by Git, and they do not synchronize automatically.
 
 ## 1. Directory Conventions
 
@@ -20,7 +20,7 @@ This document records NiuOne's local operation, validation, deployment, log insp
 └── run-niuone-cron-scheduler.sh
 ```
 
-Runtime data is stored by default in:
+Native runtime data is stored by default in:
 
 ```text
 .local-data/
@@ -344,7 +344,42 @@ curl -s -o /dev/null -w 'HTTP:%{http_code} TOTAL:%{time_total}\n' 'http://127.0.
 
 Both are expected to return `HTTP:200`.
 
-## 5. Long-Term Local Operation
+## 5. Long-Term Operation
+
+### 5.1 Docker Deployment
+
+Run the commands below from the directory used for the initial deployment. If production data lives in `niuone-data`, continue to use the same Compose project for every startup, restart, and upgrade. Do not start a native instance on the same port with `./run.sh` or `run.bat`; native `.local-data/` and the Docker volume are not synchronized automatically.
+
+```bash
+# After restarting the computer or container engine; also applies Compose,
+# environment-variable, and port changes
+docker compose up -d
+
+# Restart current containers only; does not apply configuration or image changes
+docker compose restart
+
+# After source changes
+docker compose up -d --build
+
+# After a Docker Hub image update
+docker compose pull
+docker compose up -d --no-build
+
+# Status and health checks
+docker compose ls
+docker compose ps
+docker compose port dashboard 8787
+curl -s -o /dev/null -w 'healthz=%{http_code}\n' http://127.0.0.1:8787/healthz
+curl -s -o /dev/null -w 'readyz=%{http_code}\n' http://127.0.0.1:8787/readyz
+```
+
+The `dashboard` service should be `healthy`, and `healthz` should return `200`. During first-time initialization, `readyz` may temporarily return `503` and should change to `200` once required data is ready.
+
+The Compose project name may come from the working-directory name, `-p`, or `COMPOSE_PROJECT_NAME`, and it contributes to the physical volume name. Keep that project name stable after deployment; changing it or starting from a different checkout may create a new empty volume. Development and smoke tests must use a separate project name, port, and data volume rather than the production Compose project.
+
+`docker compose down` preserves named volumes. `docker compose down -v` and `docker volume rm` delete real runtime data and must not be used for routine restarts, upgrades, or troubleshooting. See the [Standalone Operation Guide](STANDALONE_EN.md#docker-startup-restart-and-data-volumes) for the complete lifecycle, cross-platform port checks, and volume diagnostics.
+
+### 5.2 Native Deployment
 
 Register and start the long-running services for the current platform through the one-click startup entry point:
 
@@ -480,6 +515,36 @@ curl -s "http://127.0.0.1:8787/api/messages?limit=5" | python3 -m json.tool | he
 The current message stream primarily uses `push_history.db`. Corresponding messages appear on the page only after the task scripts successfully write them to this database.
 
 New market-monitoring and U.S. institutional-ratings records are written only to this database; Markdown files are no longer generated. Existing historical `.md` files from before the upgrade are preserved unchanged, but the page does not read or automatically delete them.
+
+### The Page Shows an Older Simulated Account or Trading Calendar
+
+First identify the browser's target port, the Compose project, and the authoritative data source. Docker uses the logical volume `niuone-data`, while native entrypoints use `.local-data/` in the checkout; these stores are not synchronized automatically.
+
+Run on every platform:
+
+```bash
+docker compose ls
+docker compose ps
+docker compose port dashboard 8787
+docker volume ls --filter label=com.docker.compose.volume=niuone-data
+```
+
+Check the port owner on macOS / Linux:
+
+```bash
+lsof -nP -iTCP:8787 -sTCP:LISTEN
+```
+
+Check the port owner in Windows PowerShell:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8787 -State Listen |
+    Select-Object LocalAddress, LocalPort, OwningProcess
+Get-Process -Id (Get-NetTCPConnection -LocalPort 8787 -State Listen |
+    Select-Object -First 1 -ExpandProperty OwningProcess)
+```
+
+For Docker, the `dashboard` service should be `healthy`, and Docker should publish the target port. If a Python process from the checkout owns it, stop that native instance and run `docker compose up -d` from the original deployment directory with the original Compose project name. If `docker compose ls` or the volume list shows multiple similar projects, identify which one contains the authoritative history before taking further action. Never replace a volume with an incomplete copy, and never use `docker compose down -v` for troubleshooting.
 
 ### Tasks Do Not Update Automatically
 

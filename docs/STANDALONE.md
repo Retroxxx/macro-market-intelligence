@@ -2,7 +2,7 @@
 
 简体中文 | [English](STANDALONE_EN.md)
 
-本文说明如何在本机独立运行 NiuOne。默认运行数据保存在工程目录内的 `.local-data/`，源码和真实数据分开管理。
+本文面向在个人电脑或服务器上运行 NiuOne 的用户和开发者。原生部署默认把运行数据保存在工程目录内的 `.local-data/`；Docker Compose 部署使用命名卷 `niuone-data`。两种方式都将源码与真实数据分开管理，但彼此不会自动同步。
 
 ## 一键启动
 
@@ -96,6 +96,87 @@ $env:NIUONE_LOCAL_DATA_DIR = Join-Path $env:TEMP "niuone-smoke"
 ```
 
 测试完成后关闭进程，并按需删除 `$env:TEMP\niuone-smoke`。
+
+开发者也可以使用独立 Compose 项目进行集成或冒烟测试。先确认示例端口 `8877` 未被占用，再执行：
+
+macOS / Linux：
+
+```bash
+NIUONE_PORT=8877 docker compose -p niuone-smoke up -d --build
+docker compose -p niuone-smoke ps
+```
+
+Windows PowerShell：
+
+```powershell
+$env:NIUONE_PORT = "8877"
+docker compose -p niuone-smoke up -d --build
+docker compose -p niuone-smoke ps
+Remove-Item Env:NIUONE_PORT
+```
+
+测试完成后，只清理这个明确命名的临时项目：
+
+```bash
+docker compose -p niuone-smoke down -v
+```
+
+`-p niuone-smoke` 会隔离容器、网络和数据卷；请为并行测试换用唯一项目名和空闲端口。这里只允许对确认无正式数据的临时项目使用 `down -v`，不要对正式项目执行该命令。
+
+## Docker 服务启动、重启与数据卷
+
+以下命令适用于项目自带的 Compose 配置，应从首次部署所用的工程目录执行。同一个正式实例应固定使用 Docker 或原生入口；只要权威历史已经写入 Docker，就应始终通过 Compose 管理该实例。开发者可以同时运行隔离实例，但必须为每个实例分配不同端口、Compose 项目名和数据卷。
+
+| 场景 | 命令 | 是否保留 `niuone-data` |
+|---|---|---|
+| 电脑或容器引擎重启后恢复 | `docker compose up -d` | 是 |
+| 普通重启全部容器 | `docker compose restart` | 是 |
+| 只重启 Dashboard 和调度器 | `docker compose restart dashboard scheduler` | 是 |
+| 修改 Compose、环境变量或端口后应用配置 | `docker compose up -d` | 是 |
+| 修改源码后更新 | `docker compose up -d --build` | 是 |
+| 更新 Docker Hub 镜像 | `docker compose pull` 后执行 `docker compose up -d --no-build` | 是 |
+| 停止并移除容器 | `docker compose down` | 是 |
+| 持续查看日志 | `docker compose logs -f` | 是 |
+
+`docker compose restart` 只重启当前容器，不会读取新的 Compose 配置、环境变量、端口或镜像；这些内容变化后应使用对应的 `up -d` 命令。Compose 服务使用 `restart: unless-stopped`，但容器引擎本身必须先运行。Docker Desktop 用户可启用登录时自动启动；Linux 管理员应确认 Docker 服务已设置为开机启动。
+
+每次恢复或升级后检查：
+
+```bash
+docker compose ls
+docker compose ps
+docker compose port dashboard 8787
+curl -s -o /dev/null -w 'healthz=%{http_code}\n' http://127.0.0.1:8787/healthz
+curl -s -o /dev/null -w 'readyz=%{http_code}\n' http://127.0.0.1:8787/readyz
+```
+
+`dashboard` 应为 `healthy`，`healthz` 应返回 `200`；首次初始化期间 `readyz` 可暂时返回 `503`，数据就绪后应变为 `200`。检查默认端口由哪个进程监听：
+
+macOS / Linux：
+
+```bash
+lsof -nP -iTCP:8787 -sTCP:LISTEN
+```
+
+Windows PowerShell：
+
+```powershell
+Get-NetTCPConnection -LocalPort 8787 -State Listen |
+    Select-Object LocalAddress, LocalPort, OwningProcess
+Get-Process -Id (Get-NetTCPConnection -LocalPort 8787 -State Listen |
+    Select-Object -First 1 -ExpandProperty OwningProcess)
+```
+
+Docker 部署应显示该端口由 Docker 发布；若显示工程目录中的 Python 进程，应先停止该原生实例，再执行 `docker compose up -d`。
+
+Compose 项目名可能来自当前目录名、`-p` 或 `COMPOSE_PROJECT_NAME`，并会参与物理卷名的生成。首次部署后不要随意更改项目名或改从另一份工程目录启动，否则 Compose 可能创建新的空卷。遇到历史数据突然为空时，先用以下命令确认项目和逻辑卷，不要立即复制或重建数据：
+
+```bash
+docker compose ls
+docker volume ls --filter label=com.docker.compose.volume=niuone-data
+```
+
+> 不要把 `docker compose down -v` 或 `docker volume rm` 用于普通重启、升级和排障。`niuone-data` 是逻辑卷名，实际物理卷名通常带 Compose 项目前缀；删除它会删除配置、数据库、模拟账户和历史记录。普通的 `docker compose down`、`restart` 和 `up -d` 都会保留命名卷。
 
 ## 模型与评级数据源配置
 

@@ -163,6 +163,16 @@ git clone https://github.com/kunkundi/niuone.git
 cd niuone
 ```
 
+Choose and retain one deployment method and data location for every instance whose history must persist:
+
+| Use case | Recommended method | Runtime data location |
+|---|---|---|
+| Long-running service, server, or consistent dependencies | Docker Compose | Named volume `niuone-data` |
+| Direct use on one computer without containers | Native launcher | `.local-data/`, or the directory set by `NIUONE_LOCAL_DATA_DIR` |
+| Development, debugging, and acceptance testing | Isolated instance | Separate Compose project and port, or a temporary directory such as `/tmp/niuone-*` |
+
+Docker and native deployments do not synchronize their data automatically. Do not alternate between them for the same production instance, or the page may expose a different and older account, configuration, and trading calendar. Developers may run isolated instances in parallel when each one has a distinct port and data location.
+
 macOS / Linux:
 
 ```bash
@@ -237,6 +247,49 @@ docker compose up -d --build
 docker compose ps
 ```
 
+### Routine Docker Startup and Restart
+
+After restarting the computer or container engine, first ensure Docker Engine is running, then restore the services from the original deployment directory:
+
+```bash
+docker compose up -d
+```
+
+When only the existing containers need a restart, restart every service or just the NiuOne Dashboard and scheduler:
+
+```bash
+docker compose restart
+docker compose restart dashboard scheduler
+```
+
+`docker compose restart` does not apply changes to Compose configuration, environment variables, ports, or images. Use `docker compose up -d` after those configuration changes, and rebuild after source changes. A Docker Hub deployment should pull its pinned image before recreating containers:
+
+```bash
+# Source build
+docker compose up -d --build
+
+# Docker Hub image
+docker compose pull
+docker compose up -d --no-build
+```
+
+Check every startup or restart:
+
+```bash
+docker compose ps
+docker compose port dashboard 8787
+curl -s -o /dev/null -w 'healthz=%{http_code}\n' http://127.0.0.1:8787/healthz
+curl -s -o /dev/null -w 'readyz=%{http_code}\n' http://127.0.0.1:8787/readyz
+```
+
+The `dashboard` service should be `healthy`, and `healthz` should return `200`. During first-time initialization, `readyz` may temporarily return `503` and should change to `200` once required data is ready. See the [Standalone Operation Guide](docs/STANDALONE_EN.md#docker-startup-restart-and-data-volumes) for cross-platform port checks and troubleshooting.
+
+Compose already sets `restart: unless-stopped`, but the container engine itself must be running. Docker Desktop users may enable launch at sign-in, while Linux administrators should ensure that the Docker service starts at boot.
+
+The Compose project name contributes to the physical volume name and may come from the working-directory name, `-p`, or `COMPOSE_PROJECT_NAME`. Keep the project name and original deployment directory stable after the first deployment. Changing either may create a new empty volume and make existing history appear to be missing. Use `docker compose ls` and `docker compose ps` to confirm the active project.
+
+Never use `docker compose down -v` or `docker volume rm` for routine restarts, upgrades, or troubleshooting. `niuone-data` is the logical Compose volume name; its physical name usually has a project prefix. Deleting it removes the simulated account, configuration, and history. Ordinary `docker compose down`, `restart`, and `up -d` operations preserve named volumes.
+
 By default, the service is available at `127.0.0.1:8787`; the public page and password-protected `/admin` page share that port. NewsNow listens only at `newsnow:4444` on the Compose network and publishes no additional host port; the Dashboard selects it automatically. To view logs or stop the service:
 
 ```bash
@@ -266,7 +319,7 @@ NIUONE_BIND_ADDRESS=0.0.0.0 NIUONE_PORT=8877 docker compose up -d
 
 The basic pages can start without a model key. Information retrieval, intelligent summaries, and some automated workflows require additional external services.
 
-After startup, use the settings entry in the page to configure NiuOne. First authenticate with the configured administrator password or the local bootstrap administrator key. Configuration is written to the local `.local-data/` directory, so there is no need to modify the source code. For first-time setup, we recommend completing the following steps in order:
+After startup, use the settings entry in the page to configure NiuOne. First authenticate with the configured administrator password or bootstrap administrator key. Native deployments write configuration to `.local-data/`, while Docker deployments write it to the `niuone-data` volume; the two are not synchronized automatically, and neither requires source changes. For first-time setup, we recommend completing the following steps in order:
 
 1. Select the data sources and automated tasks to enable;
 2. Configure a compatible model service URL, model name, and API key as needed;

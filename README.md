@@ -163,6 +163,16 @@ git clone https://github.com/kunkundi/niuone.git
 cd niuone
 ```
 
+先为每个需要长期保留数据的实例固定部署方式和数据位置：
+
+| 使用场景 | 推荐方式 | 运行数据位置 |
+|---|---|---|
+| 长期运行、服务器或希望统一依赖 | Docker Compose | 命名卷 `niuone-data` |
+| 单机直接使用、无需容器 | 原生启动器 | `.local-data/`，或 `NIUONE_LOCAL_DATA_DIR` 指定的目录 |
+| 开发、调试和验收 | 隔离实例 | 独立 Compose 项目与端口，或 `/tmp/niuone-*` 等临时目录 |
+
+Docker 与原生部署的数据不会自动同步。同一个正式实例不要在两种方式之间交替启动，否则可能看到另一套较旧的账户、配置和交易日历。开发者可以并行运行隔离实例，但必须使用不同端口和不同数据位置。
+
 macOS / Linux：
 
 ```bash
@@ -237,6 +247,49 @@ docker compose up -d --build
 docker compose ps
 ```
 
+### Docker 日常启动与重启
+
+电脑或容器引擎重启后，先确认 Docker Engine 已运行，再从原部署目录恢复服务：
+
+```bash
+docker compose up -d
+```
+
+仅需重启现有容器时，可重启全部服务，或只重启牛牛1号的 Dashboard 与调度器：
+
+```bash
+docker compose restart
+docker compose restart dashboard scheduler
+```
+
+`docker compose restart` 不会应用 Compose、环境变量、端口或镜像变更。修改这类配置后使用 `docker compose up -d`；修改源码后需要重建镜像。使用 Docker Hub 镜像的部署则先拉取再重建容器：
+
+```bash
+# 源码构建
+docker compose up -d --build
+
+# Docker Hub 镜像
+docker compose pull
+docker compose up -d --no-build
+```
+
+每次启动或重启后检查：
+
+```bash
+docker compose ps
+docker compose port dashboard 8787
+curl -s -o /dev/null -w 'healthz=%{http_code}\n' http://127.0.0.1:8787/healthz
+curl -s -o /dev/null -w 'readyz=%{http_code}\n' http://127.0.0.1:8787/readyz
+```
+
+`dashboard` 应显示为 `healthy`，`healthz` 应返回 `200`；首次初始化期间 `readyz` 可能暂时返回 `503`，数据就绪后应变为 `200`。跨平台的端口占用检查和故障诊断见[独立运行说明](docs/STANDALONE.md#docker-服务启动重启与数据卷)。
+
+Compose 已设置 `restart: unless-stopped`，但容器引擎本身仍需启动。Docker Desktop 用户可启用登录时自动启动，Linux 管理员应确认 Docker 服务已设置为开机启动。
+
+Compose 项目名会参与物理卷名的生成，其来源可能是当前目录名、`-p` 或 `COMPOSE_PROJECT_NAME`。首次部署后应保持项目名和原部署目录稳定；更改它们可能创建一套新的空卷，让页面看起来像历史数据丢失。可用 `docker compose ls` 和 `docker compose ps` 确认当前项目。
+
+日常重启、升级和排障不要使用 `docker compose down -v` 或 `docker volume rm`。文档中的 `niuone-data` 是 Compose 逻辑卷名，实际名称通常带项目名前缀；删除该卷会同时删除模拟账户、配置和历史记录。普通的 `docker compose down`、`restart` 和 `up -d` 都会保留命名卷。
+
 默认在宿主机 `127.0.0.1:8787` 提供服务；公开页面和受密码保护的 `/admin` 管理页使用同一端口。NewsNow 只在 Compose 内网的 `newsnow:4444` 监听，不额外暴露宿主机端口；Dashboard 会自动使用它。查看日志或停止服务：
 
 ```bash
@@ -266,7 +319,7 @@ NIUONE_BIND_ADDRESS=0.0.0.0 NIUONE_PORT=8877 docker compose up -d
 
 基础页面无需模型密钥即可启动。信息检索、智能摘要和部分自动化流程需要额外配置外部服务。
 
-启动后通过页面中的设置入口完成配置；先使用配置的管理员密码或本地 bootstrap 管理密钥完成认证。配置会写入本地 `.local-data/`，无需修改源码。建议首次使用时依次完成：
+启动后通过页面中的设置入口完成配置；先使用配置的管理员密码或 bootstrap 管理密钥完成认证。原生部署把配置写入 `.local-data/`，Docker 部署写入 `niuone-data` volume；两者不会自动同步，均无需修改源码。建议首次使用时依次完成：
 
 1. 设置需要启用的数据源与自动化任务；
 2. 按需配置兼容的模型服务地址、模型名称和 API Key；

@@ -2,7 +2,7 @@
 
 简体中文 | [English](OPERATIONS_EN.md)
 
-本文档记录 NiuOne 的本地运行、验证、部署、日志检查和回滚流程。真实运行数据统一保存在 `.local-data/`，该目录不进入 Git。
+本文档面向维护者和开发者，记录 NiuOne 的运行、验证、部署、日志检查和回滚流程。原生部署的真实运行数据保存在 `.local-data/`，Docker Compose 部署保存在命名卷 `niuone-data`；两者都不进入 Git，也不会自动同步。
 
 ## 1. 目录约定
 
@@ -20,7 +20,7 @@
 └── run-niuone-cron-scheduler.sh
 ```
 
-运行数据默认位于：
+原生部署的运行数据默认位于：
 
 ```text
 .local-data/
@@ -343,7 +343,41 @@ curl -s -o /dev/null -w 'HTTP:%{http_code} TOTAL:%{time_total}\n' 'http://127.0.
 
 预期均返回 `HTTP:200`。
 
-## 5. 本机长期运行
+## 5. 长期运行
+
+### 5.1 Docker 部署
+
+以下命令应从首次部署所用的工程目录执行。如果正式数据保存在 `niuone-data`，后续启动、重启和升级必须继续使用同一个 Compose 项目。不要用 `./run.sh` 或 `run.bat` 启动同端口原生实例；原生 `.local-data/` 与 Docker volume 不会自动同步。
+
+```bash
+# 电脑或容器引擎重启后；也用于应用 Compose、环境变量或端口变更
+docker compose up -d
+
+# 仅重启当前容器，不应用配置或镜像变更
+docker compose restart
+
+# 源码更新后
+docker compose up -d --build
+
+# Docker Hub 镜像更新后
+docker compose pull
+docker compose up -d --no-build
+
+# 状态与健康检查
+docker compose ls
+docker compose ps
+docker compose port dashboard 8787
+curl -s -o /dev/null -w 'healthz=%{http_code}\n' http://127.0.0.1:8787/healthz
+curl -s -o /dev/null -w 'readyz=%{http_code}\n' http://127.0.0.1:8787/readyz
+```
+
+`dashboard` 应为 `healthy`，`healthz` 应返回 `200`；首次初始化期间 `readyz` 可暂时返回 `503`，数据就绪后应变为 `200`。
+
+Compose 项目名可能来自当前目录名、`-p` 或 `COMPOSE_PROJECT_NAME`，并会参与物理卷名的生成。部署后必须保持项目名稳定；改变项目名或改从另一份工程目录启动，可能创建新的空卷。开发和冒烟测试应使用独立项目名、端口和数据卷，不要复用正式 Compose 项目。
+
+`docker compose down` 会保留命名卷；`docker compose down -v` 和 `docker volume rm` 会删除真实运行数据，禁止用于普通重启、升级或排障。完整生命周期、跨平台端口检查和卷诊断见[独立运行说明](STANDALONE.md#docker-服务启动重启与数据卷)。
+
+### 5.2 原生部署
 
 通过一键启动入口注册并启动当前平台的长期运行服务：
 
@@ -479,6 +513,36 @@ curl -s "http://127.0.0.1:8787/api/messages?limit=5" | python3 -m json.tool | he
 当前消息流以 `push_history.db` 为主要来源。任务脚本需要正常写入该数据库后，页面才会出现对应消息。
 
 盘面监控和美股机构评级的新记录只写入该数据库，不再生成 Markdown 文件。升级前已有的 `.md` 历史文件会原样保留，但页面不会读取它们，也不会自动删除。
+
+### 页面显示较旧的模拟账户或交易日历
+
+先确认浏览器连接的端口、Compose 项目和数据源。Docker 使用逻辑卷 `niuone-data`，原生入口使用工程目录中的 `.local-data/`，两者不会自动同步。
+
+所有平台先运行：
+
+```bash
+docker compose ls
+docker compose ps
+docker compose port dashboard 8787
+docker volume ls --filter label=com.docker.compose.volume=niuone-data
+```
+
+macOS / Linux 检查端口占用：
+
+```bash
+lsof -nP -iTCP:8787 -sTCP:LISTEN
+```
+
+Windows PowerShell 检查端口占用：
+
+```powershell
+Get-NetTCPConnection -LocalPort 8787 -State Listen |
+    Select-Object LocalAddress, LocalPort, OwningProcess
+Get-Process -Id (Get-NetTCPConnection -LocalPort 8787 -State Listen |
+    Select-Object -First 1 -ExpandProperty OwningProcess)
+```
+
+Docker 部署的 `dashboard` 应为 `healthy`，并由 Docker 发布目标端口。若端口由工程目录中的 Python 进程监听，停止该原生实例后，从原部署目录、使用原 Compose 项目名执行 `docker compose up -d`。如果 `docker compose ls` 或卷列表中出现多个相似项目，先确认哪一套包含权威历史；不要用不完整副本覆盖 volume，也不要为了排障执行 `docker compose down -v`。
 
 ### 任务没有自动更新
 
