@@ -129,6 +129,124 @@ class TradeAccountingTests(unittest.TestCase):
         self.assertFalse(trade_counts_for_account(rejected))
         self.assertEqual(trader._trade_cash_delta(rejected), 0.0)
 
+    def test_save_state_commits_json_before_archiving_history(self):
+        trade = {
+            "time": "2026-08-17 10:00:00",
+            "action": "BUY",
+            "code": "600000",
+            "shares": 100,
+            "price": 10.0,
+            "amount": 1000.0,
+            "reason": "提交顺序测试",
+        }
+        observed_states = []
+
+        def archive_after_commit(_state):
+            observed_states.append(
+                json.loads(trader.STATE_FILE.read_text(encoding="utf-8"))
+            )
+            return True
+
+        trader._archive_account_history_before_compaction = archive_after_commit
+        trader.save_state(self._base_state(
+            cash=98_999.0,
+            trade_log=[trade],
+        ))
+
+        self.assertEqual(len(observed_states), 1)
+        self.assertEqual(observed_states[0]["cash"], 98_999.0)
+        self.assertEqual(observed_states[0]["trade_log"], [trade])
+
+    def test_save_state_failure_before_commit_does_not_archive_history(self):
+        archive_calls = []
+        original_writer = trader._write_state_file_atomically
+
+        def fail_before_commit(_payload):
+            raise PermissionError("state file is not writable")
+
+        try:
+            trader._write_state_file_atomically = fail_before_commit
+            trader._archive_account_history_before_compaction = (
+                lambda _state: archive_calls.append(True) or True
+            )
+            with self.assertRaises(PermissionError):
+                trader.save_state(self._base_state())
+        finally:
+            trader._write_state_file_atomically = original_writer
+
+        self.assertEqual(archive_calls, [])
+
+    def test_compaction_failure_keeps_committed_full_history(self):
+        original_writer = trader._write_state_file_atomically
+        write_count = 0
+
+        def fail_compaction(payload):
+            nonlocal write_count
+            write_count += 1
+            if write_count == 2:
+                raise PermissionError("compaction replace failed")
+            original_writer(payload)
+
+        trader._archive_account_history_before_compaction = lambda _state: True
+        try:
+            trader._write_state_file_atomically = fail_compaction
+            trader.save_state(self._base_state(
+                trade_log=[
+                    {
+                        "time": f"2026-08-17 10:{index // 60:02d}:{index % 60:02d}",
+                        "action": "BUY",
+                        "code": f"{index:06d}",
+                        "shares": 100,
+                        "price": 10.0,
+                        "amount": 1000.0,
+                        "reason": "压缩降级测试",
+                    }
+                    for index in range(trader.TRADE_LOG_LIMIT + 1)
+                ],
+            ))
+        finally:
+            trader._write_state_file_atomically = original_writer
+
+        saved = json.loads(trader.STATE_FILE.read_text(encoding="utf-8"))
+        self.assertEqual(write_count, 2)
+        self.assertEqual(len(saved["trade_log"]), trader.TRADE_LOG_LIMIT + 1)
+
+    def test_delayed_position_projection_reads_latest_canonical_state(self):
+        first_position = {
+            "600000": {
+                "code": "600000",
+                "qty": 100,
+                "avg_cost": 10.0,
+            }
+        }
+        latest_positions = {
+            **first_position,
+            "600001": {
+                "code": "600001",
+                "qty": 200,
+                "avg_cost": 8.0,
+            },
+        }
+        stale_state = self._base_state(positions=first_position)
+        trader.save_state(self._base_state(positions=latest_positions))
+
+        captured = []
+        original_db_module = sys.modules.get("niuniu_db")
+        sys.modules["niuniu_db"] = types.SimpleNamespace(
+            snapshot_positions=lambda positions: captured.append(
+                copy.deepcopy(positions)
+            )
+        )
+        try:
+            trader._sync_positions_to_db(stale_state)
+        finally:
+            if original_db_module is None:
+                sys.modules.pop("niuniu_db", None)
+            else:
+                sys.modules["niuniu_db"] = original_db_module
+
+        self.assertEqual(captured, [latest_positions])
+
     def test_rejected_audit_marker_survives_same_trade_merge(self):
         trade = {
             "time": "2026-08-17 09:38:01",
