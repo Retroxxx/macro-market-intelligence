@@ -74,6 +74,7 @@ class StrategyPackageTests(unittest.TestCase):
             registry.enabled_strategy_ids(strategy_suite_raw="niuone"),
             b3_exit_hhmm="09:37",
             time_exit_hhmm="14:45",
+            max_open_positions=10,
         )["active_strategy_section"]
 
         self.assertIn("30%是单票绝对上限", active)
@@ -101,7 +102,8 @@ class StrategyPackageTests(unittest.TestCase):
         self.assertIn("主题敞口≤55%/40%/25%/12%", active)
         self.assertIn("主题敞口≤12%/10%/8%/5%", active)
         self.assertIn("防守允许开仓，复合风险硬停止才禁止新仓", active)
-        self.assertIn("策略同时最多持有5只", active)
+        self.assertIn("策略同时最多持有10只", active)
+        self.assertIn("来自设置中的最大持仓只数", active)
         self.assertIn("strong_score前三且仍为强势股", active)
         self.assertIn("第一名涨停或无有效买点时可顺延", active)
         self.assertIn(
@@ -140,7 +142,10 @@ class StrategyPackageTests(unittest.TestCase):
         self.assertIn("领涨/转强/启动/试仓单票30%/25%/15%/10%", discipline)
         self.assertIn("不依赖模型主动提出ADD", discipline)
         self.assertIn("不设固定同板块或同题材持仓只数上限", discipline)
-        self.assertIn("同时最多持有5只", discipline)
+        self.assertIn(
+            f"同时最多持有{trader.NIUONE_MAX_OPEN_POSITIONS}只",
+            discipline,
+        )
         self.assertNotIn("单笔权益风险分别≤0.25%/0.18%/0.10%", discipline)
 
     def test_position_exit_prompt_uses_held_strategy_marks_not_active_suite(self):
@@ -186,6 +191,29 @@ class StrategyPackageTests(unittest.TestCase):
                 sys.executable,
                 "-c",
                 "import app.compat.strategy_registry as r; assert 'b3_accelerate' in r.STRATEGY_DEFINITIONS",
+            ],
+            cwd=ROOT,
+            env=env,
+            check=True,
+            timeout=30,
+        )
+
+    def test_trader_uses_configured_max_open_positions_for_niuone(self):
+        env = os.environ.copy()
+        env["DASHBOARD_ENV_FILE"] = str(ROOT / ".missing-test-dashboard.env")
+        env["DASHBOARD_MAX_OPEN_POSITIONS"] = "10"
+        env.pop("PYTHONPATH", None)
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    f"import sys; sys.path[:0] = [{str(APP)!r}, {str(COMPAT)!r}]; "
+                    "import niuniu_practice_trader as t; "
+                    "assert t.MAX_OPEN_POSITIONS == 10; "
+                    "assert t.NIUONE_MAX_OPEN_POSITIONS == 10; "
+                    "assert t._market_context_base()['niuone_max_open_positions'] == 10"
+                ),
             ],
             cwd=ROOT,
             env=env,

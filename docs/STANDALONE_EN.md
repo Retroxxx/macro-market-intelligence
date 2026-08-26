@@ -340,6 +340,8 @@ v40 raises the Probe absolute cap to 10% and raises both rotation Probe per-trad
 
 v41 adds a holding fast cycle that is disabled by default. It narrows only the incremental scoring universe and keeps the complete cycle's scoring, unified market summary, model policy, exit-first ordering, and execution controls. A fast-cycle BUY is add-only for a position that still exists at execution and cannot discover, open, or reopen a symbol. The durable origin is `holding_fast`, and the switch plus 60–900-second interval enter the protocol fingerprint. Standalone strict-forward advances to `niuone-strict-forward-v41`, the administrator daily-bar backtest remains `niuone-backtest-v38`, and the new default cohort starts on `2026-08-27`; archive the v40 lock and report before deployment.
 
+v42 aligns NiuOne's concurrent-holding ceiling with `DASHBOARD_MAX_OPEN_POSITIONS`. Model prompts, free-slot calculation, full-book replacement, final execution checks, administrator backtests, and strict-forward share the configured value. Pre-lunch and market-summary dynamic counts still do not limit NiuOne, and all other risk budgets remain unchanged. Standalone strict-forward/admin-backtest advance to `niuone-strict-forward-v42`/`niuone-backtest-v39`, while the default cohort remains `2026-08-27`; archive the v41 lock, report, and older backtests before deployment.
+
 ### One-Click Enablement
 
 `--service` first performs the same directory initialization, virtual-environment creation, and dependency installation as a normal startup, then registers and immediately starts the native services for the current platform. Running it again updates the existing registrations, which is useful after code or configuration changes.

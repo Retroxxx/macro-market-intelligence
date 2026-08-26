@@ -58,7 +58,7 @@ DEFAULT_HISTORICAL_REFERENCE_WIN_RATE_PCT = 59.71
 DEFAULT_WIN_RATE_CONFIDENCE_LEVEL = 0.95
 DEFAULT_MAX_PORTFOLIO_DRAWDOWN_PCT = 6.0
 DEFAULT_MIN_RETURN_TO_DRAWDOWN_RATIO = 1.0
-FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v41"
+FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v42"
 FORWARD_PERFORMANCE_CLUSTER_UNIT = "entry_date_x_entry_theme"
 FORWARD_SHADOW_CANDIDATES = {
     "execution_gap": "round13_execution_gap_le_1pct",
@@ -2828,6 +2828,7 @@ def evaluate_niuone_forward(
     minimum_return_to_drawdown_ratio: float = (
         DEFAULT_MIN_RETURN_TO_DRAWDOWN_RATIO
     ),
+    maximum_open_niuone_positions: int = NIUONE_MAX_OPEN_POSITIONS,
 ) -> dict[str, Any]:
     """Evaluate only complete, post-cohort NiuOne position lifecycles.
 
@@ -2838,6 +2839,9 @@ def evaluate_niuone_forward(
     """
     start = _date_value(cohort_start, field_name="cohort_start")
     cutoff = _date_value(as_of or date.today(), field_name="as_of")
+    resolved_maximum_open_positions = int(maximum_open_niuone_positions)
+    if resolved_maximum_open_positions <= 0:
+        raise ValueError("maximum_open_niuone_positions must be positive")
     resolved_expected_operating_dates = (
         sorted({str(value)[:10] for value in expected_operating_dates})
         if expected_operating_dates is not None
@@ -3303,9 +3307,12 @@ def evaluate_niuone_forward(
                 "NiuOne opening-count limit; portfolio capacity and risk "
                 "budgets remain binding"
             ),
-            "maximum_open_niuone_positions": NIUONE_MAX_OPEN_POSITIONS,
+            "maximum_open_niuone_positions": (
+                resolved_maximum_open_positions
+            ),
             "priority_replacement_rule": (
-                "when the five-name book is full, a new NiuOne candidate may "
+                "when the configured maximum-position book is full, a new "
+                "NiuOne candidate may "
                 "replace only a fully T+1-sellable NiuOne holding with a "
                 "strictly lower audited current portfolio priority; execute "
                 "the full SELL before the BUY"
@@ -3337,8 +3344,8 @@ def evaluate_niuone_forward(
             "niuone_same_theme_position_count_limit": None,
             "niuone_same_theme_capacity_rule": (
                 "no fixed same-sector or same-theme position-count limit; "
-                "theme risk, theme exposure, portfolio risk, and the five-name "
-                "book remain binding"
+                "theme risk, theme exposure, portfolio risk, and the configured "
+                "maximum-position book remain binding"
             ),
             "niuone_reversal_absolute_position_cap_pct": (
                 NIUONE_ABSOLUTE_POSITION_CAP_PCT["niu_reversal_probe"]

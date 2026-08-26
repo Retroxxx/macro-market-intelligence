@@ -7,7 +7,7 @@ import { useAdminConfig } from '../composables/useAdminConfig.js'
 
 document.title = '牛牛1号 · 策略回测'
 
-const NIUONE_BACKTEST_PROTOCOL_VERSION = 'niuone-backtest-v38'
+const NIUONE_BACKTEST_PROTOCOL_VERSION = 'niuone-backtest-v39'
 
 const route = useRoute()
 const { state, errorMessage, refresh, authenticate } = useAdminConfig()

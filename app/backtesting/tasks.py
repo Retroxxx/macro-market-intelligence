@@ -77,7 +77,7 @@ BACKTEST_STATE_SCHEMA_VERSION = 2
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BACKTEST_RISK_PROFILE = "aggressive"
 GENERIC_BACKTEST_RISK_PROFILE = "balanced"
-NIUONE_BACKTEST_PROTOCOL_VERSION = "niuone-backtest-v38"
+NIUONE_BACKTEST_PROTOCOL_VERSION = "niuone-backtest-v39"
 GENERIC_BACKTEST_PROTOCOL_VERSION = "selection-backtest-v2"
 NIUONE_BACKTEST_RISK_PROFILES: dict[str, dict[str, Any]] = {
     "aggressive": {
@@ -90,11 +90,18 @@ NIUONE_BACKTEST_RISK_PROFILES: dict[str, dict[str, Any]] = {
         "policy_options": {
             "risk_budget_scale": 1.35,
             "position_budget_scale": 1.15,
-            "max_open_positions": 5,
-            "max_industry_positions": 5,
         },
     },
 }
+
+
+def configured_max_open_positions() -> int:
+    """Read the account-wide count ceiling used by Practice and NiuOne."""
+    try:
+        value = int(os.environ.get("DASHBOARD_MAX_OPEN_POSITIONS", "6"))
+    except (TypeError, ValueError):
+        value = 6
+    return max(1, value)
 
 
 class BacktestTaskError(ValueError):
@@ -322,6 +329,10 @@ def normalize_backtest_request(
                 if suite_id == PROMPT_SUITE_ID
                 else GENERIC_BACKTEST_PROTOCOL_VERSION
             )
+        ),
+        **(
+            {"max_open_positions": configured_max_open_positions()}
+            if suite_id == "niuone" else {}
         ),
         **(
             {"prompt_strategy_version": prompt_version_snapshot}
@@ -599,6 +610,16 @@ def run_strategy_backtest_request(
         }
     )
 
+    policy_options = dict(risk_profile.get("policy_options") or {})
+    if suite_id == "niuone":
+        configured_limit = int(request["max_open_positions"])
+        policy_options.update({
+            "max_open_positions": configured_limit,
+            # NiuOne has no separate same-theme name-count ceiling; matching
+            # the book ceiling prevents this compatibility field tightening it.
+            "max_industry_positions": configured_limit,
+        })
+
     position_exit_strategy = (
         NiuOneStrategyBacktestPolicy(
             markup_upgrade_only=True,
@@ -609,7 +630,7 @@ def run_strategy_backtest_request(
             lifecycle_climax_min_pnl_pct=(
                 NIUONE_LIFECYCLE_CLIMAX_MIN_PNL_PCT
             ),
-            **dict(risk_profile.get("policy_options") or {}),
+            **policy_options,
         )
         if suite_id == "niuone" else (
             PromptStrategyBacktestPolicy(prompt_version)
@@ -832,6 +853,10 @@ def run_strategy_backtest_request(
         "risk_profile": risk_profile_id,
         "protocol_version": protocol_version,
         **(
+            {"max_open_positions": int(request["max_open_positions"])}
+            if suite_id == "niuone" else {}
+        ),
+        **(
             {
                 "prompt_strategy_version_id": prompt_version["version_id"],
                 "prompt_plan_sha256": prompt_version["plan_sha256"],
@@ -1008,6 +1033,14 @@ class BacktestTaskManager:
             "risk_profile": risk_profile,
             "protocol_version": expected_protocol,
         }
+        if strategy_id == "niuone":
+            try:
+                max_open_positions = int(stored.get("max_open_positions"))
+            except (TypeError, ValueError):
+                return None
+            if max_open_positions <= 0:
+                return None
+            request["max_open_positions"] = max_open_positions
         if strategy_id == PROMPT_SUITE_ID:
             raw_version = stored.get("prompt_strategy_version")
             if not isinstance(raw_version, Mapping):

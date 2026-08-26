@@ -13,11 +13,13 @@ NIUONE_ABSOLUTE_POSITION_CAP_PCT = {
     "niu_reversal_probe": 10.0,
 }
 
-NIUONE_MAX_OPEN_POSITIONS = 5
-# Compatibility name retained for protocol snapshots and older imports.  New
-# NiuOne openings are no longer capped by a per-cycle, session, or trading-day
-# counter; the five-name portfolio ceiling and the risk/exposure budgets below
-# are the capacity controls.
+NIUONE_DEFAULT_MAX_OPEN_POSITIONS = 6
+# Compatibility name retained for protocol snapshots and older imports.  This
+# is only the default when no composition-layer setting is supplied; Practice,
+# strict-forward evaluation, and administrator backtests pass the configured
+# DASHBOARD_MAX_OPEN_POSITIONS value explicitly.  NiuOne openings are not
+# capped by a per-cycle, session, or trading-day counter.
+NIUONE_MAX_OPEN_POSITIONS = NIUONE_DEFAULT_MAX_OPEN_POSITIONS
 NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY: int | None = None
 NIUONE_BUY_SIGNAL_SCORE_FIELDS = (
     "best_decision_score",

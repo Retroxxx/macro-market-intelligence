@@ -486,6 +486,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
             [],
             cohort_start="2026-08-03",
             as_of="2026-08-02",
+            maximum_open_niuone_positions=10,
         )["protocol"]
         identity = _build_protocol_identity(
             protocol,
@@ -532,7 +533,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
         )
         self.assertEqual(
             identity["protocol"]["maximum_open_niuone_positions"],
-            5,
+            10,
         )
         self.assertEqual(
             identity["protocol"]["priority_replacement_rule"],
@@ -2714,7 +2715,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
 
         self.assertEqual(report["overall"]["completed_trade_count"], 1)
         self.assertEqual(report["coverage"]["duplicate_trade_count"], 2)
-        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v41")
+        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v42")
         self.assertEqual(
             report["protocol"][
                 "niuone_markup_upgrade_absolute_position_cap_pct"

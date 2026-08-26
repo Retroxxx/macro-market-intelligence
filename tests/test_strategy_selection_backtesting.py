@@ -461,6 +461,8 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
             ReplacementSelector(),
             position_exit_strategy=NiuOneStrategyBacktestPolicy(
                 entry_order_scale=0.1,
+                max_open_positions=5,
+                max_industry_positions=5,
             ),
             config=SelectionBacktestConfig(
                 holding_sessions=(1,),
@@ -506,8 +508,8 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
 
     def test_niuone_strategy_portfolio_accepts_research_slot_limits(self):
         production = NiuOneStrategyBacktestPolicy()
-        self.assertEqual(production.max_open_positions, 5)
-        self.assertEqual(production.max_industry_positions, 5)
+        self.assertEqual(production.max_open_positions, 6)
+        self.assertEqual(production.max_industry_positions, 6)
 
         concentrated = NiuOneStrategyBacktestPolicy(
             max_open_positions=4,
@@ -518,8 +520,8 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "max_open_positions"):
             NiuOneStrategyBacktestPolicy(max_open_positions=0)
-        with self.assertRaisesRegex(ValueError, "max_open_positions"):
-            NiuOneStrategyBacktestPolicy(max_open_positions=6)
+        expanded = NiuOneStrategyBacktestPolicy(max_open_positions=10)
+        self.assertEqual(expanded.max_open_positions, 10)
         with self.assertRaisesRegex(ValueError, "max_industry_positions"):
             NiuOneStrategyBacktestPolicy(max_industry_positions=0)
 
@@ -614,7 +616,7 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
             46.0,
         )
         self.assertIsNone(aggressive.max_new_positions_per_session)
-        self.assertEqual(aggressive.max_open_positions, 5)
+        self.assertEqual(aggressive.max_open_positions, 6)
         self.assertEqual(aggressive.max_industry_positions, 3)
         defensive_budget = balanced._risk_budget(
             "defensive",

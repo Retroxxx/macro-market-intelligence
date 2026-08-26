@@ -1191,11 +1191,8 @@ class NiuOneStrategyBacktestPolicy(NiuOneDailyExitStrategy):
                 )
             self.max_new_positions_per_session = resolved_limit
         resolved_open_limit = int(max_open_positions)
-        if not 0 < resolved_open_limit <= NIUONE_MAX_OPEN_POSITIONS:
-            raise ValueError(
-                "max_open_positions must be between 1 and "
-                f"{NIUONE_MAX_OPEN_POSITIONS}"
-            )
+        if resolved_open_limit <= 0:
+            raise ValueError("max_open_positions must be positive")
         self.max_open_positions = resolved_open_limit
         resolved_industry_limit = int(max_industry_positions)
         if resolved_industry_limit <= 0:

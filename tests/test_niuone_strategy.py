@@ -4919,7 +4919,7 @@ class NiuOneStrategyTests(unittest.TestCase):
                     "effective_loss_distance_pct": 6.2,
                     "buy_date_lots": {"2026-07-24": 100},
                 }
-                for index in range(5)
+                for index in range(trader.NIUONE_MAX_OPEN_POSITIONS)
             }
             state = {"cash": 95000.0, "positions": positions, "trade_log": []}
             candidate = niu_candidate(code="600099", industry="电子", sector="电子")
@@ -4946,7 +4946,10 @@ class NiuOneStrategyTests(unittest.TestCase):
                 executed[1]["replacement_source_code"],
                 "600010",
             )
-            self.assertEqual(len(state["positions"]), 5)
+            self.assertEqual(
+                len(state["positions"]),
+                trader.NIUONE_MAX_OPEN_POSITIONS,
+            )
             self.assertNotIn("600010", state["positions"])
             self.assertIn("600099", state["positions"])
             self.assertEqual(
@@ -4977,7 +4980,7 @@ class NiuOneStrategyTests(unittest.TestCase):
                 "stock_strong": True,
                 "stock_leader_tier": True,
             }
-            for index in range(5)
+            for index in range(trader.NIUONE_MAX_OPEN_POSITIONS)
         }
         state = {"positions": positions}
         candidate = niu_candidate(
@@ -5019,6 +5022,46 @@ class NiuOneStrategyTests(unittest.TestCase):
             "portfolio_priority",
         )
 
+    def test_niuone_uses_expanded_configured_book_before_replacement(self):
+        original_limit = trader.NIUONE_MAX_OPEN_POSITIONS
+        try:
+            trader.NIUONE_MAX_OPEN_POSITIONS = 10
+            positions = {
+                f"60001{index}": {
+                    "code": f"60001{index}",
+                    "qty": 100,
+                    "buy_strategy": "niu_leader",
+                    "buy_date_lots": {"2026-07-24": 100},
+                }
+                for index in range(5)
+            }
+            candidate = niu_candidate(
+                code="600099",
+                industry="电子",
+                sector="电子",
+            )
+            decision = {
+                "actions": [{
+                    "action": "BUY",
+                    "code": "600099",
+                    "shares": 100,
+                    "reason": "牛牛新增候选",
+                }],
+            }
+
+            actions = trader.prepare_niuone_portfolio_actions(
+                decision,
+                {"positions": positions},
+                [candidate],
+                execution_date="2026-07-25",
+            )
+
+            self.assertEqual(actions[0]["action"], "BUY")
+            self.assertEqual(decision["niuone_replacement_plan"], [])
+            self.assertNotIn("execution_blocks", decision)
+        finally:
+            trader.NIUONE_MAX_OPEN_POSITIONS = original_limit
+
     def test_niuone_replacement_preflight_keeps_holding_when_buy_cannot_fill(self):
         original_time = trader.is_a_share_execution_time
         original_quote = trader.execution_quote
@@ -5048,7 +5091,7 @@ class NiuOneStrategyTests(unittest.TestCase):
                     "effective_loss_distance_pct": 6.2,
                     "buy_date_lots": {"2026-07-24": 100},
                 }
-                for index in range(5)
+                for index in range(trader.NIUONE_MAX_OPEN_POSITIONS)
             }
             state = {
                 "cash": 95000.0,
@@ -5086,7 +5129,10 @@ class NiuOneStrategyTests(unittest.TestCase):
             )
 
             self.assertEqual(executed, [])
-            self.assertEqual(len(state["positions"]), 5)
+            self.assertEqual(
+                len(state["positions"]),
+                trader.NIUONE_MAX_OPEN_POSITIONS,
+            )
             self.assertIn("600010", state["positions"])
             self.assertNotIn("600099", state["positions"])
             self.assertEqual(decision["niuone_replacement_plan"], [])

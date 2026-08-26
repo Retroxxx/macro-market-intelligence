@@ -1327,6 +1327,9 @@ def main(argv: list[str] | None = None) -> int:
             [],
             cohort_start=cohort_start,
             as_of=args.as_of,
+            maximum_open_niuone_positions=int(
+                runtime_settings["DASHBOARD_MAX_OPEN_POSITIONS"]
+            ),
         )
         identity = _build_protocol_identity(
             protocol_report["protocol"],
@@ -1466,6 +1469,9 @@ def main(argv: list[str] | None = None) -> int:
         expected_operating_dates=expected_operating_dates,
         cohort_start=cohort_start,
         as_of=args.as_of,
+        maximum_open_niuone_positions=int(
+            runtime_settings["DASHBOARD_MAX_OPEN_POSITIONS"]
+        ),
     )
     report["source"] = source
     report["generated_on"] = (

@@ -193,7 +193,7 @@ from strategies.niuone_risk import (
     NIUONE_MARKUP_UPGRADE_MAX_PNL_PCT,
     NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT,
     NIUONE_MARKUP_UPGRADE_POSITION_CAP_PCT,
-    NIUONE_MAX_OPEN_POSITIONS,
+    NIUONE_DEFAULT_MAX_OPEN_POSITIONS,
     niuone_add_signal_score_audit,
     niuone_buy_signal_score,
     niuone_portfolio_priority,
@@ -2970,7 +2970,13 @@ CONSENSUS_POSITION_BOOST = 1.5  # 策略共识≥3时仓位放大系数
 SELF_OPTIMIZATION_COOLDOWN = 3600  # 自优化最小间隔（秒）
 HIGH_VOL_REDUCTION = 0.7  # 高波动率仓位缩小系数
 LOW_VOL_BOOST = 1.3       # 低波动率仓位放大系数
-MAX_OPEN_POSITIONS = env_int("DASHBOARD_MAX_OPEN_POSITIONS", 6)
+MAX_OPEN_POSITIONS = env_int(
+    "DASHBOARD_MAX_OPEN_POSITIONS",
+    NIUONE_DEFAULT_MAX_OPEN_POSITIONS,
+)
+# Compatibility name retained in this module for historical imports and
+# monkeypatches.  It now reflects the configured account-wide count ceiling.
+NIUONE_MAX_OPEN_POSITIONS = MAX_OPEN_POSITIONS
 MAX_NEW_BUYS_PER_DECISION = env_int("DASHBOARD_MAX_NEW_BUYS_PER_DECISION", 2)
 MAX_SINGLE_POSITION_PCT = env_float("DASHBOARD_MAX_SINGLE_POSITION_PCT", 10.0)
 MAX_TOTAL_POSITION_PCT = env_float("DASHBOARD_MAX_TOTAL_POSITION_PCT", 80.0)
@@ -8531,6 +8537,7 @@ def call_model_decision(
         active_strategy_ids,
         b3_exit_hhmm=B3_EXIT_HHMM,
         time_exit_hhmm=TIME_EXIT_HHMM,
+        max_open_positions=NIUONE_MAX_OPEN_POSITIONS,
     )
     strategy_source_label = strategy_prompt_sections["strategy_source_label"]
     strategy_labels = strategy_prompt_sections["strategy_labels"]
@@ -8962,9 +8969,9 @@ def refine_overlimit_buy_actions(
         )
     ]
     if not buy_actions:
-        # NiuOne capacity is governed by the five-name book and deterministic
-        # replacement ranking. Market-summary counts, including a zero-count
-        # pause, do not consume or suppress NiuOne opening slots.
+        # NiuOne capacity is governed by the configured account count ceiling
+        # and deterministic replacement ranking. Market-summary counts,
+        # including a zero-count pause, do not consume or suppress its slots.
         return None
     if max_new_buys <= 0:
         if buy_actions:
@@ -9075,7 +9082,7 @@ def prepare_niuone_portfolio_actions(
     *,
     execution_date: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Enforce five-name capacity and create only strict priority upgrades."""
+    """Enforce configured NiuOne capacity and strict priority upgrades."""
     positions = state.get("positions") or {}
     candidate_by_code = {
         normalize_code(item.get("code") or ""): item

@@ -141,15 +141,21 @@ class BacktestTaskTests(unittest.TestCase):
                 "strategy_id": "base",
                 "source": "sina",
             })
-        fixed_aggressive = normalize_backtest_request({
-            "strategy_id": "niuone",
-            "start_date": "2026-06-01",
-            "end_date": "2026-06-30",
-            "adjustment": "qfq",
-            "source": "tencent",
-            "risk_profile": "balanced",
-        })
+        with patch.dict(
+            "os.environ",
+            {"DASHBOARD_MAX_OPEN_POSITIONS": "10"},
+            clear=False,
+        ):
+            fixed_aggressive = normalize_backtest_request({
+                "strategy_id": "niuone",
+                "start_date": "2026-06-01",
+                "end_date": "2026-06-30",
+                "adjustment": "qfq",
+                "source": "tencent",
+                "risk_profile": "balanced",
+            })
         self.assertEqual(fixed_aggressive["risk_profile"], "aggressive")
+        self.assertEqual(fixed_aggressive["max_open_positions"], 10)
         self.assertEqual(
             fixed_aggressive["protocol_version"],
             NIUONE_BACKTEST_PROTOCOL_VERSION,
@@ -277,14 +283,19 @@ class BacktestTaskTests(unittest.TestCase):
         self.assertEqual(payload["universe"]["classification_basis"], "iwencai_concept")
 
     def test_niuone_runner_uses_trade_lifecycle_exit_strategy_without_cooldown(self):
-        request = normalize_backtest_request({
-            "strategy_id": "niuone",
-            "start_date": "2026-01-01",
-            "end_date": "2026-02-01",
-            "adjustment": "qfq",
-            "source": "auto",
-            "risk_profile": "aggressive",
-        })
+        with patch.dict(
+            "os.environ",
+            {"DASHBOARD_MAX_OPEN_POSITIONS": "10"},
+            clear=False,
+        ):
+            request = normalize_backtest_request({
+                "strategy_id": "niuone",
+                "start_date": "2026-01-01",
+                "end_date": "2026-02-01",
+                "adjustment": "qfq",
+                "source": "auto",
+                "risk_profile": "aggressive",
+            })
         run = Mock()
         run.selection.to_dict.return_value = {}
         run.warnings = ()
@@ -334,7 +345,7 @@ class BacktestTaskTests(unittest.TestCase):
         )
         self.assertEqual(
             call.kwargs["position_exit_strategy"].max_open_positions,
-            5,
+            10,
         )
         self.assertAlmostEqual(
             call.kwargs["position_exit_strategy"].risk_budget_scale,
@@ -362,8 +373,8 @@ class BacktestTaskTests(unittest.TestCase):
                 "position_budget_scale": 1.15,
                 "max_new_positions_per_session": None,
                 "new_position_count_limited": False,
-                "max_open_positions": 5,
-                "max_industry_positions": 5,
+                "max_open_positions": 10,
+                "max_industry_positions": 10,
                 "same_theme_position_count_limited": False,
                 "board_lot": 100,
                 "model_order_units_replayed": False,
