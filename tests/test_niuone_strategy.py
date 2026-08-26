@@ -4960,6 +4960,16 @@ class NiuOneStrategyTests(unittest.TestCase):
                 decision["niuone_replacement_plan"][0]["buy_code"],
                 "600099",
             )
+            observation = decision["niuone_capacity_observation"]
+            self.assertEqual(
+                observation["open_position_count"],
+                trader.NIUONE_MAX_OPEN_POSITIONS,
+            )
+            self.assertEqual(observation["candidates"][0]["code"], "600099")
+            self.assertEqual(
+                observation["candidates"][0]["outcome"],
+                "replacement_planned",
+            )
         finally:
             trader.is_a_share_execution_time = original_time
             trader.execution_quote = original_quote
@@ -5021,6 +5031,54 @@ class NiuOneStrategyTests(unittest.TestCase):
             decision["execution_blocks"][0]["category"],
             "portfolio_priority",
         )
+
+    def test_niuone_full_book_logs_buyable_candidate_without_model_buy(self):
+        positions = {
+            f"60001{index}": {
+                "code": f"60001{index}",
+                "name": f"已有持仓{index}",
+                "qty": 100,
+                "avg_cost": 10.0,
+                "last_price": 10.0,
+                "buy_strategy": "niu_leader",
+            }
+            for index in range(trader.NIUONE_MAX_OPEN_POSITIONS)
+        }
+        state = {"cash": 50000.0, "positions": positions, "trade_log": []}
+        candidate = niu_candidate(
+            code="600099",
+            name="满仓新候选",
+            industry="电子",
+            sector="电子",
+        )
+        decision = {"summary": "维持现有组合", "actions": []}
+
+        executed = trader.execute_actions(
+            state,
+            decision,
+            [candidate],
+            True,
+            "连续竞价交易时段",
+            {
+                "allow_new_buys": True,
+                "max_open_positions": trader.NIUONE_MAX_OPEN_POSITIONS,
+                "max_new_buys_per_decision": 2,
+                "max_total_position_pct": 80,
+                "min_cash_reserve_pct": 20,
+            },
+        )
+
+        self.assertEqual(executed, [])
+        observation = decision["niuone_capacity_observation"]
+        self.assertEqual(observation["status"], "full")
+        self.assertEqual(observation["candidate_count"], 1)
+        self.assertEqual(observation["candidates"][0]["code"], "600099")
+        self.assertEqual(
+            observation["candidates"][0]["outcome"],
+            "candidate_recorded",
+        )
+        self.assertIn("满仓新候选", observation["summary"])
+        self.assertEqual(state["trade_log"], [])
 
     def test_niuone_uses_expanded_configured_book_before_replacement(self):
         original_limit = trader.NIUONE_MAX_OPEN_POSITIONS

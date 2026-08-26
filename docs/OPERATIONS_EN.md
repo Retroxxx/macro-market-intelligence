@@ -310,6 +310,8 @@ v41 adds a holding fast cycle that is disabled by default. When enabled, it narr
 
 v42 aligns NiuOne's concurrent-holding ceiling with the configured `DASHBOARD_MAX_OPEN_POSITIONS`. Practice prompts, free-slot calculation, full-book priority replacement, and execution rechecks use the same startup value; administrator backtests snapshot it at submission, while strict-forward records the number and protects it through the runtime-settings fingerprint. `DASHBOARD_MORNING_MAX_OPEN_POSITIONS` and market-summary dynamic counts remain non-NiuOne-only; all other risk, exposure, cash, and T+1 controls are unchanged. Strict-forward/admin-backtest advance to `niuone-strict-forward-v42`/`niuone-backtest-v39`, and the default cohort remains `2026-08-27`; archive the v41 lock, report, and older backtests before deployment.
 
+After the NiuOne book reaches that ceiling, every newly selected buyable candidate is written to the Practice operation log and labeled as candidate-only, not bought, or replacement planned. This is decision-audit evidence rather than a fill or failed order; an actual replacement must still pass priority, T+1, and paired-fill preflight controls.
+
 When a strategy appears not to trigger, check in this order:
 
 1. Confirm that `DASHBOARD_ACTIVE_STRATEGY` in `.local-data/dashboard.env` names the expected suite.

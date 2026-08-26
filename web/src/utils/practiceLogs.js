@@ -73,11 +73,17 @@ function decisionLogEntry(entry, index) {
   const actions = Array.isArray(decision.actions) ? decision.actions : []
   const executed = Array.isArray(entry.executed) ? entry.executed : []
   const blocked = blockedReasons(decision, actions)
+  const capacityObservation = decision.niuone_capacity_observation || {}
+  const capacityCandidates = Array.isArray(capacityObservation.candidates)
+    ? capacityObservation.candidates
+    : []
+  const capacityText = compactStrategyText(capacityObservation.summary || '', 180)
   const suggestedCount = executableActionCount(actions)
   const actionText = [
     suggestedCount ? `建议${suggestedCount}笔` : '',
     executed.length ? `执行${executed.length}笔` : '',
     blocked.length ? `拦截${blocked.length}笔` : '',
+    capacityCandidates.length ? `满仓候选${capacityCandidates.length}只` : '',
   ].filter(Boolean).join(' / ') || '无成交'
   const refinement = decision.buy_refinement || {}
   const dropped = Array.isArray(refinement.dropped) ? refinement.dropped : []
@@ -103,6 +109,7 @@ function decisionLogEntry(entry, index) {
     detail: [
       compactStrategyText(entry.trade_reason || '', 90),
       actionText,
+      capacityText,
       refinementText,
       blocked.length ? `拦截：${compactStrategyText(blocked.join('；'), 140)}` : '',
       executionNote,
@@ -139,6 +146,7 @@ export function practiceLogRawText(item) {
     textValue(decision.summary, true),
     textValue(raw.trade_reason, true),
     textValue(decision.execution_blocked_reasons || decision.execution_blocked_reason, true),
+    textValue(decision.niuone_capacity_observation, true),
     textValue(decision.buy_refinement, true),
     textValue(decision.error),
   ].filter(Boolean)

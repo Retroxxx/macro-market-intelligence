@@ -9281,6 +9281,98 @@ def prepare_niuone_portfolio_actions(
     return decision["actions"]
 
 
+def annotate_niuone_full_book_candidates(
+    decision: dict[str, Any],
+    state: Mapping[str, Any],
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Persist visible evidence when a full NiuOne book sees new buyable names."""
+    positions = state.get("positions") or {}
+    position_count = open_position_count(positions)
+    if position_count < NIUONE_MAX_OPEN_POSITIONS:
+        return []
+
+    actions_by_code = {
+        normalize_code(action.get("code") or ""): action
+        for action in (decision.get("actions") or [])
+        if isinstance(action, dict) and normalize_code(action.get("code") or "")
+    }
+    replacement_buy_codes = {
+        normalize_code(plan.get("buy_code") or "")
+        for plan in (decision.get("niuone_replacement_plan") or [])
+        if isinstance(plan, dict) and normalize_code(plan.get("buy_code") or "")
+    }
+    records: list[dict[str, Any]] = []
+    seen_codes: set[str] = set()
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        code = normalize_code(candidate.get("code") or "")
+        strategy_id = str(
+            candidate.get("best_strategy")
+            or candidate.get("buy_strategy")
+            or candidate.get("strategy_id")
+            or ""
+        ).strip()
+        if (
+            not code
+            or code in seen_codes
+            or not is_niuone_strategy(strategy_id)
+            or not candidate_is_buyable(candidate)
+            or position_qty(positions.get(code) or {}) > 0
+        ):
+            continue
+        seen_codes.add(code)
+        action = actions_by_code.get(code) or {}
+        action_name = str(action.get("action") or "").upper()
+        intent = str(action.get("intent") or "").upper()
+        if code in replacement_buy_codes or intent == "REPLACE":
+            outcome = "replacement_planned"
+            outcome_label = "计划换仓"
+        elif action_name == "HOLD":
+            outcome = "not_bought"
+            outcome_label = "未买入"
+        elif action_name == "BUY":
+            outcome = "buy_requested"
+            outcome_label = "已申请买入"
+        else:
+            outcome = "candidate_recorded"
+            outcome_label = "仅记录候选"
+        score = candidate.get("best_decision_score")
+        if score is None:
+            score = candidate.get("best_score", candidate.get("score"))
+        records.append({
+            "code": code,
+            "name": str(candidate.get("name") or "").strip(),
+            "strategy_id": strategy_id,
+            "score": score,
+            "outcome": outcome,
+            "outcome_label": outcome_label,
+            "intent": intent,
+            "reason": str(action.get("reason") or "").strip(),
+        })
+
+    if not records:
+        return []
+    labels = [
+        f"{record['code']}{(' ' + record['name']) if record['name'] else ''}"
+        f"（{record['outcome_label']}）"
+        for record in records
+    ]
+    decision["niuone_capacity_observation"] = {
+        "status": "full",
+        "open_position_count": position_count,
+        "max_open_positions": NIUONE_MAX_OPEN_POSITIONS,
+        "candidate_count": len(records),
+        "candidates": records,
+        "summary": (
+            f"牛牛持仓已达{position_count}/{NIUONE_MAX_OPEN_POSITIONS}只，"
+            f"发现可买入新候选{len(records)}只：{'、'.join(labels)}"
+        ),
+    }
+    return records
+
+
 def execute_actions(
     state: dict[str, Any],
     decision: dict[str, Any],
@@ -9309,6 +9401,7 @@ def execute_actions(
     daily_loss_budget_exceeded, daily_loss_budget_pnl = check_daily_loss_budget(state)
     execution_date = evaluated_at.strftime("%Y-%m-%d") if evaluated_at else today_key()
     if not trade_allowed:
+        annotate_niuone_full_book_candidates(decision, state, candidates)
         return executed
     prepared_actions = prepare_niuone_portfolio_actions(
         decision,
@@ -9387,6 +9480,7 @@ def execute_actions(
                 category="replacement_preflight",
             )
         decision["niuone_replacement_plan"] = valid_plan
+    annotate_niuone_full_book_candidates(decision, state, candidates)
     action_limit = (
         2 * NIUONE_MAX_OPEN_POSITIONS
         if any(
@@ -12219,6 +12313,8 @@ def run_decision_after_b1(b1_payload: dict[str, Any], force: bool = False) -> di
     if holding_cycle_only:
         decision["holding_cycle_only"] = True
         decision["decision_cycle_kind"] = decision_cycle_kind or "holding_fast"
+    if "niuone_capacity_observation" not in decision:
+        annotate_niuone_full_book_candidates(decision, state, candidates)
     state["last_b1_generated_at"] = generated_at
     state["last_decision_at"] = now_ts()
     log_entry = {

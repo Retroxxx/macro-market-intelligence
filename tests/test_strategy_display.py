@@ -109,6 +109,43 @@ console.log(JSON.stringify({{
             },
         )
 
+    def test_frontend_surfaces_full_book_candidate_observation(self):
+        logs_module_uri = (ROOT / "web" / "src" / "utils" / "practiceLogs.js").as_uri()
+        scenario = f"""
+const {{ normalizePracticeOperationLogs, practiceLogRawText }} = await import({json.dumps(logs_module_uri)});
+const logs = normalizePracticeOperationLogs({{
+  generated_at: '2026-08-26 10:00:00',
+  decision_log: [{{
+    time: '2026-08-26 10:00:00',
+    decision: {{
+      summary: '维持现有组合',
+      actions: [],
+      niuone_capacity_observation: {{
+        summary: '牛牛持仓已达10/10只，发现可买入新候选1只：600099 满仓新候选（仅记录候选）',
+        candidates: [{{ code: '600099', name: '满仓新候选', outcome: 'candidate_recorded' }}],
+      }},
+    }},
+    executed: [],
+  }}],
+}});
+console.log(JSON.stringify({{
+  detail: logs[0].detail,
+  raw: practiceLogRawText(logs[0]),
+}}));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", scenario],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=ROOT,
+        )
+        payload = json.loads(result.stdout)
+        self.assertIn("满仓候选1只", payload["detail"])
+        self.assertIn("600099 满仓新候选", payload["detail"])
+        self.assertIn("牛牛持仓已达10/10只", payload["raw"])
+
     def test_frontend_labels_stale_position_quotes_with_their_market_date(self):
         module_uri = (ROOT / "web" / "src" / "utils" / "practiceDisplay.js").as_uri()
         scenario = f"""
