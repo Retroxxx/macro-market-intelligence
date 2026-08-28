@@ -64,19 +64,6 @@ INDUSTRY_FLOW_DATA_UTIL_PATH = ROOT / 'web' / 'src' / 'utils' / 'industryFlowDat
 RESPONSIVE_STAGE_UTIL_PATH = ROOT / 'web' / 'src' / 'utils' / 'responsiveStage.js'
 ASYNC_PAYLOAD_UTIL_PATH = ROOT / 'web' / 'src' / 'utils' / 'asyncPayload.js'
 VERSION_STATUS_UTIL_PATH = ROOT / 'web' / 'src' / 'utils' / 'versionStatus.js'
-US_RATING_UTILS_PATH = ROOT / 'web' / 'src' / 'utils' / 'usRatingDisplay.js'
-US_RATING_UTILS = US_RATING_UTILS_PATH.read_text(encoding='utf-8')
-US_RATING_DATA = (
-    ROOT / 'web' / 'src' / 'composables' / 'useUsRatingsData.js'
-).read_text(encoding='utf-8')
-US_RATING_COMPONENTS = '\n'.join(
-    path.read_text(encoding='utf-8')
-    for path in (
-        ROOT / 'web' / 'src' / 'components' / 'UsRatingsPanel.vue',
-        ROOT / 'web' / 'src' / 'components' / 'us-ratings' / 'UsRatingCard.vue',
-        ROOT / 'web' / 'src' / 'components' / 'us-ratings' / 'RatingText.vue',
-    )
-)
 PRACTICE_CANDIDATE_UTILS_PATH = (
     ROOT / 'web' / 'src' / 'utils' / 'practiceCandidateDisplay.js'
 )
@@ -911,7 +898,6 @@ class DashboardAuthTests(unittest.TestCase):
             '/dragon-tiger',
             '/market-monitor',
             '/realtime-news',
-            '/us-ratings',
         }
         self.assertEqual(set(SPA_DASHBOARD_PATHS), expected_paths)
         removed_page = FakeHandler(path='/x-monitor')
@@ -955,7 +941,7 @@ class DashboardAuthTests(unittest.TestCase):
         self.assertEqual(payload['unique'], 1)
         self.assertEqual(payload['current_version'], dashboard.CURRENT_VERSION)
         self.assertEqual(payload['auto_version_check_enabled'], dashboard.auto_version_check_enabled())
-        self.assertIn('us_features_enabled', payload)
+        self.assertNotIn('us_features_enabled', payload)
         self.assertTrue((bootstrap.header('Set-Cookie') or '').startswith(f'{dashboard.VISITOR_COOKIE_NAME}=nvst_'))
 
     def test_version_status_api_is_public_and_not_browser_cached(self):
@@ -2979,7 +2965,7 @@ console.log(JSON.stringify({
 
     def test_vue_data_layers_use_revision_endpoints_instead_of_zero_limit_polling(self):
         self.assertEqual(dashboard.clamp_limit('0'), 0)
-        data_sources = '\n'.join((MARKET_MONITOR_DATA, US_RATING_DATA))
+        data_sources = MARKET_MONITOR_DATA
         self.assertNotIn('/api/messages?limit=0', data_sources)
         self.assertIn('/api/messages/revision?category=${CATEGORY}', data_sources)
         self.assertNotIn('function isMessageCategory(', data_sources)
@@ -3034,7 +3020,7 @@ process.stdout.write(JSON.stringify({
         self.assertIn('revisionKey(revision) !== state.revision', MARKET_MONITOR_DATA)
         self.assertIn('return loadHistory({ background: state.records.length > 0 })', MARKET_MONITOR_DATA)
         self.assertIn("fetchJson('/api/us_market_summary'", MARKET_MONITOR_DATA)
-        self.assertIn("for (const category of ['market_monitor', 'us_ratings'])", MARKET_MONITOR_DATA)
+        self.assertIn("for (const category of ['market_monitor'])", MARKET_MONITOR_DATA)
         self.assertIn('publishMessageCategoryCounts()', MARKET_MONITOR_DATA)
         self.assertIn('aria-controls="us-market-summary-body"', MARKET_MONITOR_COMPONENTS)
         self.assertIn('class="market-chevron us-market-chevron"', MARKET_MONITOR_COMPONENTS)
@@ -3179,22 +3165,6 @@ console.log(JSON.stringify({
             tongdaxin_stylesheet.count(':not(.us-market-head):not(.market-monitor-card)'),
             4,
         )
-
-    def test_us_ratings_use_vue_revision_polling_and_lazy_enrichment(self):
-        self.assertIn('const HISTORY_LIMIT = 120', US_RATING_DATA)
-        self.assertIn('const REFRESH_INTERVAL_MS = 10 * 60 * 1000', US_RATING_DATA)
-        self.assertIn("const CACHE_KEY = 'niuniu-dashboard-us-ratings-v1'", US_RATING_DATA)
-        self.assertIn('/api/messages/revision?category=${CATEGORY}', US_RATING_DATA)
-        self.assertIn('revisionKey(revision) !== state.revision', US_RATING_DATA)
-        self.assertIn("kind === 'quotes' ? '/api/us_quotes' : '/api/us_profiles'", US_RATING_DATA)
-        self.assertIn('loadQuotesForRecords(records)', US_RATING_DATA)
-        self.assertIn('function loadProfile(ticker)', US_RATING_DATA)
-        self.assertIn('watch(selectedRecords, records => loadQuotesForRecords(records)', US_RATING_COMPONENTS)
-        self.assertIn('if (opening) props.loadProfile(row.ticker)', US_RATING_COMPONENTS)
-        self.assertIn('class="rating-table"', US_RATING_COMPONENTS)
-        self.assertIn('class="rating-detail-row"', US_RATING_COMPONENTS)
-        self.assertIn('export function parseRatingReport', US_RATING_UTILS)
-        self.assertIn('export function groupRatingRecordsByDay', US_RATING_UTILS)
 
     def test_market_monitor_only_uses_live_us_summary_for_its_target_day(self):
         scenario = r"""
@@ -5054,7 +5024,6 @@ console.log(JSON.stringify([
             '.mainline-hero',
             '.market-monitor-grid',
             '.dragon-tiger-panel',
-            '.rating-table',
         ):
             self.assertIn(route_surface, compact_styles)
         self.assertGreaterEqual(
@@ -5295,9 +5264,12 @@ console.log(JSON.stringify([
             ROOT / 'web' / 'src' / 'components' / 'NiuOneMainlinePanel.vue'
         ).read_text(encoding='utf-8')
 
-        for route in ('/practice', '/niuone-mainline', '/indices', '/industry-flow', '/dragon-tiger', '/market-monitor', '/realtime-news', '/us-ratings'):
+        for route in ('/practice', '/niuone-mainline', '/indices', '/industry-flow', '/dragon-tiger', '/market-monitor', '/realtime-news'):
             self.assertIn(f"'{route}'", router_source)
-        self.assertIn("const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger', 'us_ratings']", tabs_source)
+        self.assertIn("const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger']", tabs_source)
+        self.assertNotIn("'/us-ratings'", router_source)
+        self.assertNotIn('us_ratings', tabs_source)
+        self.assertNotIn('categoryAvailable', tabs_source)
         self.assertIn("overview: '总览'", tabs_source)
         self.assertIn("niuone_mainline: '题材强度'", tabs_source)
         self.assertIn("industry_flow: '/industry-flow'", tabs_source)
@@ -6798,80 +6770,6 @@ process.stdout.write(JSON.stringify({{
             },
         )])
 
-    def test_data_source_test_api_requires_admin_action_and_whitelists_target_fields(self):
-        original_sender = dashboard.send_data_source_connection_test
-        original_admin_limit = dashboard.RATE_LIMIT_ADMIN
-        original_test_limit = dashboard.RATE_LIMIT_DATA_SOURCE_TEST
-        calls = []
-        body = urllib.parse.urlencode({
-            'target': 'fmp-ratings',
-            'env__FMP_API_BASE_URL': 'https://financialmodelingprep.com/stable',
-            'env__FMP_API_KEY': 'unsaved-key',
-            'env__DASHBOARD_DECISION_API_KEY': 'must-be-ignored',
-            'env__DASHBOARD_ADMIN_PASSWORD': 'must-be-ignored',
-        }).encode('utf-8')
-        try:
-            dashboard.RATE_LIMIT_ADMIN = 100
-            dashboard.RATE_LIMIT_DATA_SOURCE_TEST = 100
-            dashboard.send_data_source_connection_test = (
-                lambda target, overrides: calls.append((target, dict(overrides)))
-                or {'ok': True, 'target': target, 'message': 'FMP 已接通'}
-            )
-
-            unauthorized = FakeHandler(
-                path='/api/admin/data-sources/test',
-                method='POST',
-                headers={
-                    'Content-Length': str(len(body)),
-                    dashboard.ACTION_HEADER_NAME: '1',
-                },
-                body=body,
-            )
-            unauthorized.do_POST()
-            self.assertEqual(unauthorized.status, 403)
-            self.assertEqual(unauthorized.rfile.tell(), 0)
-
-            missing_action = FakeHandler(
-                path='/api/admin/data-sources/test',
-                method='POST',
-                headers={
-                    'Content-Length': str(len(body)),
-                    'Cookie': self.admin_cookie(),
-                },
-                body=body,
-            )
-            missing_action.do_POST()
-            self.assertEqual(missing_action.status, 403)
-            self.assertEqual(missing_action.rfile.tell(), 0)
-
-            handler = FakeHandler(
-                path='/api/admin/data-sources/test',
-                method='POST',
-                headers={
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Content-Length': str(len(body)),
-                    'Cookie': self.admin_cookie(),
-                    dashboard.ACTION_HEADER_NAME: '1',
-                },
-                body=body,
-            )
-            handler.do_POST()
-            response = json.loads(handler.wfile.getvalue().decode('utf-8'))
-        finally:
-            dashboard.send_data_source_connection_test = original_sender
-            dashboard.RATE_LIMIT_ADMIN = original_admin_limit
-            dashboard.RATE_LIMIT_DATA_SOURCE_TEST = original_test_limit
-
-        self.assertEqual(handler.status, 200)
-        self.assertTrue(response['ok'])
-        self.assertEqual(calls, [(
-            'fmp-ratings',
-            {
-                'FMP_API_BASE_URL': 'https://financialmodelingprep.com/stable',
-                'FMP_API_KEY': 'unsaved-key',
-            },
-        )])
-
     def test_iwencai_test_api_requires_admin_action_whitelists_and_rate_limits(self):
         original_sender = dashboard.send_iwencai_connection_test
         original_admin_limit = dashboard.RATE_LIMIT_ADMIN
@@ -7515,7 +7413,6 @@ process.stdout.write(JSON.stringify({{
         for path in (
             '/api/admin/notifications/test',
             '/api/admin/models/test',
-            '/api/admin/data-sources/test',
             '/api/admin/iwencai/test',
         ):
             with self.subTest(path=path):
@@ -7618,26 +7515,21 @@ process.stdout.write(JSON.stringify({{
         item_names = {item['name'] for item in payload['items']}
 
         self.assertEqual(handler.status, 200)
-        self.assertEqual(len(payload['groups']), 14)
+        self.assertEqual(len(payload['groups']), 13)
         self.assertEqual(item_names, set(dashboard.ADMIN_VISIBLE_ENV_NAMES))
-        us_group = next(group for group in payload['groups'] if group['slug'] == 'us-market')
-        us_toggle = next(
-            item for item in payload['items']
-            if item['name'] == 'DASHBOARD_US_FEATURES_ENABLED'
-        )
-        self.assertEqual(us_group['name'], '美股机构评级')
-        self.assertEqual(us_toggle['label'], '开启美股机构评级')
-        self.assertEqual(us_toggle['group'], '美股机构评级')
-        self.assertNotIn('牛牛美股', {group['name'] for group in payload['groups']})
+        self.assertNotIn('us-market', {group['slug'] for group in payload['groups']})
         self.assertNotIn('X_WATCHLIST_HANDLES', item_names)
         self.assertFalse(any(name.startswith('X_WATCHLIST_') for name in item_names))
         for name in (
+            'DASHBOARD_US_FEATURES_ENABLED',
             'FMP_API_BASE_URL',
             'FMP_API_KEY',
             'FMP_RATING_MAX_RESULTS',
+            'DASHBOARD_US_RATING_CRON',
+            'US_RATING_DEADLINE_SECONDS',
+            'US_RATING_REQUEST_TIMEOUT_SECONDS',
         ):
-            self.assertIn(name, item_names)
-        self.assertFalse(any(name.startswith('US_RATING_MODEL') for name in item_names))
+            self.assertNotIn(name, item_names)
         self.assertIn('<div id="app">', index_body)
         self.assertNotIn("name='env__", index_body)
         self.assertIn('<AdminSettingsIndex', ADMIN_FRONTEND)
@@ -7661,13 +7553,9 @@ process.stdout.write(JSON.stringify({{
             }
             for name in item_names
         ))
-        self.assertEqual(
-            [item['id'] for item in payload['data_source_tests']],
-            ['fmp-ratings'],
-        )
+        self.assertNotIn('data_source_tests', payload)
         self.assertIn("fetch('/api/admin/models/test'", ADMIN_FRONTEND)
-        self.assertIn("fetch('/api/admin/data-sources/test'", ADMIN_FRONTEND)
-        self.assertIn('测试数据源连接', ADMIN_FRONTEND)
+        self.assertNotIn("fetch('/api/admin/data-sources/test'", ADMIN_FRONTEND)
         self.assertEqual(payload['iwencai_test']['group_slug'], 'iwencai')
         self.assertEqual(payload['groups'][-1]['slug'], 'about')
         self.assertEqual(payload['about']['author'], 'kunkundi')
@@ -7701,14 +7589,14 @@ process.stdout.write(JSON.stringify({{
             self.assertEqual(route.status, 200)
             self.assertIn('<div id="app">', route.wfile.getvalue().decode('utf-8'))
 
-        self.assertEqual(len(groups), 14)
+        self.assertEqual(len(groups), 13)
         self.assertEqual(len(slugs), len(set(slugs)))
         self.assertEqual(slugs[:2], ['access-control', 'notifications'])
         self.assertEqual(slugs[-1], 'about')
         self.assertEqual(grouped_names, set(dashboard.ADMIN_VISIBLE_ENV_NAMES))
         self.assertIn(':to="`/admin/settings/${group.slug}`"', ADMIN_FRONTEND)
         self.assertIn('保存本组设置', ADMIN_FRONTEND)
-        self.assertEqual(len(dashboard.admin_setting_group_env_names('us-market')), 7)
+        self.assertEqual(dashboard.admin_setting_group_env_names('us-market'), set())
         self.assertEqual(len(dashboard.admin_setting_group_env_names('iwencai')), 9)
         self.assertEqual(len(dashboard.admin_setting_group_env_names('realtime-news')), 10)
         self.assertEqual(
@@ -7994,49 +7882,11 @@ process.stdout.write(JSON.stringify({{
         self.assertTrue(password_item['secret'])
         self.assertEqual(password_item['file_value'], '')
 
-    def test_home_page_uses_us_feature_flag_for_tabs_without_deleting_data(self):
-        dashboard.DASHBOARD_ENV_FILE.write_text(
-            'DASHBOARD_US_FEATURES_ENABLED=0\n',
-            encoding='utf-8',
-        )
-        disabled = FakeHandler(path='/api/dashboard/bootstrap')
-        disabled.do_GET()
-        disabled_payload = json.loads(disabled.wfile.getvalue().decode('utf-8'))
-
-        dashboard.DASHBOARD_ENV_FILE.write_text(
-            'DASHBOARD_US_FEATURES_ENABLED=1\n',
-            encoding='utf-8',
-        )
-        enabled = FakeHandler(path='/api/dashboard/bootstrap')
-        enabled.do_GET()
-        enabled_payload = json.loads(enabled.wfile.getvalue().decode('utf-8'))
-
-        self.assertEqual(disabled.status, 200)
-        self.assertFalse(disabled_payload['us_features_enabled'])
-        self.assertEqual(enabled.status, 200)
-        self.assertTrue(enabled_payload['us_features_enabled'])
-        tabs_source = (
-            ROOT / 'web' / 'src' / 'composables' / 'useDashboardTabs.js'
-        ).read_text(encoding='utf-8')
-        self.assertIn("const US_FEATURE_CATEGORIES = new Set(['us_ratings'])", tabs_source)
-        self.assertIn("fetch('/api/dashboard/bootstrap'", tabs_source)
-        self.assertIn('usFeaturesEnabled.value = payload.us_features_enabled === true', tabs_source)
-        self.assertIn('.filter(categoryAvailable)', tabs_source)
-
-    def test_us_feature_flag_reads_dashboard_env_without_touching_records(self):
-        dashboard.DASHBOARD_ENV_FILE.write_text('DASHBOARD_US_FEATURES_ENABLED=0\n', encoding='utf-8')
-        self.assertFalse(dashboard.us_features_enabled())
-
-        dashboard.DASHBOARD_ENV_FILE.write_text('DASHBOARD_US_FEATURES_ENABLED=yes\n', encoding='utf-8')
-        self.assertTrue(dashboard.us_features_enabled())
-
     def test_admin_config_loads_yaml_once_per_payload(self):
         original_loader = dashboard.load_yaml_config
         provider_names = (
             'A_SHARE_MODEL_SUMMARY_BASE_URL',
             'A_SHARE_MODEL_SUMMARY_API_KEY',
-            'FMP_API_BASE_URL',
-            'FMP_API_KEY',
             'DASHBOARD_DECISION_BASE_URL',
             'DASHBOARD_DECISION_API_KEY',
         )
@@ -8063,10 +7913,6 @@ process.stdout.write(JSON.stringify({{
         by_name = {item['name']: item for item in payload['items']}
         self.assertEqual(by_name['DASHBOARD_DECISION_BASE_URL']['effective'], 'https://crossdesk.example/v1')
         self.assertEqual(by_name['DASHBOARD_DECISION_API_KEY']['current_state'], '已设置')
-        self.assertEqual(
-            by_name['FMP_API_BASE_URL']['effective'],
-            'https://financialmodelingprep.com/stable',
-        )
         self.assertNotIn('crossdesk-secret', json.dumps(payload, ensure_ascii=False))
 
     def test_admin_config_decodes_preset_strategy_text(self):
@@ -8128,29 +7974,6 @@ process.stdout.write(JSON.stringify({{
 
         self.assertEqual(dashboard.B1_SCAN_TIMEOUT_SECONDS, 480)
         self.assertEqual(item['default'], '480')
-
-    def test_fmp_rating_settings_validate_url_limits_and_timeouts(self):
-        cron_item = next(
-            item
-            for item in dashboard.ENV_CONFIG_SCHEMA
-            if item['name'] == 'DASHBOARD_US_RATING_CRON'
-        )
-        self.assertEqual(cron_item['default'], '0 6 * * *')
-        dashboard.validate_business_updates({
-            'FMP_API_BASE_URL': 'https://financialmodelingprep.com/stable',
-            'FMP_RATING_MAX_RESULTS': '10',
-            'US_RATING_DEADLINE_SECONDS': '120',
-            'US_RATING_REQUEST_TIMEOUT_SECONDS': '30',
-        })
-        for name, value in (
-            ('FMP_API_BASE_URL', 'not-a-url'),
-            ('FMP_RATING_MAX_RESULTS', '0'),
-            ('FMP_RATING_MAX_RESULTS', '51'),
-            ('US_RATING_DEADLINE_SECONDS', '29'),
-            ('US_RATING_REQUEST_TIMEOUT_SECONDS', '121'),
-        ):
-            with self.subTest(name=name), self.assertRaises(ValueError):
-                dashboard.validate_business_updates({name: value})
 
     def test_reasoning_effort_settings_validate_known_models_and_keep_custom_free_form(self):
         names = {'DASHBOARD_DECISION_REASONING_EFFORT'}
@@ -8478,13 +8301,11 @@ process.stdout.write(JSON.stringify({{
             dashboard.DASHBOARD_ENV_FILE = self.tmp_path / 'dashboard.env'
             dashboard.B1_SCHEDULE_ENABLED = False
             updates = {
-                'DASHBOARD_US_FEATURES_ENABLED': '1',
                 'DASHBOARD_DECISION_MODEL': 'summary-new',
                 'DASHBOARD_DECISION_CONTEXT_LENGTH': '1M',
                 'IWENCAI_NEWS_PRECHECK_ENABLED': '1',
                 'DASHBOARD_PRACTICE_SCHEDULE_TIMES': '09:25, 10:00, 14:50',
                 'DASHBOARD_US_MARKET_SUMMARY_CRON': '08:01',
-                'DASHBOARD_US_RATING_CRON': '10:30',
                 'DASHBOARD_MARKET_AUCTION_CRON': '09:26',
             }
             updates = dashboard.normalize_business_updates(updates)
@@ -8504,13 +8325,11 @@ process.stdout.write(JSON.stringify({{
                 else:
                     dashboard.os.environ[name] = value
 
-        self.assertEqual(parsed['DASHBOARD_US_FEATURES_ENABLED'], '1')
         self.assertEqual(parsed['DASHBOARD_DECISION_MODEL'], 'summary-new')
         self.assertEqual(parsed['DASHBOARD_DECISION_CONTEXT_LENGTH'], '1000000')
         self.assertEqual(parsed['IWENCAI_NEWS_PRECHECK_ENABLED'], '1')
         self.assertEqual(parsed['DASHBOARD_PRACTICE_SCHEDULE_TIMES'], '09:25,10:00,14:50')
         self.assertEqual(parsed['DASHBOARD_US_MARKET_SUMMARY_CRON'], '1 8 * * 1-5')
-        self.assertEqual(parsed['DASHBOARD_US_RATING_CRON'], '30 10 * * *')
         self.assertEqual(parsed['DASHBOARD_MARKET_AUCTION_CRON'], '26 9 * * 1-5')
         payload_text = json.dumps(payload, ensure_ascii=False)
         self.assertIn('09:25、10:00、14:50', payload_text)
@@ -8574,7 +8393,7 @@ process.stdout.write(JSON.stringify({{
         original_env_values = {name: dashboard.os.environ.get(name) for name in isolated_names}
         try:
             dashboard.DASHBOARD_ENV_FILE = self.tmp_path / 'dashboard.env'
-            dashboard.DASHBOARD_ENV_FILE.write_text('DASHBOARD_US_FEATURES_ENABLED=1\n', encoding='utf-8')
+            dashboard.DASHBOARD_ENV_FILE.write_text('', encoding='utf-8')
             dashboard.CONFIG_PATH = self.tmp_path / 'config.yaml'
             dashboard.CONFIG_PATH.write_text(
                 'custom_providers:\n'
@@ -8610,13 +8429,13 @@ process.stdout.write(JSON.stringify({{
         try:
             dashboard.DASHBOARD_ENV_FILE = self.tmp_path / 'dashboard.env'
             dashboard.DASHBOARD_ENV_FILE.write_text(
-                'DASHBOARD_PORT=8787\nFMP_API_KEY=old-secret\n',
+                'DASHBOARD_PORT=8787\nDASHBOARD_DECISION_API_KEY=old-secret\n',
                 encoding='utf-8',
             )
 
             dashboard.write_env_file_values({
                 'DASHBOARD_PORT': '9000',
-                'FMP_API_KEY': '',
+                'DASHBOARD_DECISION_API_KEY': '',
                 'EXTRA_VALUE': 'hello world',
             })
             parsed = dashboard.parse_env_file(dashboard.DASHBOARD_ENV_FILE)
@@ -8624,7 +8443,7 @@ process.stdout.write(JSON.stringify({{
             dashboard.DASHBOARD_ENV_FILE = original_env_file
 
         self.assertEqual(parsed['DASHBOARD_PORT'], '9000')
-        self.assertEqual(parsed['FMP_API_KEY'], 'old-secret')
+        self.assertEqual(parsed['DASHBOARD_DECISION_API_KEY'], 'old-secret')
         self.assertEqual(parsed['EXTRA_VALUE'], 'hello world')
 
     def test_env_config_write_reports_no_change(self):
@@ -8897,7 +8716,6 @@ process.stdout.write(JSON.stringify({{
                 lambda: restart_calls.append(True) or {'ok': True, 'labels': ['ai.niuone.dashboard']}
             )
             body = urllib.parse.urlencode({
-                'env__DASHBOARD_US_FEATURES_ENABLED': '1',
                 'env__DASHBOARD_DECISION_MODEL': 'summary-test',
                 'env__IWENCAI_NEWS_PRECHECK_ENABLED': '1',
                 'env__DASHBOARD_DECISION_CONTEXT_LENGTH': '1M',
@@ -8912,7 +8730,6 @@ process.stdout.write(JSON.stringify({{
                 'env__DASHBOARD_INDUSTRY_FLOW_AFTERNOON_END': '15:02',
                 'env__DASHBOARD_US_MARKET_SUMMARY_CRON': '08:01',
                 'env__DASHBOARD_MARKET_AUCTION_CRON': '09:26',
-                'env__DASHBOARD_US_RATING_CRON': '10:30',
                 'env__DASHBOARD_ACTIVE_STRATEGY': 'preset_text',
                 'env__DASHBOARD_PRESET_STRATEGY_TEXT': '只做主线强趋势回踩\n跌破5日线离场',
                 'env__DASHBOARD_TRADE_DISCIPLINE_TEXT': '纪律一\n纪律二',
@@ -8980,7 +8797,6 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('active_strategy', response['runtime']['applied'])
         self.assertIn('strategy_settings', response['runtime']['applied'])
         self.assertIn('trader_runtime', response['runtime']['applied'])
-        self.assertEqual(parsed['DASHBOARD_US_FEATURES_ENABLED'], '1')
         self.assertEqual(parsed['DASHBOARD_DECISION_MODEL'], 'summary-test')
         self.assertEqual(parsed['IWENCAI_NEWS_PRECHECK_ENABLED'], '1')
         self.assertEqual(parsed['DASHBOARD_DECISION_CONTEXT_LENGTH'], '1000000')
@@ -8995,7 +8811,6 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(parsed['DASHBOARD_INDUSTRY_FLOW_AFTERNOON_END'], '15:02')
         self.assertEqual(parsed['DASHBOARD_US_MARKET_SUMMARY_CRON'], '1 8 * * 1-5')
         self.assertEqual(parsed['DASHBOARD_MARKET_AUCTION_CRON'], '26 9 * * 1-5')
-        self.assertEqual(parsed['DASHBOARD_US_RATING_CRON'], '30 10 * * *')
         self.assertEqual(parsed['DASHBOARD_ACTIVE_STRATEGY'], 'preset_text')
         self.assertEqual(parsed['DASHBOARD_PRESET_STRATEGY_TEXT'], '只做主线强趋势回踩\\n跌破5日线离场')
         self.assertEqual(parsed['DASHBOARD_TRADE_DISCIPLINE_TEXT'], '纪律一\\n纪律二')

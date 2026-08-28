@@ -40,9 +40,7 @@ const reasoningValueIsUnsupported = computed(() => (
   && Boolean(reasoningCapability.value)
   && !reasoningOptions.value.includes(reasoningValue.value)
 ))
-const boolNoDefault = computed(() => (
-  name.value === 'DASHBOARD_US_FEATURES_ENABLED' || Boolean(props.item.bool_no_default)
-))
+const boolNoDefault = computed(() => Boolean(props.item.bool_no_default))
 const boolValue = computed(() => {
   const normalized = (
     value.value.trim() || (boolNoDefault.value ? String(props.item.default ?? '').trim() : '')
@@ -150,7 +148,6 @@ watch(
     :name="fieldName"
     :aria-label="label"
     :value="boolValue"
-    :data-feature-toggle="name === 'DASHBOARD_US_FEATURES_ENABLED' ? 'us' : null"
   >
     <option v-if="!boolNoDefault" value="">默认</option>
     <option value="1">启用</option>

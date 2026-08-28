@@ -61,16 +61,13 @@ Compose 内置 NewsNow 的数据库和缓存位于独立 Docker volume `newsnow-
 
 | 用途 | 推荐模型 | 配置项 |
 |---|---|---|
-| 美股机构评级日报 | Financial Modeling Prep 结构化数据与本地确定性规则 | `FMP_API_BASE_URL`、`FMP_API_KEY`、`FMP_RATING_MAX_RESULTS` |
 | 买卖决策、文字策略细化、消息判断及 A 股/隔夜美股盘面总结 | 共享的 OpenAI 兼容模型 | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL`、`DASHBOARD_DECISION_STREAM_MODE`、`DASHBOARD_DECISION_REASONING_EFFORT` |
 | A 股候选股及龙虎榜连板/连榜股票消息面预检 | 同花顺问财 OpenAPI | `IWENCAI_NEWS_PRECHECK_ENABLED` 及 `IWENCAI_*` |
 | 综合决策参考 | 本地聚合，不需要额外模型 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`、`DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`、`DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 
-美股机构评级日报由 `DASHBOARD_US_FEATURES_ENABLED` 总开关控制。关闭时设置页隐藏相关配置，并跳过美股评级定时任务。
-
 综合决策参考会读取本地行情缓存、盘面消息历史和模拟账户状态，并把压缩后的摘要写入决策日志；它不新增模型密钥，但日志中可能包含候选消息面摘要，公开排障前仍需按运行数据策略检查。
 
-模型及 FMP 密钥只允许保存在 `.local-data/dashboard.env`、`.local-data/runtime/config.yaml` 或受控的系统环境变量中。提交前必须确认没有新增 `.env`、`*.key`、`*.token`、`*.secret`、数据库或备份文件。
+模型密钥只允许保存在 `.local-data/dashboard.env`、`.local-data/runtime/config.yaml` 或受控的系统环境变量中。提交前必须确认没有新增 `.env`、`*.key`、`*.token`、`*.secret`、数据库或备份文件。
 
 问财数据源使用 `IWENCAI_API_KEY`，同样只允许保存到 `.local-data/dashboard.env` 或受控系统环境变量。
 `IWENCAI_ENABLED` 默认关闭；问财数据仅作为研究快照和现有行情的补充，不得用不完整或缓存响应覆盖账户、成交和真实交易记录。

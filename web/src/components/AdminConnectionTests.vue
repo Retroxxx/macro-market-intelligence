@@ -14,25 +14,16 @@ const props = defineProps({
     type: Object,
     default: () => ({}),
   },
-  dataSourceStatus: {
-    type: Object,
-    default: () => ({}),
-  },
   iwencaiStatus: {
     type: Object,
     default: () => ({}),
   },
 })
-const emit = defineEmits(['test-model', 'test-data-source', 'test-iwencai'])
+const emit = defineEmits(['test-model', 'test-iwencai'])
 
 const modelTests = computed(() => (
   Array.isArray(props.config.model_tests)
     ? props.config.model_tests.filter(test => test.group_slug === props.slug)
-    : []
-))
-const dataSourceTests = computed(() => (
-  Array.isArray(props.config.data_source_tests)
-    ? props.config.data_source_tests.filter(test => test.group_slug === props.slug)
     : []
 ))
 const iwencaiTest = computed(() => {
@@ -117,42 +108,6 @@ function effortMappings(capability) {
       </div>
       <div class="model-test-panel-note">表格核对日期：{{ reasoningCapabilities[0]?.verified_on }}。表外模型按自定义网关处理，不做固定白名单限制。</div>
     </details>
-  </section>
-
-  <section v-if="dataSourceTests.length" class="model-test-panel" aria-label="数据源连通性测试">
-    <div class="model-test-panel-head">
-      <div>
-        <div class="model-test-panel-title">数据源连通性测试</div>
-        <div class="model-test-panel-note">测试页面当前填写值，不会自动保存；API Key 留空时安全复用已保存密钥。</div>
-      </div>
-    </div>
-    <div class="model-test-list">
-      <div v-for="test in dataSourceTests" :key="test.id" class="model-test-row">
-        <div class="model-test-copy">
-          <div class="model-test-label">{{ test.label || '数据源' }}</div>
-          <div class="model-test-description">{{ test.description || '验证当前数据源配置是否可用。' }}</div>
-        </div>
-        <div class="model-test-action">
-          <button
-            type="button"
-            class="model-test-button"
-            :class="dataSourceStatus[test.id]?.state ? `is-${dataSourceStatus[test.id].state}` : ''"
-            :data-source-test="test.id"
-            :aria-describedby="`data-source-test-status-${test.id}`"
-            :disabled="dataSourceStatus[test.id]?.state === 'busy'"
-            @click.stop="emit('test-data-source', test.id)"
-          >{{ dataSourceStatus[test.id]?.state === 'busy' ? '测试中...' : '测试数据源连接' }}</button>
-          <div
-            :id="`data-source-test-status-${test.id}`"
-            class="model-test-status"
-            :class="dataSourceStatus[test.id]?.state ? `is-${dataSourceStatus[test.id].state}` : ''"
-            data-source-test-status
-            role="status"
-            aria-live="polite"
-          >{{ dataSourceStatus[test.id]?.message || '' }}</div>
-        </div>
-      </div>
-    </div>
   </section>
 
   <section v-if="iwencaiTest" class="model-test-panel" aria-label="问财接口连通性测试">

@@ -47,16 +47,9 @@ const itemCountLabel = computed(() => (
     ? `${(props.config.notification_channels || []).length} 个渠道`
     : `${items.value.length} 项`
 ))
-const gatedNames = computed(() => new Set(props.config.ui?.us_feature_gated_names || []))
 const strategyPreset = computed(() => String(props.config.ui?.strategy_preset_name || ''))
-const initialUsToggle = (props.config.items || []).find(
-  item => item.name === props.config.ui?.us_feature_toggle_name,
-)
 const initialStrategySource = items.value.find(
   item => ['strategy_source', 'strategy_suite'].includes(String(item.kind || '')),
-)
-const runtimeUsEnabled = ref(
-  Boolean(initialUsToggle) && isTruthy(initialUsToggle.effective || initialUsToggle.file_value),
 )
 const runtimeStrategySource = ref(String(initialStrategySource?.file_value || 'zettaranc'))
 const currentStates = reactive(Object.fromEntries(
@@ -72,7 +65,6 @@ const savePressed = ref(false)
 const editRevision = ref(0)
 const openHelpName = ref('')
 const modelStatus = reactive({})
-const dataSourceStatus = reactive({})
 const iwencaiStatus = reactive({ state: '', message: '' })
 const notificationStatus = reactive({})
 let savedSnapshot = ''
@@ -102,16 +94,12 @@ function hasUnsavedSecret() {
 
 function clearConnectionStatuses() {
   Object.keys(modelStatus).forEach(key => delete modelStatus[key])
-  Object.keys(dataSourceStatus).forEach(key => delete dataSourceStatus[key])
   iwencaiStatus.state = ''
   iwencaiStatus.message = ''
   Object.keys(notificationStatus).forEach(key => delete notificationStatus[key])
 }
 
 function syncRuntimeToggles(target) {
-  if (target?.matches?.('[data-feature-toggle="us"]')) {
-    runtimeUsEnabled.value = target.value === '1'
-  }
   if (target?.matches?.('[data-strategy-source-toggle]') && target.checked) {
     runtimeStrategySource.value = target.value
   }
@@ -145,7 +133,6 @@ function reasoningModel(item) {
 }
 
 function rowHidden(item) {
-  if (gatedNames.value.has(item.name) && !runtimeUsEnabled.value) return true
   if (item.name === strategyPreset.value && runtimeStrategySource.value !== 'preset_text') return true
   return false
 }
@@ -300,38 +287,6 @@ async function runModelTest(targetId) {
     modelStatus[targetId] = {
       state: 'error',
       message: error instanceof Error ? error.message : '模型连接失败',
-    }
-  }
-}
-
-async function runDataSourceTest(targetId) {
-  if (dataSourceStatus[targetId]?.state === 'busy') return
-  const test = (props.config.data_source_tests || []).find(item => item.id === targetId)
-  const body = new URLSearchParams({ target: targetId })
-  ;(test?.field_names || []).forEach(name => body.set(`env__${name}`, formFieldValue(name)))
-  dataSourceStatus[targetId] = { state: 'busy', message: '正在连接数据源...' }
-  try {
-    const response = await fetch('/api/admin/data-sources/test', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        'Accept': 'application/json',
-        'X-NiuOne-Action': '1',
-      },
-      body,
-    })
-    const payload = await response.json().catch(() => null)
-    if (!response.ok || !payload || payload.ok !== true) {
-      let message = payload?.error
-      if (message === 'rate_limited') message = '测试过于频繁，请稍后重试'
-      throw new Error(message || '数据源连接失败，请确认配置后重试')
-    }
-    dataSourceStatus[targetId] = { state: 'ok', message: payload.message || '数据源已接通' }
-  } catch (error) {
-    dataSourceStatus[targetId] = {
-      state: 'error',
-      message: error instanceof Error ? error.message : '数据源连接失败',
     }
   }
 }
@@ -583,10 +538,8 @@ onBeforeUnmount(() => {
           :config="config"
           :slug="slug"
           :model-status="modelStatus"
-          :data-source-status="dataSourceStatus"
           :iwencai-status="iwencaiStatus"
           @test-model="runModelTest"
-          @test-data-source="runDataSourceTest"
           @test-iwencai="runIwencaiTest"
         />
         <div class="settings-actions">

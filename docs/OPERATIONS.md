@@ -74,9 +74,9 @@ http://127.0.0.1:8787/
 
 设置页末尾的“关于”分组展示项目作者、GitHub 仓库、Apache License 2.0、当前版本和 Docker Hub 最新发行版本，并可点击“检查更新”跳过服务端缓存、主动重新查询。“开启自动检测新版本”默认启用并在运行时生效，也可在 `dashboard.env` 中设置 `DASHBOARD_AUTO_VERSION_CHECK_ENABLED=0` 关闭。更新弹窗的“此版本不再提醒”仅保存在当前浏览器；手动点击首页版本号仍可复查，且更高版本发布后会重新提醒。
 
-## 3. 模型与评级数据源配置
+## 3. 模型与数据源配置
 
-NiuOne 需要大模型驱动完整交易决策工作流。设置页的“模型配置”集中维护一套共享模型，供买卖决策、文字策略 AI 细化、问财消息判断、A 股竞价/午盘/盘后总结及隔夜美股总结共同使用。美股机构评级日报不调用模型，改用 Financial Modeling Prep（FMP）结构化评级、目标价和行情数据，并在本地执行买入倾向筛选、去重、机构聚类与排序。
+NiuOne 需要大模型驱动完整交易决策工作流。设置页的“模型配置”集中维护一套共享模型，供买卖决策、文字策略 AI 细化、问财消息判断、A 股竞价/午盘/盘后总结及隔夜美股总结共同使用。
 
 升级时，旧 `A_SHARE_MODEL_SUMMARY_*` 模型字段仅作为共享配置尚未完整设置时的兼容回退；下一次保存“模型配置”后会把可用旧值安全迁移到 `DASHBOARD_DECISION_*`，并移除重复旧字段。
 
@@ -84,15 +84,13 @@ NiuOne 需要大模型驱动完整交易决策工作流。设置页的“模型�
 
 | 场景 | 配置项 |
 |---|---|
-| 美股机构评级总开关 | `DASHBOARD_US_FEATURES_ENABLED` |
-| 美股机构评级数据源 | `FMP_API_BASE_URL`、`FMP_API_KEY`、`FMP_RATING_MAX_RESULTS`、`DASHBOARD_US_RATING_CRON`、`US_RATING_DEADLINE_SECONDS`、`US_RATING_REQUEST_TIMEOUT_SECONDS` |
 | 共享模型（买卖决策与盘面总结） | `DASHBOARD_DECISION_BASE_URL`、`DASHBOARD_DECISION_API_KEY`、`DASHBOARD_DECISION_MODEL`、`DASHBOARD_DECISION_STREAM_MODE`、`DASHBOARD_DECISION_REASONING_EFFORT`、`DASHBOARD_DECISION_CONTEXT_LENGTH`、`DASHBOARD_DECISION_MAX_TOKENS` |
 | 问财内置数据源与消息面预检 | `IWENCAI_ENABLED`、`IWENCAI_NEWS_PRECHECK_ENABLED`、`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_TIMEOUT_SECONDS`、`IWENCAI_MAX_RETRIES`、`IWENCAI_MAX_CONCURRENCY`、`IWENCAI_CACHE_TTL_SECONDS`、`IWENCAI_DRAGON_TIGER_CRON` |
 | 买卖决策情报包 | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`、`DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`、`DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 | 买卖决策交易纪律 | `DASHBOARD_TRADE_DISCIPLINE_TEXT`；为空时使用内置默认纪律，填写后进入模型 prompt 的“必须遵守”段 |
 | 模拟账户节奏与仓位参考 | `DASHBOARD_MAX_OPEN_POSITIONS`、`DASHBOARD_MAX_NEW_BUYS_PER_DECISION`、`DASHBOARD_MAX_SINGLE_POSITION_PCT`、`DASHBOARD_MAX_TOTAL_POSITION_PCT`、`DASHBOARD_MIN_CASH_RESERVE_PCT`；默认作为模型参考，Z 哥和板块潮汐等注册硬限制策略会在模拟执行层取全局与策略限制的更严格值 |
 
-完成管理员认证后，优先通过页面上的设置按钮进入独立的“模型配置”栏目维护。该栏目提供“测试模型连接”，美股机构评级分组提供“测试数据源连接”；测试使用页面当前填写值但不会自动保存，API Key 输入框留空时会复用已保存密钥。美股评级相关设置由“开启美股机构评级”总开关控制；关闭时设置页会隐藏这些项并跳过美股评级定时任务。FMP API Key 通过请求头发送，不会进入请求 URL 或日志。评级主数据失败时任务明确失败并由调度器重试；目标价或行情补充失败时只降级对应字段，不覆盖已有日报。也可以直接编辑 `.local-data/dashboard.env`，保存后等待下一轮任务读取。
+完成管理员认证后，优先通过页面上的设置按钮进入独立的“模型配置”栏目维护。该栏目提供“测试模型连接”；测试使用页面当前填写值但不会自动保存，API Key 输入框留空时会复用已保存密钥。也可以直接编辑 `.local-data/dashboard.env`，保存后等待下一轮任务读取。
 共享模型的 `DASHBOARD_DECISION_REASONING_EFFORT` 可填写模型或网关支持的枚举值，留空时不发送思考强度参数。下表中的已知官方模型会在保存、连接测试和运行请求前执行本地校验；表外自定义模型或网关别名仍可自由填写。连接测试使用当前未保存值；成功只表示网关接受当前请求，不代表上游一定执行了对应强度。不支持参数或值非法时会给出针对性提示，并且运行时不会静默删除参数重试。
 
 共享模型的 `DASHBOARD_DECISION_STREAM_MODE` 支持 `auto`、`stream`、`non_stream`。默认 `auto` 保持非流式请求；当网关明确返回必须设置 `stream=true` 时自动以流式重试。`stream` 强制流式，`non_stream` 强制非流式。后台任务即使使用流式传输，也会先拼接完整内容，再执行 JSON 校验、落盘和交易决策。
@@ -477,7 +475,6 @@ curl -s "http://127.0.0.1:8787/api/messages?limit=1" | python3 -m json.tool | he
 
 ```bash
 ./run-niuone-cron-scheduler.sh
-./scripts/run_us_rating_report.sh
 ```
 
 ## 8. 回滚
@@ -533,7 +530,7 @@ curl -s "http://127.0.0.1:8787/api/messages?limit=5" | python3 -m json.tool | he
 
 当前消息流以 `push_history.db` 为主要来源。任务脚本需要正常写入该数据库后，页面才会出现对应消息。
 
-盘面监控和美股机构评级的新记录只写入该数据库，不再生成 Markdown 文件。升级前已有的 `.md` 历史文件会原样保留，但页面不会读取它们，也不会自动删除。
+盘面监控的新记录只写入该数据库，不再生成 Markdown 文件。升级前已有的 `.md` 历史文件会原样保留，但页面不会读取它们，也不会自动删除。
 
 ### 页面显示较旧的模拟账户或交易日历
 

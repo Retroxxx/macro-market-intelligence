@@ -24,7 +24,6 @@
 | `market-breadth.gif` | `/indices` | 1200 × 675 | 10 fps | 6–8 秒 | 鼠标沿日内曲线移动，悬停查看时间点和十项指标 |
 | `market-monitor.gif` | `/market-monitor` | 1200 × 750 | 8 fps | 6–8 秒 | 展开盘后总结并滚动查看完整详情 |
 | `realtime-news.gif` | `/realtime-news` | 1200 × 750 | 8 fps | 8–10 秒 | 筛选重要信息、切换来源并滚动查看聚合快讯 |
-| `us-ratings.gif` | `/us-ratings` | 1200 × 675 | 8 fps | 7–9 秒 | 展开个股评级详情并切换历史日期 |
 | `dashboard-settings.gif` | `/admin` | 1200 × 750 | 8 fps | 10–12 秒 | 浏览配置分组、切换并恢复策略、打开行情与资金流设置 |
 
 帧率和时长是建议值，不要求逐帧保持一致；优先保证操作可看清且循环不拖沓。
@@ -185,17 +184,6 @@ hoverX: 250 → 1050，步长约 32；再折返至 570
 
 只使用页面已经加载或本地缓存中的快讯，不为录制主动刷新外部数据源。不得打开外链正文；录制画面只展示规范化后的来源、发布时间、重要标记、标题与已有摘要。
 
-### 美股机构买入评级
-
-录制视口为 1280 × 720，输出为 1200 × 675。
-
-1. 从股票价格对照表开始，同时展示当前价、目标价、评级变化和目标空间。
-2. 点击第一条评级，展示公司、机构 / 分析师、关注类型、看多逻辑和风险点。
-3. 再次点击将详情收起。
-4. 切换到另一份日报，展示历史日期与可靠来源不足时的明确降级说明。
-
-源帧建议固定命名为 `list.png`、`detail.png`、`collapsed.png` 和 `earlier.png`，再按本文的通用帧处理与 GIF 编码步骤生成。
-
 ### 本地配置中心
 
 录制视口为 1600 × 1000，输出为 1200 × 750。使用只读设置页或隔离的临时运行目录，并在录制前确认所有密钥、Webhook 和本机路径均未进入画面；不得保存演示中的配置改动。
@@ -285,7 +273,6 @@ cp "$GIF_WORK_DIR/capital-flow.gif" docs/assets/readme/capital-flow.gif
 cp "$GIF_WORK_DIR/market-breadth.gif" docs/assets/readme/market-breadth.gif
 cp "$GIF_WORK_DIR/market-monitor.gif" docs/assets/readme/market-monitor.gif
 cp "$GIF_WORK_DIR/realtime-news.gif" docs/assets/readme/realtime-news.gif
-cp "$GIF_WORK_DIR/us-ratings.gif" docs/assets/readme/us-ratings.gif
 cp "$GIF_WORK_DIR/dashboard-settings.gif" docs/assets/readme/dashboard-settings.gif
 ```
 

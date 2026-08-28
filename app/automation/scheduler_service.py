@@ -76,7 +76,6 @@ JOBS = (
     Job("DASHBOARD_TIME_EXIT_TIME", "45 14 * * 1-5", "fc4f23b79591", "牛牛尾盘离场检查", ("niuniu_practice_trader.py", "--auto-exits"), 120),
     NIUONE_EQUITY_SNAPSHOT_JOB,
     Job("DASHBOARD_NIUONE_FORWARD_CRON", "20 15 * * 1-5", "d419bc090808", "牛牛严格前向证据评估", ("evaluate_niuone_forward.py", "--runtime"), 30),
-    Job("DASHBOARD_US_RATING_CRON", "0 6 * * *", "fd0b807138f4", "每日美股机构买入评级汇报", ("us_rating_report.py", "--store-only"), 300),
 )
 IWENCAI_STARTUP_CATCH_UP_JOB = Job(
     "IWENCAI_DRAGON_TIGER_CRON",
@@ -124,15 +123,7 @@ def read_int_setting(env_values: dict[str, str], name: str, default: int, *, min
     return max(min_value, min(max_value, value))
 
 
-def us_features_enabled(env_values: dict[str, str] | None = None) -> bool:
-    values = env_values if env_values is not None else parse_env_file()
-    raw = values.get("DASHBOARD_US_FEATURES_ENABLED") or os.environ.get("DASHBOARD_US_FEATURES_ENABLED") or "0"
-    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
-
-
 def job_enabled(job: Job, env_values: dict[str, str]) -> bool:
-    if job.env_name == "DASHBOARD_US_RATING_CRON":
-        return us_features_enabled(env_values)
     if job.env_name == "IWENCAI_DRAGON_TIGER_CRON":
         # Callers pass the fully resolved dashboard.env mapping. Do not leak a
         # separately inherited process value into explicit test/runtime snapshots.

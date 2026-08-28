@@ -46,7 +46,6 @@ SPA_DASHBOARD_PATHS = (
     "/dragon-tiger",
     "/market-monitor",
     "/realtime-news",
-    "/us-ratings",
 )
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",

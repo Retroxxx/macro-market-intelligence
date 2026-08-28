@@ -1,6 +1,6 @@
 import { computed, reactive, ref } from 'vue'
 
-const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger', 'us_ratings']
+const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger']
 const CATEGORY_LABELS = {
   overview: '总览',
   practice: '模拟交易',
@@ -9,7 +9,6 @@ const CATEGORY_LABELS = {
   market_monitor: '盘面监控',
   realtime_news: '财经快讯',
   dragon_tiger: '龙虎榜',
-  us_ratings: '美股机构买入评级',
 }
 const CATEGORY_PATHS = {
   overview: '/',
@@ -20,14 +19,12 @@ const CATEGORY_PATHS = {
   market_monitor: '/market-monitor',
   realtime_news: '/realtime-news',
   dragon_tiger: '/dragon-tiger',
-  us_ratings: '/us-ratings',
 }
 const PATH_CATEGORIES = Object.fromEntries(
   Object.entries(CATEGORY_PATHS).map(([category, path]) => [path, category]),
 )
 const LEGACY_CATEGORY_ALIASES = { b1_screen: 'practice' }
-const US_FEATURE_CATEGORIES = new Set(['us_ratings'])
-const MESSAGE_COUNT_CATEGORIES = ['market_monitor', 'us_ratings']
+const MESSAGE_COUNT_CATEGORIES = ['market_monitor']
 const REQUEST_TIMEOUT_MS = 15 * 1000
 
 const initialQueryCategory = new URLSearchParams(window.location.search).get('category') || ''
@@ -35,22 +32,15 @@ const initialCategory = dashboardCategoryFromLocation(window.location.pathname, 
 const activeCategory = ref(initialCategory)
 const autoVersionCheckEnabled = ref(true)
 const currentVersion = ref('dev')
-const usFeaturesEnabled = ref(false)
 const bootstrapLoaded = ref(false)
 const bootstrapError = ref('')
 const countOverrides = reactive({
   market_monitor: '',
   realtime_news: '',
-  us_ratings: '',
 })
 let bootstrapRequest = null
 
-function categoryAvailable(category) {
-  return !US_FEATURE_CATEGORIES.has(category) || usFeaturesEnabled.value
-}
-
 const items = computed(() => CATEGORY_ORDER
-  .filter(categoryAvailable)
   .map(key => ({
     key,
     href: CATEGORY_PATHS[key],
@@ -91,7 +81,7 @@ function applyBootstrapCounts(counts) {
 }
 
 async function initializeDashboardTabs() {
-  if (bootstrapLoaded.value) return { usFeaturesEnabled: usFeaturesEnabled.value }
+  if (bootstrapLoaded.value) return {}
   if (bootstrapRequest) return bootstrapRequest
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
@@ -105,16 +95,15 @@ async function initializeDashboardTabs() {
     const bootstrapVersion = String(payload.current_version || '').trim()
     if (bootstrapVersion) currentVersion.value = bootstrapVersion
     autoVersionCheckEnabled.value = payload.auto_version_check_enabled !== false
-    usFeaturesEnabled.value = payload.us_features_enabled === true
     applyBootstrapCounts(payload.message_counts)
     bootstrapError.value = ''
     bootstrapLoaded.value = true
-    return { ...payload, usFeaturesEnabled: usFeaturesEnabled.value }
+    return payload
   }).catch(error => {
     if (error?.name === 'AbortError') bootstrapError.value = '栏目配置请求超时'
     else bootstrapError.value = String(error?.message || error)
     bootstrapLoaded.value = true
-    return { usFeaturesEnabled: false, error: bootstrapError.value }
+    return { error: bootstrapError.value }
   }).finally(() => {
     window.clearTimeout(timeout)
     if (bootstrapRequest === request) bootstrapRequest = null
@@ -129,7 +118,6 @@ export function useDashboardTabs() {
     autoVersionCheckEnabled,
     bootstrapError,
     bootstrapLoaded,
-    categoryAvailable,
     currentVersion,
     initializeDashboardTabs,
     items,

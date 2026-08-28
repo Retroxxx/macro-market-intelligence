@@ -245,32 +245,6 @@ def create_market_router(
             cacheable=services.market_hot_stocks_available,
         )
 
-    @router.api_route("/api/us_quotes", methods=["GET", "HEAD"])
-    async def us_quotes(request: Request) -> Response:
-        symbols = services.sanitize_symbols(str(request.query_params.get("symbols") or ""))
-        ttl = services.API_TTLS["us_quotes"]
-        return await cached_response(
-            request,
-            cache_key="us_quotes:" + ",".join(symbols),
-            ttl=ttl,
-            producer=lambda: services.fetch_us_quotes(symbols),
-            edge_ttl=ttl,
-            browser_ttl=10,
-        )
-
-    @router.api_route("/api/us_profiles", methods=["GET", "HEAD"])
-    async def us_profiles(request: Request) -> Response:
-        symbols = services.sanitize_symbols(str(request.query_params.get("symbols") or ""))
-        ttl = services.API_TTLS["us_profiles"]
-        return await cached_response(
-            request,
-            cache_key="us_profiles:" + ",".join(symbols),
-            ttl=ttl,
-            producer=lambda: services.fetch_us_profiles(symbols),
-            edge_ttl=ttl,
-            browser_ttl=3600,
-        )
-
     @router.api_route("/api/us_market_summary", methods=["GET", "HEAD"])
     async def us_market_summary(request: Request) -> Response:
         ttl = services.API_TTLS["us_market_summary"]

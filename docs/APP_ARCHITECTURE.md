@@ -14,7 +14,7 @@
 | `app/messaging/` | 通知模型、渠道适配、HTTP 传输、分发和成交消息格式 | 交易状态持久化 |
 | `app/monitoring/news/` | NewsNow 全部实际来源注册、访问、字段规范化、持久缓存与失败降级 | Dashboard 路由、交易决策、前端状态 |
 | `app/reports/a_share/` | A 股竞价、午盘、盘后、日历、龙虎榜和模型增强报告 | Cron 触发时机、Dashboard 路由 |
-| `app/reports/us/` | 隔夜美股摘要与机构评级报告 | Cron 触发时机、Dashboard 路由 |
+| `app/reports/us/` | 隔夜美股摘要 | Cron 触发时机、Dashboard 路由 |
 | `app/storage/` | 消息历史、模拟盘、文字策略版本/审计与报告的 SQLite/文件存储接口、去重与迁移 | 策略评分、HTTP 路由 |
 | `app/screening/` | 多策略/全市场扫描、候选行业增强、题材强度与分钟缓存编排 | 账户执行、HTTP 路由 |
 | `app/strategies/` | 策略注册、评分、归因、选股、风险预算、退出规则、文字策略编译/求值与提示词片段 | 行情 I/O、账户落盘 |

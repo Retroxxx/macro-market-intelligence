@@ -14,7 +14,7 @@
 | `messaging/` | 通知模型、渠道、分发与兼容层 |
 | `monitoring/news/` | NewsNow 金融快讯客户端、规范化、缓存与失败降级 |
 | `reports/a_share/` | A 股竞价、午盘、盘后、日历与 Grok 报告 |
-| `reports/us/` | 美股盘面和机构评级报告 |
+| `reports/us/` | 隔夜美股盘面报告 |
 | `screening/` | 多策略/全市场扫描、候选增强与题材强度缓存 |
 | `storage/` | 推送历史、模拟盘数据库、迁移与报告存储 |
 | `strategies/` | 策略注册、评分、归因、风险预算、Prompt 与退出规则 |

@@ -59,12 +59,6 @@ from dashboard.iwencai_connectivity import (
     iwencai_test_metadata,
     test_iwencai_connection,
 )
-from dashboard.data_source_connectivity import (
-    FMP_TEST_FIELD_NAMES,
-    data_source_test_metadata,
-    data_source_test_override_names,
-    test_data_source_connection,
-)
 from dashboard.model_connectivity import (
     MODEL_TEST_TARGET_BY_ID,
     ResolvedModelTestConfig,
@@ -119,10 +113,6 @@ from app.dashboard.market_breadth_recovery import plan_market_breadth_recovery
 from market_data.iwencai_client import (
     DEFAULT_BASE_URL as IWENCAI_DEFAULT_BASE_URL,
     normalize_base_url as normalize_iwencai_base_url,
-)
-from market_data.fmp_ratings import (
-    FmpRatingsError,
-    normalize_base_url as normalize_fmp_base_url,
 )
 from market_data.eastmoney_turnover import (
     fetch_market_turnover_estimate,
@@ -580,7 +570,6 @@ RATE_LIMIT_ADMIN = int(os.environ.get("DASHBOARD_RATE_LIMIT_ADMIN", "90") or "90
 RATE_LIMIT_ADMIN_LOGIN = int(os.environ.get("DASHBOARD_RATE_LIMIT_ADMIN_LOGIN", "10") or "10")
 RATE_LIMIT_NOTIFICATION_TEST = int(os.environ.get("DASHBOARD_NOTIFICATION_TEST_RATE_LIMIT", "10") or "10")
 RATE_LIMIT_MODEL_TEST = int(os.environ.get("DASHBOARD_MODEL_TEST_RATE_LIMIT", "10") or "10")
-RATE_LIMIT_DATA_SOURCE_TEST = int(os.environ.get("DASHBOARD_DATA_SOURCE_TEST_RATE_LIMIT", "10") or "10")
 RATE_LIMIT_IWENCAI_TEST = int(os.environ.get("DASHBOARD_IWENCAI_TEST_RATE_LIMIT", "10") or "10")
 MODEL_TEST_TIMEOUT_SECONDS = max(
     5,
@@ -588,7 +577,6 @@ MODEL_TEST_TIMEOUT_SECONDS = max(
 )
 MODEL_TEST_MAX_CONCURRENCY = 2
 MODEL_TEST_SEMAPHORE = threading.BoundedSemaphore(MODEL_TEST_MAX_CONCURRENCY)
-DATA_SOURCE_TEST_SEMAPHORE = threading.BoundedSemaphore(2)
 PROMPT_REFINEMENT_MAX_CONCURRENCY = max(
     1,
     min(2, int(os.environ.get("DASHBOARD_PROMPT_REFINEMENT_MAX_CONCURRENCY", "1") or "1")),
@@ -646,8 +634,6 @@ API_TTLS = {
     "money_flow": 60,
     "industry_flow": 30,
     "market_flow": 30,
-    "us_quotes": 30,
-    "us_profiles": int(os.environ.get("DASHBOARD_US_PROFILES_TTL_SECONDS", "86400") or "86400"),
     "us_market_summary": int(os.environ.get("DASHBOARD_US_MARKET_SUMMARY_TTL_SECONDS", "300") or "300"),
     "iwencai_dragon_tiger": int(os.environ.get("IWENCAI_CACHE_TTL_SECONDS", "300") or "300"),
 }
@@ -874,10 +860,6 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_TELEGRAM_BOT_TOKEN", "label": "Telegram Bot Token", "group": "交易通知", "kind": "secret", "default": "", "effect": "runtime"},
     {"name": "DASHBOARD_TELEGRAM_CHAT_ID", "label": "Telegram Chat ID", "group": "交易通知", "kind": "text", "default": "", "effect": "runtime"},
 
-    {"name": "DASHBOARD_US_FEATURES_ENABLED", "label": "开启美股机构评级", "group": "美股机构评级", "kind": "bool", "default": "0", "effect": "next_run"},
-    {"name": "FMP_API_BASE_URL", "label": "FMP API 地址", "group": "美股机构评级", "kind": "text", "default": "https://financialmodelingprep.com/stable", "effect": "next_run"},
-    {"name": "FMP_API_KEY", "label": "FMP API Key", "group": "美股机构评级", "kind": "secret", "default": "", "effect": "next_run"},
-    {"name": "FMP_RATING_MAX_RESULTS", "label": "每日报告最多股票数", "group": "美股机构评级", "kind": "int", "default": "10", "effect": "next_run", "min": "1", "max": "50"},
     {"name": "CROSSDESK_BASE_URL", "label": "Crossdesk Base URL", "group": "上游模型覆盖", "kind": "text", "default": "", "effect": "next_run"},
     {"name": "CROSSDESK_API_KEY", "label": "Crossdesk API Key", "group": "上游模型覆盖", "kind": "secret", "default": "", "effect": "next_run"},
     {"name": "DASHBOARD_DECISION_MODEL", "label": "模型名称", "group": "模型配置", "kind": "text", "default": "deepseek-v4-pro", "effect": "next_run"},
@@ -901,9 +883,6 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "A_SHARE_MODEL_SUMMARY_API_KEY", "label": "盘面总结 API密钥", "group": "盘面监控生产时间点", "kind": "secret", "default": "", "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_DEADLINE_SECONDS", "label": "A股模型总结总超时秒数", "group": "盘面监控生产时间点", "kind": "int", "default": "60", "effect": "next_run"},
     {"name": "A_SHARE_MODEL_SUMMARY_REQUEST_TIMEOUT_SECONDS", "label": "A股模型总结单次超时秒数", "group": "盘面监控生产时间点", "kind": "int", "default": "45", "effect": "next_run"},
-    {"name": "DASHBOARD_US_RATING_CRON", "label": "美股买入评级时间", "group": "美股机构评级", "kind": "cron_time", "default": "0 6 * * *", "effect": "next_run"},
-    {"name": "US_RATING_DEADLINE_SECONDS", "label": "美股评级总超时秒数", "group": "美股机构评级", "kind": "int", "default": "120", "effect": "next_run"},
-    {"name": "US_RATING_REQUEST_TIMEOUT_SECONDS", "label": "FMP 单次请求超时秒数", "group": "美股机构评级", "kind": "int", "default": "30", "effect": "next_run"},
     {"name": "DASHBOARD_INDICES_TTL_SECONDS", "label": "指数行情更新间隔（秒）", "group": "行情与资金流设置", "kind": "int", "default": "60", "effect": "runtime", "min": "1"},
     {"name": "DASHBOARD_INDUSTRY_FLOW_PLAYBACK_SPEED", "label": "资金流默认播放速度", "group": "行情与资金流设置", "kind": "playback_speed", "default": "0.5", "effect": "runtime"},
     {"name": "DASHBOARD_INDUSTRY_FLOW_SIDE_LIMIT", "label": "资金流每侧行业数量", "group": "行情与资金流设置", "kind": "int", "default": "10", "effect": "runtime", "min": "1", "max": "10"},
@@ -949,13 +928,6 @@ ADMIN_VISIBLE_ENV_NAMES = [
     "NEWSNOW_TIMEOUT_SECONDS",
     "NEWSNOW_MAX_RETRIES",
     "NEWSNOW_MAX_CONCURRENCY",
-    "DASHBOARD_US_FEATURES_ENABLED",
-    "FMP_API_BASE_URL",
-    "FMP_API_KEY",
-    "FMP_RATING_MAX_RESULTS",
-    "DASHBOARD_US_RATING_CRON",
-    "US_RATING_DEADLINE_SECONDS",
-    "US_RATING_REQUEST_TIMEOUT_SECONDS",
     "DASHBOARD_DECISION_MODEL",
     "DASHBOARD_DECISION_STREAM_MODE",
     "DASHBOARD_DECISION_REASONING_EFFORT",
@@ -1068,7 +1040,6 @@ TRADER_RUNTIME_ENV_NAMES = {
 }
 ENV_GROUP_ORDER = [
     "财经快讯",
-    "美股机构评级",
     "模型配置",
     "交易规则与风控",
     "交易通知",
@@ -5438,7 +5409,6 @@ def fmt_ts(ts: float | None) -> str:
     return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 CATEGORIES = {
-    "us_ratings": "美股机构买入评级",
     "market_monitor": "盘面监控",
     "other": "其他",
 }
@@ -6136,18 +6106,6 @@ def produce_industry_flow_data() -> dict[str, Any]:
     )
 
 
-def sanitize_symbols(raw_symbols: str) -> list[str]:
-    raw_symbols = (raw_symbols or "")[:800]
-    symbols = []
-    for item in raw_symbols.split(","):
-        symbol = item.strip().upper()
-        if symbol and re.fullmatch(r"[A-Z0-9.-]{1,12}", symbol):
-            symbols.append(symbol)
-        if len(symbols) >= 80:
-            break
-    return symbols
-
-
 def is_truthy_header(value: str | None) -> bool:
     return security_impl.is_truthy_header(value)
 
@@ -6226,12 +6184,6 @@ if "DASHBOARD_ADMIN_PASSWORD" not in os.environ:
     ADMIN_PASSWORD = str(
         parse_env_file(include_container_overrides=False).get("DASHBOARD_ADMIN_PASSWORD") or ""
     ).strip()
-
-
-def us_features_enabled(env_values: dict[str, str] | None = None) -> bool:
-    values = env_values if env_values is not None else parse_env_file()
-    raw = values.get("DASHBOARD_US_FEATURES_ENABLED") or os.environ.get("DASHBOARD_US_FEATURES_ENABLED") or "0"
-    return str(raw).strip().lower() in TRUTHY_VALUES
 
 
 def auto_version_check_enabled(env_values: dict[str, str] | None = None) -> bool:
@@ -6602,7 +6554,6 @@ CRON_CONFIG_NAMES = {
     "DASHBOARD_NIUONE_FORWARD_PREFLIGHT_CRON",
     "DASHBOARD_NIUONE_EQUITY_SNAPSHOT_CRON",
     "DASHBOARD_NIUONE_FORWARD_CRON",
-    "DASHBOARD_US_RATING_CRON",
 }
 CRON_TIME_CONFIGS = {
     "IWENCAI_DRAGON_TIGER_CRON": {"day_label": "A股交易日"},
@@ -6613,11 +6564,9 @@ CRON_TIME_CONFIGS = {
     "DASHBOARD_NIUONE_FORWARD_PREFLIGHT_CRON": {"day_label": "A股交易日"},
     "DASHBOARD_NIUONE_EQUITY_SNAPSHOT_CRON": {"day_label": "A股交易日"},
     "DASHBOARD_NIUONE_FORWARD_CRON": {"day_label": "A股交易日"},
-    "DASHBOARD_US_RATING_CRON": {"day_label": "每天"},
 }
 ADMIN_GROUP_NOTES = {
     "财经快讯": "通过 NewsNow 聚合财联社电报、金十数据和华尔街见闻快讯。可选择是否将重要快讯写入买卖决策证据；交易日 15:00 后及休市日信息归入下一交易日。无需 API Key 或服务地址配置；Compose 部署会随牛牛1号自动启动内置实例，来源抓取失败时继续展示最近一次成功缓存并标记陈旧。",
-    "美股机构评级": "通过 Financial Modeling Prep（FMP）结构化数据生成机构买入评级日报，不调用大模型。关闭时隐藏评级相关设置并跳过评级任务；隔夜美股总结使用独立“模型配置”栏目中的共享模型。",
     "问财数据源": "统一管理龙虎榜与可选消息面预检。问财官方公告、新闻和事件技能负责检索；最近 3 天证据经身份校验和去重后，由“买卖决策模型”判断利好、利空或中性。无有效证据直接记为中性；模型失败时标记判断不可用，不回退关键词规则。",
     "模型配置": "买卖决策、文字策略 AI 细化、问财消息判断、A 股盘面总结和隔夜美股总结共用这一套 OpenAI 兼容模型。推荐使用 deepseek-v4-pro；已知 Qwen Responses 型号会在 auto 逻辑下自动选择 Responses API。长度默认：上下文 128000 tokens，最大输出 4096 tokens。",
     "交易规则与风控": "约束买卖决策必须遵守的交易纪律、持仓数量、仓位比例、现金缓冲与盘面控仓规则。交易纪律 Prompt 会直接写入决策模型的必须遵守段。",
@@ -6683,12 +6632,6 @@ ADMIN_SETTING_GROUPS: tuple[dict[str, str], ...] = (
         "name": "选股与交易策略",
         "summary": "选择内置策略或维护自定义预设文字策略。",
         "icon": "策略",
-    },
-    {
-        "slug": "us-market",
-        "name": "美股机构评级",
-        "summary": "配置 FMP 评级数据源、本地筛选数量与定时任务。",
-        "icon": "美股",
     },
     {
         "slug": "market-monitoring",
@@ -6776,16 +6719,6 @@ def removed_notification_config_names(channel_ids: set[str] | list[str] | tuple[
         clear_names.add(str(channel["enabled_name"]))
         clear_names.update(str(name) for name in channel.get("field_names", ()))
     return clear_names
-
-
-US_FEATURE_GATED_NAMES = {
-    "FMP_API_BASE_URL",
-    "FMP_API_KEY",
-    "FMP_RATING_MAX_RESULTS",
-    "DASHBOARD_US_RATING_CRON",
-    "US_RATING_DEADLINE_SECONDS",
-    "US_RATING_REQUEST_TIMEOUT_SECONDS",
-}
 
 
 def validate_cron_expr(expr: str) -> None:
@@ -6971,15 +6904,6 @@ def validate_business_updates(updates: dict[str, str]) -> None:
                 normalize_newsnow_endpoint(value)
         elif name == "NEWSNOW_SOURCES":
             parse_newsnow_source_ids(value)
-        elif name == "FMP_API_BASE_URL":
-            try:
-                normalize_fmp_base_url(value)
-            except FmpRatingsError as exc:
-                raise ValueError(str(exc)) from exc
-        elif name == "FMP_RATING_MAX_RESULTS" and str(value or "").strip():
-            number = int(value)
-            if number < 1 or number > 50:
-                raise ValueError("FMP_RATING_MAX_RESULTS 必须在 1 到 50 之间")
         elif name in {
             "NEWSNOW_MAX_ITEMS",
             "NEWSNOW_MAX_IMPORTANT_ITEMS",
@@ -7140,14 +7064,6 @@ def validate_business_updates(updates: dict[str, str]) -> None:
         elif name == "DASHBOARD_CRON_RETRY_DELAY_SECONDS" and str(value or "").strip():
             if int(value) < 0:
                 raise ValueError(f"{name} 必须大于等于 0")
-        elif name in {"US_RATING_DEADLINE_SECONDS", "US_RATING_REQUEST_TIMEOUT_SECONDS"} and str(value or "").strip():
-            number = int(value)
-            minimum, maximum = {
-                "US_RATING_DEADLINE_SECONDS": (30, 600),
-                "US_RATING_REQUEST_TIMEOUT_SECONDS": (5, 120),
-            }[name]
-            if number < minimum or number > maximum:
-                raise ValueError(f"{name} 必须在 {minimum} 到 {maximum} 之间")
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") in {"max_tokens", "context_length"}:
             normalize_context_length_update(value)
         elif ENV_CONFIG_BY_NAME.get(name, {}).get("kind") == "reasoning_effort":
@@ -7521,59 +7437,6 @@ def send_model_connection_test(
         return test_model_connection(target_id, settings, **kwargs)
     finally:
         MODEL_TEST_SEMAPHORE.release()
-
-
-def data_source_test_settings_snapshot(
-    overrides: dict[str, str] | None = None,
-) -> dict[str, str]:
-    """Resolve saved FMP settings plus unsaved form values without exposing secrets."""
-
-    settings = {
-        name: str(ENV_CONFIG_BY_NAME.get(name, {}).get("default") or "").strip()
-        for name in FMP_TEST_FIELD_NAMES
-    }
-    file_values = parse_env_file()
-    for name in FMP_TEST_FIELD_NAMES:
-        if name in file_values:
-            settings[name] = str(file_values[name])
-        if name in os.environ:
-            settings[name] = str(os.environ[name])
-    for name, raw_value in (overrides or {}).items():
-        if name not in FMP_TEST_FIELD_NAMES:
-            continue
-        value = str(raw_value or "").strip()
-        if is_secret_config_key(name) and not value:
-            continue
-        settings[name] = value
-    return settings
-
-
-def send_data_source_connection_test(
-    target_id: str,
-    overrides: dict[str, str] | None = None,
-    *,
-    opener=None,
-) -> dict[str, Any]:
-    """Run one bounded FMP connectivity test under a small concurrency cap."""
-
-    allowed_names = data_source_test_override_names(target_id)
-    if not allowed_names:
-        return {"ok": False, "target": "", "error": "不支持的数据源测试目标"}
-    if not DATA_SOURCE_TEST_SEMAPHORE.acquire(blocking=False):
-        return {
-            "ok": False,
-            "target": target_id,
-            "error": "当前数据源测试较多，请稍后重试",
-            "error_code": "busy",
-        }
-    try:
-        settings = data_source_test_settings_snapshot(overrides)
-        kwargs: dict[str, Any] = {"timeout": MODEL_TEST_TIMEOUT_SECONDS}
-        if opener is not None:
-            kwargs["opener"] = opener
-        return test_data_source_connection(target_id, settings, **kwargs)
-    finally:
-        DATA_SOURCE_TEST_SEMAPHORE.release()
 
 
 def prompt_strategy_store() -> PromptStrategyStore:
@@ -8344,12 +8207,9 @@ def build_admin_config_payload() -> dict[str, Any]:
         ],
         "notification_general_names": list(NOTIFICATION_GENERAL_CONFIG_NAMES),
         "model_tests": model_test_metadata(),
-        "data_source_tests": data_source_test_metadata(),
         "reasoning_effort_capabilities": reasoning_effort_capability_catalog(),
         "iwencai_test": iwencai_test_metadata(),
         "ui": {
-            "us_feature_toggle_name": "DASHBOARD_US_FEATURES_ENABLED",
-            "us_feature_gated_names": sorted(US_FEATURE_GATED_NAMES),
             "strategy_suite_name": ACTIVE_STRATEGY_ENV,
             "strategy_preset_name": PRESET_STRATEGY_TEXT_ENV,
             "strategy_preset_value": "preset_text",
@@ -8564,144 +8424,6 @@ def public_snapshot_publisher() -> Any:
 
         PUBLIC_SNAPSHOT_PUBLISHER = SnapshotPublisher(PUBLIC_DATA_DIR)
     return PUBLIC_SNAPSHOT_PUBLISHER
-
-
-SINA_US_QUOTE_URL = "https://hq.sinajs.cn/list="
-NASDAQ_COMPANY_PROFILE_URL = "https://api.nasdaq.com/api/company/{symbol}/company-profile"
-US_QUOTE_SYMBOL_MAP: dict[str, list[str]] = {}  # populated from config or known list
-US_SECTOR_LABELS = {
-    "Basic Materials": "基础材料",
-    "Communication Services": "通信服务",
-    "Communications": "通信服务",
-    "Consumer Cyclical": "可选消费",
-    "Consumer Defensive": "必需消费",
-    "Consumer Discretionary": "可选消费",
-    "Consumer Staples": "必需消费",
-    "Energy": "能源",
-    "Financial Services": "金融服务",
-    "Financials": "金融",
-    "Healthcare": "医疗保健",
-    "Health Care": "医疗保健",
-    "Industrials": "工业",
-    "Real Estate": "房地产",
-    "Technology": "科技",
-    "Utilities": "公用事业",
-}
-
-
-def localized_us_sector(value: Any) -> str:
-    raw = str(value or "").strip()
-    if not raw:
-        return ""
-    label = US_SECTOR_LABELS.get(raw)
-    return f"{label}（{raw}）" if label else raw
-
-
-def fetch_us_company_profile(symbol: str) -> dict[str, str]:
-    safe_symbol = re.sub(r"[^A-Za-z0-9.\-]", "", str(symbol or "").upper())
-    if not safe_symbol:
-        return {}
-    url = NASDAQ_COMPANY_PROFILE_URL.format(symbol=safe_symbol)
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={
-                "Accept": "application/json",
-                "User-Agent": "Mozilla/5.0",
-                "Origin": "https://www.nasdaq.com",
-                "Referer": f"https://www.nasdaq.com/market-activity/stocks/{safe_symbol.lower()}",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=6) as resp:
-            payload = json.loads(resp.read().decode("utf-8", "ignore"))
-    except Exception:
-        return {}
-    data = payload.get("data") if isinstance(payload, dict) else {}
-    if not isinstance(data, dict):
-        return {}
-
-    def profile_value(key: str) -> str:
-        item = data.get(key)
-        if isinstance(item, dict):
-            return str(item.get("value") or "").strip()
-        return str(item or "").strip()
-
-    sector = localized_us_sector(profile_value("Sector"))
-    industry = profile_value("Industry")
-    profile: dict[str, str] = {}
-    if sector:
-        profile["sector"] = sector
-    if industry:
-        profile["industry"] = industry
-    return profile
-
-
-def fetch_us_company_profiles(symbols: list[str]) -> dict[str, dict[str, str]]:
-    unique_symbols = list(dict.fromkeys(s for s in symbols if s))
-    if not unique_symbols:
-        return {}
-    max_workers = min(6, len(unique_symbols))
-    profiles: dict[str, dict[str, str]] = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for symbol, profile in zip(unique_symbols, executor.map(fetch_us_company_profile, unique_symbols)):
-            if profile:
-                profiles[symbol] = profile
-    return profiles
-
-
-def fetch_us_profiles(symbols: list[str]) -> dict[str, Any]:
-    """Fetch optional company classification independently from live quotes."""
-    return {
-        "items": fetch_us_company_profiles(symbols),
-        "symbols": symbols,
-        "error": None,
-    }
-
-
-def fetch_us_quotes(symbols: list[str]) -> dict[str, Any]:
-    """Fetch live US prices without waiting for optional company profiles."""
-    result: dict[str, Any] = {"items": {}, "symbols": symbols, "error": None}
-    if not symbols:
-        return result
-    # Map tickers to Sina codes: gb_<ticker.lower()>
-    codes = [f"gb_{s.lower()}" for s in symbols]
-    url = SINA_US_QUOTE_URL + ",".join(codes)
-    try:
-        req = urllib.request.Request(url, headers={"Referer": "https://finance.sina.com.cn"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            raw = resp.read().decode("gbk", "ignore")
-    except Exception as e:
-        result["error"] = f"quote fetch error: {e}"
-        return result
-    # Parse: var hq_str_gb_ticker="name,price,pct,..."  per line
-    for line in raw.split("\n"):
-        line = line.strip()
-        if not line or "=" not in line:
-            continue
-        try:
-            var_part, val_part = line.split("=", 1)
-            val = val_part.strip().strip('"')
-            code = var_part.replace("var hq_str_", "").strip()
-            ticker = code.replace("gb_", "").upper()
-            parts = val.split(",")
-            if len(parts) >= 4:
-                name = parts[0]
-                price = _safe_float(parts[1])
-                pct = _safe_float(parts[2])
-                change = _safe_float(parts[4]) if len(parts) > 4 else None
-                result["items"][ticker] = {
-                    "name": name, "price": price, "pct": pct, "change": change,
-                }
-        except (ValueError, IndexError):
-            continue
-    return result
-
-
-def _safe_float(v: str) -> float | None:
-    try:
-        return float(str(v).strip())
-    except (ValueError, TypeError):
-        return None
 
 
 def main() -> None:

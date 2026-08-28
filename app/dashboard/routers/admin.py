@@ -426,35 +426,6 @@ def create_admin_router(
         )
         return json_response(request, payload, cache_control="no-store")
 
-    @router.post("/api/admin/data-sources/test")
-    async def admin_data_source_test(request: Request) -> Response:
-        rejected = await access.require_action(request)
-        if rejected is not None:
-            return rejected
-        limited = rate_limit(
-            request,
-            scope="data-source-test",
-            limit=services.RATE_LIMIT_DATA_SOURCE_TEST,
-        )
-        if limited is not None:
-            return limited
-        form, invalid = await access.read_form(request)
-        if invalid is not None:
-            return invalid
-        target_id = str((form or {}).get("target") or "").strip()
-        allowed_names = services.data_source_test_override_names(target_id)
-        overrides = {
-            key[len("env__") :]: value
-            for key, value in (form or {}).items()
-            if key.startswith("env__") and key[len("env__") :] in allowed_names
-        }
-        payload = await run_in_threadpool(
-            services.send_data_source_connection_test,
-            target_id,
-            overrides,
-        )
-        return json_response(request, payload, cache_control="no-store")
-
     @router.post("/api/admin/notifications/test")
     async def admin_notification_test(request: Request) -> Response:
         rejected = await access.require_action(request)

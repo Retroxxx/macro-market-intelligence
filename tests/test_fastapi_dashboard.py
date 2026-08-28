@@ -227,7 +227,6 @@ class FastApiDashboardTests(unittest.TestCase):
         message_payload = {
             "categories": {
                 "market_monitor": {"label": "盘面监控", "count": 6},
-                "us_ratings": {"label": "美股机构买入评级", "count": 4},
                 "other": {"label": "其他", "count": 3},
             },
         }
@@ -250,7 +249,7 @@ class FastApiDashboardTests(unittest.TestCase):
         )
         self.assertEqual(
             first.json()["message_counts"],
-            {"market_monitor": 6, "us_ratings": 4},
+            {"market_monitor": 6},
         )
         self.assertIs(first.json()["message_counts_available"], True)
         self.assertIn(f"{self.legacy.VISITOR_COOKIE_NAME}=nvst_", first.headers["Set-Cookie"])
@@ -264,20 +263,17 @@ class FastApiDashboardTests(unittest.TestCase):
         merge_records.assert_called_with(limit=0)
 
     def test_dashboard_bootstrap_degrades_when_message_counts_are_unavailable(self):
-        with (
-            patch.object(
-                self.legacy,
-                "merge_records_from_db",
-                side_effect=RuntimeError("message store unavailable"),
-            ),
-            patch.object(self.legacy, "us_features_enabled", return_value=True),
+        with patch.object(
+            self.legacy,
+            "merge_records_from_db",
+            side_effect=RuntimeError("message store unavailable"),
         ):
             response = self.client.get("/api/dashboard/bootstrap")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["visits"], 1)
         self.assertEqual(response.json()["unique"], 1)
-        self.assertIs(response.json()["us_features_enabled"], True)
+        self.assertNotIn("us_features_enabled", response.json())
         self.assertEqual(response.json()["message_counts"], {})
         self.assertIs(response.json()["message_counts_available"], False)
 
@@ -325,8 +321,6 @@ class FastApiDashboardTests(unittest.TestCase):
                 ("/api/sectors", "sectors"),
                 ("/api/hot_stocks?sort_by=turnover", "hot_stocks:turnover"),
                 ("/api/hot_stocks?sort_by=not-valid", "hot_stocks:amount"),
-                ("/api/us_quotes?symbols=AAPL,msft,bad%24", "us_quotes:AAPL,MSFT"),
-                ("/api/us_profiles?symbols=NVDA,amd", "us_profiles:NVDA,AMD"),
                 ("/api/us_market_summary", "us_market_summary"),
                 ("/api/us_sectors", "us_sectors"),
                 ("/api/money_flow", "money_flow"),
@@ -375,8 +369,6 @@ class FastApiDashboardTests(unittest.TestCase):
             "sectors",
             "hot_stocks:turnover",
             "hot_stocks:amount",
-            "us_quotes:AAPL,MSFT",
-            "us_profiles:NVDA,AMD",
             "us_market_summary",
             "us_sectors",
             "money_flow",
@@ -856,11 +848,6 @@ class FastApiDashboardTests(unittest.TestCase):
             ),
             patch.object(
                 self.legacy,
-                "data_source_test_override_names",
-                return_value={"FMP_API_BASE_URL", "FMP_API_KEY"},
-            ),
-            patch.object(
-                self.legacy,
                 "send_iwencai_connection_test",
                 return_value={"ok": True, "message": "iwencai"},
             ) as iwencai,
@@ -869,11 +856,6 @@ class FastApiDashboardTests(unittest.TestCase):
                 "send_model_connection_test",
                 return_value={"ok": True, "message": "model"},
             ) as model,
-            patch.object(
-                self.legacy,
-                "send_data_source_connection_test",
-                return_value={"ok": True, "message": "data-source"},
-            ) as data_source,
             patch.object(
                 self.legacy,
                 "send_notification_test",
@@ -892,11 +874,7 @@ class FastApiDashboardTests(unittest.TestCase):
             )
             data_source_response = self.client.post(
                 "/api/admin/data-sources/test",
-                content=(
-                    "target=fmp-ratings&"
-                    "env__FMP_API_BASE_URL=https%3A%2F%2Ffinancialmodelingprep.com%2Fstable&"
-                    "env__FMP_API_KEY=key&env__IGNORED=secret"
-                ),
+                content="target=removed",
                 headers=action_headers,
             )
             notification_response = self.client.post(
@@ -910,7 +888,7 @@ class FastApiDashboardTests(unittest.TestCase):
 
         self.assertEqual(iwencai_response.json()["message"], "iwencai")
         self.assertEqual(model_response.json()["message"], "model")
-        self.assertEqual(data_source_response.json()["message"], "data-source")
+        self.assertEqual(data_source_response.status_code, 404)
         self.assertEqual(notification_response.json()["message"], "notification")
         iwencai.assert_called_once_with(
             {"IWENCAI_BASE_URL": "https://example.test"}
@@ -918,13 +896,6 @@ class FastApiDashboardTests(unittest.TestCase):
         model.assert_called_once_with(
             "a-share-summary-model",
             {"A_SHARE_MODEL_SUMMARY_API_KEY": "key"},
-        )
-        data_source.assert_called_once_with(
-            "fmp-ratings",
-            {
-                "FMP_API_BASE_URL": "https://financialmodelingprep.com/stable",
-                "FMP_API_KEY": "key",
-            },
         )
         notification.assert_called_once_with(
             "telegram",

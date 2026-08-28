@@ -74,9 +74,9 @@ Public deployments continue to run `./run-dashboard.sh`: FastAPI/Uvicorn serves 
 
 The final **About** settings group shows the project author, GitHub repository, Apache License 2.0, current version, and newest Docker Hub release, with a **Check for updates** button that bypasses the server cache and refreshes the upstream result. **Automatically check for new versions** is enabled by default and takes effect at runtime; set `DASHBOARD_AUTO_VERSION_CHECK_ENABLED=0` in `dashboard.env` to disable it. “Do not remind me about this version” is stored only in the current browser; manually clicking the home-page version still checks again, and a later release can trigger a new reminder.
 
-## 3. Model and Rating Data-Source Configuration
+## 3. Model and Data-Source Configuration
 
-NiuOne uses one shared model configured in the dedicated **Model Configuration** settings section. Trading decisions, AI prompt refinement, iWencai news judgment, A-share auction/midday/close summaries, and the overnight U.S. summary all use this model. The daily U.S. institutional ratings report does not call a model: it uses Financial Modeling Prep (FMP) structured rating, price-target, and quote data, then applies local buy-bias filtering, deduplication, institutional clustering, and ranking.
+NiuOne uses one shared model configured in the dedicated **Model Configuration** settings section. Trading decisions, AI prompt refinement, iWencai news judgment, A-share auction/midday/close summaries, and the overnight U.S. summary all use this model.
 
 During upgrades, legacy `A_SHARE_MODEL_SUMMARY_*` model fields are used only when the shared configuration is incomplete. The next save in **Model Configuration** safely migrates usable legacy values into `DASHBOARD_DECISION_*` and removes the duplicate fields.
 
@@ -84,15 +84,13 @@ Core configuration items:
 
 | Scenario | Configuration items |
 |---|---|
-| Master switch for U.S. institutional ratings | `DASHBOARD_US_FEATURES_ENABLED` |
-| U.S. institutional-rating data source | `FMP_API_BASE_URL`, `FMP_API_KEY`, `FMP_RATING_MAX_RESULTS`, `DASHBOARD_US_RATING_CRON`, `US_RATING_DEADLINE_SECONDS`, `US_RATING_REQUEST_TIMEOUT_SECONDS` |
 | Shared model for trading decisions and market summaries | `DASHBOARD_DECISION_BASE_URL`, `DASHBOARD_DECISION_API_KEY`, `DASHBOARD_DECISION_MODEL`, `DASHBOARD_DECISION_STREAM_MODE`, `DASHBOARD_DECISION_REASONING_EFFORT`, `DASHBOARD_DECISION_CONTEXT_LENGTH`, `DASHBOARD_DECISION_MAX_TOKENS` |
 | Built-in iWencai data source and news precheck | `IWENCAI_ENABLED`, `IWENCAI_NEWS_PRECHECK_ENABLED`, `IWENCAI_BASE_URL`, `IWENCAI_API_KEY`, `IWENCAI_TIMEOUT_SECONDS`, `IWENCAI_MAX_RETRIES`, `IWENCAI_MAX_CONCURRENCY`, `IWENCAI_CACHE_TTL_SECONDS`, `IWENCAI_DRAGON_TIGER_CRON` |
 | Trading-decision intelligence bundle | `DASHBOARD_DECISION_INTELLIGENCE_ENABLED`, `DASHBOARD_DECISION_INTELLIGENCE_TTL_SECONDS`, `DASHBOARD_DECISION_INTELLIGENCE_MAX_ITEMS` |
 | Trading discipline for trading decisions | `DASHBOARD_TRADE_DISCIPLINE_TEXT`; when empty, the built-in default discipline is used; when populated, its content is inserted into the “Mandatory Rules” section of the model prompt |
 | Simulated-account cadence and position-sizing references | `DASHBOARD_MAX_OPEN_POSITIONS`, `DASHBOARD_MAX_NEW_BUYS_PER_DECISION`, `DASHBOARD_MAX_SINGLE_POSITION_PCT`, `DASHBOARD_MAX_TOTAL_POSITION_PCT`, `DASHBOARD_MIN_CASH_RESERVE_PCT`; these are model references by default, while suites with registered hard limits, including Z-ge and Sector Tide, enforce the stricter global or suite limit in the simulation layer |
 
-After administrator authentication, preferably use the dedicated **Model Configuration** section. It includes **Test Model Connection**, while U.S. institutional ratings includes **Test Data Source Connection**. Tests use current form values without saving them; leaving the API key input empty reuses the saved secret. U.S. ratings settings are controlled by the “Enable U.S. Institutional Ratings” master switch. When disabled, the settings page hides these items and skips the scheduled task. The FMP key is sent in a request header and is not included in request URLs or logs. A primary ratings-feed failure fails the task so the scheduler can retry; optional target-price or quote failures only degrade those fields and never overwrite an existing report. You can also edit `.local-data/dashboard.env` directly and wait for the next task cycle to load the values.
+After administrator authentication, preferably use the dedicated **Model Configuration** section. It includes **Test Model Connection**. Tests use current form values without saving them; leaving the API key input empty reuses the saved secret. You can also edit `.local-data/dashboard.env` directly and wait for the next task cycle to load the values.
 The shared model's `DASHBOARD_DECISION_REASONING_EFFORT` accepts a model- or gateway-defined token; leaving it empty omits the parameter. Known official models in the table below are checked locally before saving, connection tests, and runtime requests. Custom models and gateway aliases outside the table remain free-form. Connection tests use the current unsaved value. Success only confirms that the gateway accepted the request, not that the upstream enforced the effort. Unsupported parameters and invalid values receive targeted diagnostics, and runtime requests never silently remove the configured effort and retry.
 
 The shared model's `DASHBOARD_DECISION_STREAM_MODE` accepts `auto`, `stream`, or `non_stream`. The default `auto` keeps the historical non-streaming request and retries with `stream=true` only when the gateway explicitly requires streaming. `stream` forces streaming and `non_stream` forces a complete response. Background jobs always assemble the complete streamed content before JSON validation, persistence, or trading decisions.
@@ -479,7 +477,6 @@ Task scripts:
 
 ```bash
 ./run-niuone-cron-scheduler.sh
-./scripts/run_us_rating_report.sh
 ```
 
 ## 8. Rollback
@@ -535,7 +532,7 @@ curl -s "http://127.0.0.1:8787/api/messages?limit=5" | python3 -m json.tool | he
 
 The current message stream primarily uses `push_history.db`. Corresponding messages appear on the page only after the task scripts successfully write them to this database.
 
-New market-monitoring and U.S. institutional-ratings records are written only to this database; Markdown files are no longer generated. Existing historical `.md` files from before the upgrade are preserved unchanged, but the page does not read or automatically delete them.
+New market-monitoring records are written only to this database; Markdown files are no longer generated. Existing historical `.md` files from before the upgrade are preserved unchanged, but the page does not read or automatically delete them.
 
 ### The Page Shows an Older Simulated Account or Trading Calendar
 
