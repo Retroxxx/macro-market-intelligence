@@ -24,6 +24,7 @@ const feedbackPolicy = computed(() => (
 ))
 const feedbackStatusLabel = computed(() => ({
   active: '已生效',
+  hold: '参数保持',
   learning: '样本积累中',
   cooldown: '冷却观察中',
   disabled: '未启用',
@@ -32,10 +33,13 @@ const feedbackActionLabel = computed(() => {
   const action = String(feedbackPolicy.value.action || '')
   if (action.startsWith('reduce_sell_fly:')) return '降低卖飞（单档）'
   if (action.startsWith('restore_defense:')) return '恢复防守（单档）'
+  if (action.startsWith('loosen_reentry:')) return '降低再入门槛（单档）'
+  if (action.startsWith('tighten_reentry:')) return '提高再入门槛（单档）'
   return {
     sample_gate: '等待样本门',
     cooldown: '等待新增样本',
     automatic_rollback: '自动回退上一版',
+    algorithm_upgrade: '升级反馈基线',
     raise_replacement_margin: '提高换仓门槛',
     lower_replacement_margin: '降低换仓门槛',
     hold: '保持参数',
@@ -167,6 +171,7 @@ const manualButtonText = computed(() => {
         <span>卖飞 {{ exitReview.sell_fly_5d_count || 0 }}</span>
         <span>避免续亏 {{ exitReview.avoided_loss_5d_count || 0 }}</span>
         <span>换仓后悔 {{ exitReview.replacement_regret_5d_count || 0 }}</span>
+        <span v-if="exitReview.reentry_completed_5d_count">再入影子 {{ exitReview.reentry_completed_5d_count }}（放行 {{ exitReview.reentry_allowed_5d_count || 0 }}）</span>
         <span v-if="exitReview.avg_close_return_5d_pct != null">原票均值 {{ formatPracticeNumber(exitReview.avg_close_return_5d_pct) }}%</span>
         <span>自动调参 {{ feedbackPolicy.enabled ? `v${feedbackPolicy.version || 0} · ${feedbackStatusLabel}` : '未启用' }}</span>
         <span v-if="feedbackPolicy.enabled && feedbackPolicy.action">本轮 {{ feedbackActionLabel }}</span>

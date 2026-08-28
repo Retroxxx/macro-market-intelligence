@@ -55,6 +55,7 @@
 协议 v41 在 `screening/holding_cycle.py` 增加持仓增量评分层。该层不维护第二套策略：它从模拟账户接收显式持仓代码，只获取这些代码的实时行情和有效本地日 K，调用完整扫描相同的当前策略评分器与候选选择门，再把结果交回 Dashboard 的统一盘面总结和 `trading/practice_trader.py` 的模型/退出/执行链。执行层再次要求 BUY 对应代码仍有正持仓，因此快周期只能加仓，不能发现、首次建仓或卖后回补。快慢周期共用账户决策锁；数据缺失只关闭该股的快周期 BUY，不绕过已有持仓的 SELL/HOLD。`holding_fast` 作为非计划槽运行来源进入耐久证据，严格前向身份升级为 `niuone-strict-forward-v41`，管理员日线回测保持 `niuone-backtest-v38`。
 协议 v42 取消组合层独立的固定 5 只常量：`trading/practice_trader.py` 在进程启动时把 `DASHBOARD_MAX_OPEN_POSITIONS` 解析为牛牛容量，模型提示、剩余槽位、满仓优先级换仓和最终成交复核共用该值；`backtesting/tasks.py` 在任务提交时把同一值复制进不可变请求，`trading/niuone_forward_service.py` 则把它写入严格前向协议身份。午盘前和盘面评价产生的动态数量仍只属于非牛牛策略。严格前向/管理员回测身份升级为 `niuone-strict-forward-v42`/`niuone-backtest-v39`。
 协议 v43 在 `strategies/exits.py` 增加无执行副作用的软退出裁决器，Practice 与管理员日线回测复用首次减仓、跨交易日确认和评分否决语义；硬止损仍在裁决器之前返回。`trading/post_exit_observations.py` 只读取耐久成交和本地日 K，向 `storage/practice_db.py` 的派生观察表幂等写入 1/3/5/10 日结果，不改写成交事实。Practice 的软退出清仓另维护 5 个交易日影子重开状态，持仓快周期仍禁止重开；组合换仓复用 `strategies/niuone_risk.py` 的 3 分滞回门槛。严格前向/管理员回测身份升级为 `niuone-strict-forward-v43`/`niuone-backtest-v40`。
+协议 v45 将 `post_exit_observations.py` 的完成结果改为单向成熟，短 K 线窗口或数据源失败只能保留旧结果；退出收益使用真实成交价，换仓结果必须关联实际 BUY。`practice_db.py` 分开保存不可变参数版本和无参数变化的评估检查点，并从耐久决策提取再入放行/拦截影子样本。`strategies/exit_feedback.py` 在最近 120 个有效样本内按同股同日簇去重、按成交资金加权并以 90% 置信区间和最小经济效果决定单档移动；账户状态加载时以 SQLite 活动版本对账，避免跨文件提交中断后继续使用旧参数。
 漏斗中的实际 BUY 以耐久成交账本为准，并与决策 payload 的执行副本交叉核对；任一方向的缺口都保留独立一致性诊断并阻断证据晋级。
 冻结范围同时包含前向 Cron 表达式、耐久数据库/恢复状态的有效路径和调度/存储/评估证据链源码。命令行 `--as-of` 只用于可重复的报告截止日；协议文件的冻结时间与起始日前重冻判断只接受实际墙钟时间，防止起始日后通过回填旧截止日覆盖漂移锁。
 

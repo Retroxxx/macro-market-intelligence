@@ -5341,6 +5341,46 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertEqual(audit["required_volume_ratio"], 0.9)
         self.assertEqual(audit["exit_feedback_policy_version"], 5)
 
+    def test_stale_json_policy_reconciles_from_active_sqlite_version(self):
+        original_env = trader.os.environ.get(
+            "DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED"
+        )
+        original_module = sys.modules.get("niuniu_db")
+        trader.os.environ["DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED"] = "1"
+        sys.modules["niuniu_db"] = types.SimpleNamespace(
+            query_active_exit_feedback_policy=lambda: {
+                "active": True,
+                "enabled": True,
+                "version": 7,
+                "parameters": {
+                    "soft_exit_confirmations": 3,
+                    "soft_exit_reduce_ratio": 0.25,
+                    "replacement_priority_margin": 4.0,
+                    "reentry_volume_ratio": 1.0,
+                    "reentry_amount_percentile": 60.0,
+                },
+            }
+        )
+        state = {"exit_feedback_policy": {"enabled": True, "version": 6}}
+        try:
+            trader._reconcile_exit_feedback_policy_from_db(state)
+        finally:
+            if original_env is None:
+                trader.os.environ.pop(
+                    "DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED",
+                    None,
+                )
+            else:
+                trader.os.environ[
+                    "DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED"
+                ] = original_env
+            if original_module is None:
+                sys.modules.pop("niuniu_db", None)
+            else:
+                sys.modules["niuniu_db"] = original_module
+
+        self.assertEqual(state["exit_feedback_policy"]["version"], 7)
+
     def test_luzhu_signal_reduces_half(self):
         pos = {
             "qty": 1000,

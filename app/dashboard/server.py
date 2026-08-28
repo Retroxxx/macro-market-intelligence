@@ -856,9 +856,9 @@ ENV_CONFIG_SCHEMA: list[dict[str, Any]] = [
     {"name": "DASHBOARD_MIN_CASH_RESERVE_PCT", "label": "现金缓冲参考%", "group": "交易规则与风控", "kind": "text", "default": "20", "effect": "next_run"},
     {"name": "DASHBOARD_MORNING_MAX_OPEN_POSITIONS", "label": "午盘前持仓上限", "group": "交易规则与风控", "kind": "int", "default": "3", "effect": "next_run"},
     {"name": "DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED", "label": "启用5日复盘全自动调参", "group": "交易规则与风控", "kind": "bool", "default": "0", "effect": "next_run"},
-    {"name": "DASHBOARD_EXIT_FEEDBACK_MIN_SAMPLES", "label": "自动调参最少完整样本", "group": "交易规则与风控", "kind": "int", "default": "30", "effect": "next_run", "min": "20", "max": "500"},
+    {"name": "DASHBOARD_EXIT_FEEDBACK_MIN_SAMPLES", "label": "自动调参最少有效样本簇", "group": "交易规则与风控", "kind": "int", "default": "30", "effect": "next_run", "min": "20", "max": "500"},
     {"name": "DASHBOARD_EXIT_FEEDBACK_MIN_MONTHS", "label": "自动调参最少覆盖月份", "group": "交易规则与风控", "kind": "int", "default": "3", "effect": "next_run", "min": "2", "max": "12"},
-    {"name": "DASHBOARD_EXIT_FEEDBACK_COOLDOWN_SAMPLES", "label": "每轮调参新增样本冷却", "group": "交易规则与风控", "kind": "int", "default": "10", "effect": "next_run", "min": "5", "max": "100"},
+    {"name": "DASHBOARD_EXIT_FEEDBACK_COOLDOWN_SAMPLES", "label": "每轮评估新增证据冷却", "group": "交易规则与风控", "kind": "int", "default": "10", "effect": "next_run", "min": "5", "max": "100"},
 
     {"name": "DASHBOARD_NOTIFICATION_ENABLED", "label": "启用模拟成交通知", "group": "交易通知", "kind": "bool", "default": "0", "effect": "runtime"},
     {"name": "DASHBOARD_NOTIFICATION_TIMEOUT_SECONDS", "label": "单次推送超时秒数", "group": "交易通知", "kind": "int", "default": "5", "effect": "runtime"},

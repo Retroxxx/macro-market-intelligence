@@ -869,6 +869,30 @@ def default_state() -> dict[str, Any]:
     }
 
 
+def _reconcile_exit_feedback_policy_from_db(state: dict[str, Any]) -> None:
+    """Prefer the atomically active SQLite policy after a crash or stale JSON read."""
+    if not exit_feedback_auto_tune_config()["enabled"]:
+        return
+    try:
+        from niuniu_db import query_active_exit_feedback_policy as _query_policy
+
+        active = _query_policy()
+    except Exception:
+        return
+    if not isinstance(active, Mapping) or not active.get("active"):
+        return
+    state_policy = state.get("exit_feedback_policy")
+    state_version = int(
+        (state_policy or {}).get("version") or 0
+    ) if isinstance(state_policy, Mapping) else 0
+    active_version = int(active.get("version") or 0)
+    if active_version > state_version:
+        state["exit_feedback_policy"] = {
+            **dict(active),
+            "enabled": True,
+        }
+
+
 def load_state() -> dict[str, Any]:
     if not STATE_FILE.exists():
         state = default_state()
@@ -886,6 +910,7 @@ def load_state() -> dict[str, Any]:
     base.setdefault("pending_decisions", [])
     base.setdefault("equity_history", [])
     base.setdefault("daily_equity_history", [])
+    _reconcile_exit_feedback_policy_from_db(base)
     return base
 
 
@@ -4813,6 +4838,9 @@ def post_exit_reentry_audit(
         "required_amount_percentile": required_amount_percentile,
         "exit_feedback_policy_version": int(feedback_policy.get("version") or 0),
         "theme_matches": theme_matches,
+        "reclaim_passed": bool(price > reclaim_level > 0),
+        "volume_supportive": bool(volume_supportive),
+        "thesis_valid": bool(thesis_valid),
         "eligible": bool(
             price > reclaim_level > 0
             and volume_supportive

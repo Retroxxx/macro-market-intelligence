@@ -48,6 +48,8 @@ from app.strategies.exit_feedback import (
     EXIT_FEEDBACK_DEFAULT_MIN_MONTHS,
     EXIT_FEEDBACK_DEFAULT_MIN_SAMPLES,
     EXIT_FEEDBACK_DEFAULT_PARAMETERS,
+    EXIT_FEEDBACK_CONFIDENCE_LEVEL,
+    EXIT_FEEDBACK_MAX_WINDOW_SAMPLES,
     EXIT_FEEDBACK_PARAMETER_BOUNDS,
 )
 from app.strategies.policy import (
@@ -70,7 +72,7 @@ DEFAULT_HISTORICAL_REFERENCE_WIN_RATE_PCT = 59.71
 DEFAULT_WIN_RATE_CONFIDENCE_LEVEL = 0.95
 DEFAULT_MAX_PORTFOLIO_DRAWDOWN_PCT = 6.0
 DEFAULT_MIN_RETURN_TO_DRAWDOWN_RATIO = 1.0
-FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v44"
+FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v45"
 FORWARD_PERFORMANCE_CLUSTER_UNIT = "entry_date_x_entry_theme"
 FORWARD_SHADOW_CANDIDATES = {
     "execution_gap": "round13_execution_gap_le_1pct",
@@ -3358,13 +3360,13 @@ def evaluate_niuone_forward(
                 EXIT_FEEDBACK_ALGORITHM_VERSION
             ),
             "exit_feedback_rule": (
-                "after the five-session observations reach the configured "
-                "cross-month sample gate, evaluate only after the configured "
-                "new-sample cooldown and move at most one pre-declared soft-"
-                "exit, replacement, or re-entry parameter step; structural "
-                "stops and portfolio risk limits are immutable; materially "
-                "worse version-tagged outcomes automatically restore the "
-                "previous parameter grid"
+                "mature five-session outcomes never downgrade; actual fills "
+                "and executed replacements plus direct allowed/blocked re-entry "
+                "shadows feed a 120-observation, same-security/day clustered, "
+                "capital-weighted 90-percent confidence gate; each cooldown "
+                "batch moves at most one declared grid step and hold evaluations "
+                "do not create policy versions; structural stops and portfolio "
+                "risk limits remain immutable"
             ),
             "exit_feedback_default_parameters": dict(
                 EXIT_FEEDBACK_DEFAULT_PARAMETERS
@@ -3381,6 +3383,12 @@ def evaluate_niuone_forward(
             ),
             "exit_feedback_default_cooldown_samples": (
                 EXIT_FEEDBACK_DEFAULT_COOLDOWN_SAMPLES
+            ),
+            "exit_feedback_maximum_window_samples": (
+                EXIT_FEEDBACK_MAX_WINDOW_SAMPLES
+            ),
+            "exit_feedback_confidence_level": (
+                EXIT_FEEDBACK_CONFIDENCE_LEVEL
             ),
             "niuone_reversal_minimum_recovery_ratio_inclusive": (
                 NIUONE_DAILY_V_MIN_RECOVERY_RATIO
