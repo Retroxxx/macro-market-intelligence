@@ -226,7 +226,7 @@ def _trade_notification(trades: Iterable[Mapping[str, Any]]) -> Notification | N
                 markdown_lines,
                 html_lines,
                 card_fields,
-                "原因",
+                "理由",
                 reason,
                 short=False,
             )

@@ -224,7 +224,7 @@ class NotificationTests(unittest.TestCase):
             feishu_elements[2]["text"]["content"],
             "**时间**　2026-07-11 10:00:01\n"
             "**策略**　trend\\_pullback\n"
-            "**原因**　趋势回踩确认",
+            "**理由**　趋势回踩确认",
         )
 
         dingtalk_payload = calls["dingtalk"]["payload"]
