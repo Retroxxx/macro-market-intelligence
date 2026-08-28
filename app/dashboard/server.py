@@ -8417,11 +8417,10 @@ def send_notification_test(
 
         notification = Notification(
             event_type="notification.test",
-            title="牛牛1号通知测试",
+            title="通知渠道测试",
             text=(
-                f"{label} 渠道配置验证消息。\n模拟成交，非实盘。\n"
-                f"发送时间：{datetime.now(CN_TZ).strftime('%Y-%m-%d %H:%M:%S')}（北京时间）\n"
-                "这是一条测试通知，不代表真实买卖或成交。"
+                f"{label} 渠道配置验证消息。\n"
+                f"发送时间：{datetime.now(CN_TZ).strftime('%Y-%m-%d %H:%M:%S')}（北京时间）"
             ),
             metadata={"channel": normalized_id, "test": True},
         )

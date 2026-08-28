@@ -1,6 +1,7 @@
 """Trade execution notification formatting and delivery entry point."""
 from __future__ import annotations
 
+import html
 import math
 import re
 from typing import Any, Callable, Iterable, Mapping
@@ -39,6 +40,54 @@ def _percentage(value: Any) -> str:
     return f"{number:.2f}%" if number is not None else "-"
 
 
+def _signed_money(value: float) -> str:
+    sign = "+" if value > 0 else "-" if value < 0 else ""
+    return f"{sign}¥{abs(value):,.2f}"
+
+
+def _signed_percentage(value: float) -> str:
+    sign = "+" if value > 0 else "-" if value < 0 else ""
+    return f"{sign}{abs(value):.2f}%"
+
+
+def _markdown_text(value: Any) -> str:
+    """Escape untrusted trade labels without changing their rendered text."""
+
+    text = html.escape(str(value or ""), quote=False)
+    return re.sub(r"([\\`*_\[\]~#])", r"\\\1", text)
+
+
+def _append_rich_field(
+    plain_lines: list[str],
+    markdown_lines: list[str],
+    html_lines: list[str],
+    card_fields: list[dict[str, Any]],
+    label: str,
+    value: str,
+    *,
+    short: bool = True,
+    color: str = "",
+) -> None:
+    plain_lines.append(f"{label}：{value}")
+    markdown_value = _markdown_text(value)
+    html_label = html.escape(label, quote=False)
+    html_value = html.escape(value, quote=False)
+    if color == "red":
+        markdown_lines.append(f"**{label}**　**{markdown_value}**  ")
+        html_lines.append(f"<b>{html_label}　{html_value}</b>")
+    else:
+        markdown_lines.append(f"**{label}**　{markdown_value}  ")
+        html_lines.append(f"<b>{html_label}</b>　{html_value}")
+    card_field = {
+        "label": label,
+        "value": value,
+        "short": short,
+    }
+    if color:
+        card_field["color"] = color
+    card_fields.append(card_field)
+
+
 def _trade_notification(trades: Iterable[Mapping[str, Any]]) -> Notification | None:
     normalized: list[Mapping[str, Any]] = []
     for trade in trades:
@@ -49,7 +98,10 @@ def _trade_notification(trades: Iterable[Mapping[str, Any]]) -> Notification | N
     if not normalized:
         return None
 
-    lines = ["模拟成交，非实盘"]
+    plain_lines: list[str] = []
+    markdown_lines: list[str] = []
+    html_lines: list[str] = []
+    card_sections: list[dict[str, Any]] = []
     actions: list[str] = []
     for index, trade in enumerate(normalized, 1):
         action = str(trade.get("action") or "").strip().upper()
@@ -61,50 +113,108 @@ def _trade_notification(trades: Iterable[Mapping[str, Any]]) -> Notification | N
             shares = int(float(trade.get("shares") or 0))
         except (TypeError, ValueError, OverflowError):
             shares = 0
-        details = [
-            f"{index}. {label} {name}({code})",
-            f"{shares}股 @ {_price(trade.get('price'))}",
-            f"金额 {_money(trade.get('amount'))}",
-        ]
-        fee = _finite_float(trade.get("fee"))
-        if fee is not None:
-            details.append(f"费用 {_money(fee)}")
-        if action == "BUY":
-            position_pct = trade.get("position_after_trade_pct")
-            if _finite_float(position_pct) is not None:
-                details.append(f"成交后单票仓位 {_percentage(position_pct)}")
-        else:
+
+        heading = f"{index}. {label}｜{name}（{code}）"
+        card_fields: list[dict[str, Any]] = []
+        if plain_lines:
+            plain_lines.append("")
+            markdown_lines.append("")
+            html_lines.append("")
+        plain_lines.append(heading)
+        markdown_lines.append(f"#### {_markdown_text(heading)}")
+        html_lines.append(f"<b>{html.escape(heading, quote=False)}</b>")
+
+        _append_rich_field(
+            plain_lines,
+            markdown_lines,
+            html_lines,
+            card_fields,
+            "成交",
+            f"{shares:,} 股 × {_price(trade.get('price'))}",
+        )
+        _append_rich_field(
+            plain_lines,
+            markdown_lines,
+            html_lines,
+            card_fields,
+            "金额",
+            _money(trade.get("amount")),
+        )
+        order_position_pct = trade.get("order_position_pct")
+        order_position_number = _finite_float(order_position_pct)
+        if order_position_number is not None:
+            _append_rich_field(
+                plain_lines,
+                markdown_lines,
+                html_lines,
+                card_fields,
+                "本笔成交仓位",
+                _percentage(order_position_pct),
+                color="red" if order_position_number > 10 else "",
+            )
+        if action == "SELL":
             pnl = _finite_float(trade.get("pnl"))
             pnl_pct = _finite_float(trade.get("pnl_pct"))
             if pnl is not None:
-                pnl_text = f"盈亏 {_money(pnl)}"
+                pnl_text = _signed_money(pnl)
                 if pnl_pct is not None:
-                    pnl_text += f" / {_percentage(pnl_pct)}"
-                details.append(pnl_text)
+                    pnl_text += f"（{_signed_percentage(pnl_pct)}）"
+                _append_rich_field(
+                    plain_lines,
+                    markdown_lines,
+                    html_lines,
+                    card_fields,
+                    "盈亏",
+                    pnl_text,
+                )
         trade_time = _clean_trade_text(trade.get("time"), 32)
         if trade_time:
-            details.append(f"时间 {trade_time}")
-        lines.append("｜".join(details))
+            _append_rich_field(
+                plain_lines,
+                markdown_lines,
+                html_lines,
+                card_fields,
+                "时间",
+                trade_time,
+                short=False,
+            )
 
         strategy = _clean_trade_text(
             trade.get("exit_rule") if action == "SELL" else trade.get("buy_strategy"),
             60,
         )
         reason = _clean_trade_text(trade.get("reason"), 100)
-        annotations = []
         if strategy:
-            annotations.append(f"策略 {strategy}")
+            _append_rich_field(
+                plain_lines,
+                markdown_lines,
+                html_lines,
+                card_fields,
+                "策略",
+                strategy,
+                short=False,
+            )
         if reason:
-            annotations.append(f"原因 {reason}")
-        if annotations:
-            lines.append("   " + "；".join(annotations))
+            _append_rich_field(
+                plain_lines,
+                markdown_lines,
+                html_lines,
+                card_fields,
+                "原因",
+                reason,
+                short=False,
+            )
+        card_sections.append({"title": heading, "fields": tuple(card_fields)})
 
     count = len(normalized)
     return Notification(
         event_type="trade.executed",
-        title=f"牛牛1号模拟成交（{count}笔）",
-        text="\n".join(lines),
+        title=f"成交信息（{count}笔）",
+        text="\n".join(plain_lines),
         metadata={"trade_count": count, "actions": tuple(actions)},
+        markdown="\n".join(markdown_lines),
+        html="\n".join(html_lines),
+        card_sections=tuple(card_sections),
     )
 
 

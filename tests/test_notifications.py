@@ -15,8 +15,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "app"
+COMPAT = APP / "compat"
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
+if str(COMPAT) not in sys.path:
+    sys.path.insert(0, str(COMPAT))
 
 import notifications  # noqa: E402
 
@@ -40,6 +43,7 @@ def sample_trades() -> list[dict]:
             "price": 10.123,
             "amount": 1012.3,
             "fee": 0.11,
+            "order_position_pct": 1.01,
             "position_after_trade_pct": 3.21,
             "buy_strategy": "trend_pullback",
             "reason": "趋势回踩确认",
@@ -53,6 +57,7 @@ def sample_trades() -> list[dict]:
             "price": 12.5,
             "amount": 2500,
             "fee": 1.27,
+            "order_position_pct": 2.5,
             "pnl": 215.5,
             "pnl_pct": 9.43,
             "exit_rule": "time_stop",
@@ -176,17 +181,64 @@ class NotificationTests(unittest.TestCase):
         calls = {call["channel"]: call for call in transport.calls}
         self.assertTrue(all(call["timeout"] == 7 for call in transport.calls))
 
-        message = calls["feishu"]["payload"]["content"]["text"]
-        self.assertIn("牛牛1号模拟成交（2笔）", message)
-        self.assertIn("模拟成交，非实盘", message)
-        self.assertIn("买入 平安银行(000001)", message)
-        self.assertIn("卖出 浦发银行(600000)", message)
-        self.assertIn("盈亏 ¥215.50 / 9.43%", message)
-        self.assertEqual(calls["dingtalk"]["payload"]["text"]["content"], message)
-        self.assertEqual(calls["wecom"]["payload"]["text"]["content"], message)
-        self.assertEqual(calls["telegram"]["payload"]["text"], message)
+        notification = notifications._trade_notification(sample_trades())
+        self.assertIsNotNone(notification)
+        plain_text = notification.plain_text()
+        self.assertIn("成交信息（2笔）", plain_text)
+        self.assertNotIn("牛牛1号", plain_text)
+        self.assertNotIn("模拟成交", plain_text)
+        self.assertNotIn("非实盘", plain_text)
+        self.assertIn("1. 买入｜平安银行（000001）", plain_text)
+        self.assertIn("成交：100 股 × ¥10.123", plain_text)
+        self.assertIn("金额：¥1,012.30\n本笔成交仓位：1.01%", plain_text)
+        self.assertNotIn("费用", plain_text)
+        self.assertNotIn("成交后仓位", plain_text)
+        self.assertIn("2. 卖出｜浦发银行（600000）", plain_text)
+        self.assertIn("盈亏：+¥215.50（+9.43%）", plain_text)
 
         feishu_payload = calls["feishu"]["payload"]
+        self.assertEqual(feishu_payload["msg_type"], "interactive")
+        self.assertEqual(
+            feishu_payload["card"]["header"]["title"]["content"],
+            "成交信息（2笔）",
+        )
+        feishu_elements = feishu_payload["card"]["elements"]
+        self.assertEqual(
+            [element["tag"] for element in feishu_elements],
+            ["div", "div", "hr", "div", "div"],
+        )
+        self.assertEqual(
+            feishu_elements[0]["text"]["content"],
+            "**1. 买入｜平安银行（000001）**",
+        )
+        buy_fields = feishu_elements[1]["fields"]
+        self.assertEqual(
+            [field["is_short"] for field in buy_fields],
+            [True, True, True, False, False, False],
+        )
+        self.assertEqual(buy_fields[0]["text"]["content"], "**成交**\n100 股 × ¥10.123")
+        self.assertEqual(buy_fields[-1]["text"]["content"], "**原因**\n趋势回踩确认")
+
+        dingtalk_payload = calls["dingtalk"]["payload"]
+        self.assertEqual(dingtalk_payload["msgtype"], "markdown")
+        self.assertEqual(dingtalk_payload["markdown"]["title"], "成交信息（2笔）")
+        dingtalk_markdown = dingtalk_payload["markdown"]["text"]
+        self.assertIn("### 成交信息（2笔）", dingtalk_markdown)
+        self.assertIn("**盈亏**　+¥215.50（+9.43%）", dingtalk_markdown)
+        self.assertNotIn("费用", dingtalk_markdown)
+        self.assertNotIn("\n- **", dingtalk_markdown)
+
+        wecom_payload = calls["wecom"]["payload"]
+        self.assertEqual(wecom_payload, {
+            "msgtype": "markdown",
+            "markdown": {"content": dingtalk_markdown},
+        })
+
+        telegram_payload = calls["telegram"]["payload"]
+        self.assertEqual(telegram_payload["parse_mode"], "HTML")
+        self.assertIn("<b>成交信息（2笔）</b>", telegram_payload["text"])
+        self.assertIn("<b>成交</b>　100 股 × ¥10.123", telegram_payload["text"])
+
         feishu_timestamp = str(int(FIXED_TIME))
         feishu_key = f"{feishu_timestamp}\nfeishu-signing-secret".encode()
         expected_feishu_sign = base64.b64encode(
@@ -277,6 +329,31 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(results, [notifications.DeliveryResult("wecom", True, "")])
         self.assertEqual([call["channel"] for call in transport.calls], ["wecom"])
 
+    def test_sell_only_batch_is_sent_to_every_enabled_channel(self):
+        transport = RecordingTransport()
+
+        results = notifications.notify_trade_executions(
+            [sample_trades()[1]],
+            all_channels_env(signed=False),
+            transport=transport,
+        )
+
+        self.assertEqual(
+            [result.channel for result in results],
+            ["feishu", "dingtalk", "wecom", "telegram"],
+        )
+        self.assertTrue(all(result.ok for result in results), results)
+        calls = {call["channel"]: call for call in transport.calls}
+        feishu_json = json.dumps(calls["feishu"]["payload"], ensure_ascii=False)
+        self.assertIn("卖出｜浦发银行（600000）", feishu_json)
+        self.assertIn("+¥215.50（+9.43%）", feishu_json)
+        dingtalk_text = calls["dingtalk"]["payload"]["markdown"]["text"]
+        self.assertIn("卖出｜浦发银行（600000）", dingtalk_text)
+        self.assertIn("**本笔成交仓位**　2.50%", dingtalk_text)
+        self.assertIn("**盈亏**　+¥215.50（+9.43%）", dingtalk_text)
+        self.assertIn("卖出｜浦发银行（600000）", calls["wecom"]["payload"]["markdown"]["content"])
+        self.assertIn("卖出｜浦发银行（600000）", calls["telegram"]["payload"]["text"])
+
     def test_dispatch_to_channel_ignores_switches_and_sends_only_selected_channel_once(self):
         env = all_channels_env()
         env[notifications.GLOBAL_ENABLED_ENV] = "0"
@@ -293,6 +370,11 @@ class NotificationTests(unittest.TestCase):
 
         self.assertEqual(result, notifications.DeliveryResult("dingtalk", True, ""))
         self.assertEqual([call["channel"] for call in transport.calls], ["dingtalk"])
+        self.assertEqual(transport.calls[0]["payload"]["msgtype"], "text")
+        self.assertEqual(
+            transport.calls[0]["payload"]["text"]["content"],
+            "通知测试\n这是一条测试消息",
+        )
 
     def test_dispatch_to_channel_rejects_unknown_channel_without_request(self):
         transport = RecordingTransport()
@@ -532,15 +614,102 @@ class NotificationTests(unittest.TestCase):
         transport = RecordingTransport()
 
         results = notifications.notify_trade_executions(
-            [trade],
+            [trade] * 30,
             single_channel_env("wecom"),
             transport=transport,
         )
 
         self.assertTrue(results[0].ok)
+        self.assertEqual(transport.calls[0]["payload"]["msgtype"], "text")
         text = transport.calls[0]["payload"]["text"]["content"]
         self.assertLessEqual(len(text.encode("utf-8")), notifications.MAX_MESSAGE_BYTES)
         text.encode("utf-8").decode("utf-8")
+
+    def test_rich_trade_content_escapes_provider_markup(self):
+        trade = sample_trades()[0]
+        trade["name"] = "<b>测试</b>"
+        trade["buy_strategy"] = "trend_pullback_*"
+        trade["reason"] = "[伪链接](https://example.invalid) > 非引用"
+        transport = RecordingTransport()
+
+        results = notifications.notify_trade_executions(
+            [trade],
+            all_channels_env(signed=False),
+            transport=transport,
+        )
+
+        self.assertTrue(all(result.ok for result in results), results)
+        calls = {call["channel"]: call for call in transport.calls}
+        feishu_json = json.dumps(calls["feishu"]["payload"], ensure_ascii=False)
+        self.assertIn("&lt;b&gt;测试&lt;/b&gt;", feishu_json)
+        self.assertNotIn("<b>测试</b>", feishu_json)
+        markdown = calls["dingtalk"]["payload"]["markdown"]["text"]
+        self.assertIn("&lt;b&gt;测试&lt;/b&gt;", markdown)
+        self.assertIn(r"trend\_pullback\_\*", markdown)
+        self.assertIn(r"\[伪链接\](https://example.invalid) &gt; 非引用", markdown)
+        telegram_html = calls["telegram"]["payload"]["text"]
+        self.assertIn("&lt;b&gt;测试&lt;/b&gt;", telegram_html)
+        self.assertNotIn("<b>测试</b>", telegram_html)
+
+    def test_only_order_position_above_ten_percent_is_highlighted(self):
+        for order_position_pct, expected_red in ((10.0, False), (10.01, True)):
+            with self.subTest(order_position_pct=order_position_pct):
+                trade = sample_trades()[0]
+                trade["order_position_pct"] = order_position_pct
+                trade["position_after_trade_pct"] = 20.0
+                transport = RecordingTransport()
+
+                results = notifications.notify_trade_executions(
+                    [trade],
+                    single_channel_env("feishu"),
+                    transport=transport,
+                )
+
+                self.assertTrue(results[0].ok)
+                fields = transport.calls[0]["payload"]["card"]["elements"][1]["fields"]
+                order_position_field = next(
+                    field for field in fields
+                    if "本笔成交仓位" in field["text"]["content"]
+                )
+                self.assertFalse(any(
+                    "成交后仓位" in field["text"]["content"]
+                    for field in fields
+                ))
+                content = order_position_field["text"]["content"]
+                if expected_red:
+                    self.assertEqual(
+                        content,
+                        "<font color='red'>**本笔成交仓位**\n10.01%</font>",
+                    )
+                    notification = notifications._trade_notification([trade])
+                    self.assertIn("**本笔成交仓位**　**10.01%**", notification.markdown_text())
+                    self.assertIn("<b>本笔成交仓位　10.01%</b>", notification.html_text())
+                else:
+                    self.assertEqual(content, "**本笔成交仓位**\n10.00%")
+
+    def test_order_position_is_shown_and_highlighted(self):
+        trade = sample_trades()[0]
+        trade["order_position_pct"] = 12.5
+        trade["position_after_trade_pct"] = 20.0
+        transport = RecordingTransport()
+
+        results = notifications.notify_trade_executions(
+            [trade],
+            single_channel_env("feishu"),
+            transport=transport,
+        )
+
+        self.assertTrue(results[0].ok)
+        fields = transport.calls[0]["payload"]["card"]["elements"][1]["fields"]
+        contents = [field["text"]["content"] for field in fields]
+        self.assertIn(
+            "<font color='red'>**本笔成交仓位**\n12.50%</font>",
+            contents,
+        )
+        self.assertFalse(any("成交后仓位" in content for content in contents))
+        notification = notifications._trade_notification([trade])
+        self.assertIn("**本笔成交仓位**　**12.50%**", notification.markdown_text())
+        self.assertNotIn("成交后仓位", notification.markdown_text())
 
     def test_registry_can_extend_dispatch_without_changing_core(self):
         class CustomChannel:
