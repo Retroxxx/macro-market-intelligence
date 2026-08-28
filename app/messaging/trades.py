@@ -57,6 +57,24 @@ def _markdown_text(value: Any) -> str:
     return re.sub(r"([\\`*_\[\]~#])", r"\\\1", text)
 
 
+def _append_card_field(
+    card_fields: list[dict[str, Any]],
+    label: str,
+    value: str,
+    *,
+    short: bool = True,
+    color: str = "",
+) -> None:
+    card_field = {
+        "label": label,
+        "value": value,
+        "short": short,
+    }
+    if color:
+        card_field["color"] = color
+    card_fields.append(card_field)
+
+
 def _append_rich_field(
     plain_lines: list[str],
     markdown_lines: list[str],
@@ -67,6 +85,8 @@ def _append_rich_field(
     *,
     short: bool = True,
     color: str = "",
+    include_card: bool = True,
+    card_label: str = "",
 ) -> None:
     plain_lines.append(f"{label}：{value}")
     markdown_value = _markdown_text(value)
@@ -78,14 +98,14 @@ def _append_rich_field(
     else:
         markdown_lines.append(f"**{label}**　{markdown_value}  ")
         html_lines.append(f"<b>{html_label}</b>　{html_value}")
-    card_field = {
-        "label": label,
-        "value": value,
-        "short": short,
-    }
-    if color:
-        card_field["color"] = color
-    card_fields.append(card_field)
+    if include_card:
+        _append_card_field(
+            card_fields,
+            card_label or label,
+            value,
+            short=short,
+            color=color,
+        )
 
 
 def _trade_notification(trades: Iterable[Mapping[str, Any]]) -> Notification | None:
@@ -131,7 +151,10 @@ def _trade_notification(trades: Iterable[Mapping[str, Any]]) -> Notification | N
             card_fields,
             "成交",
             f"{shares:,} 股 × {_price(trade.get('price'))}",
+            include_card=False,
         )
+        _append_card_field(card_fields, "成交数量", f"{shares:,} 股")
+        _append_card_field(card_fields, "成交价格", _price(trade.get("price")))
         _append_rich_field(
             plain_lines,
             markdown_lines,
@@ -139,6 +162,7 @@ def _trade_notification(trades: Iterable[Mapping[str, Any]]) -> Notification | N
             card_fields,
             "金额",
             _money(trade.get("amount")),
+            card_label="成交金额",
         )
         order_position_pct = trade.get("order_position_pct")
         order_position_number = _finite_float(order_position_pct)
@@ -166,6 +190,8 @@ def _trade_notification(trades: Iterable[Mapping[str, Any]]) -> Notification | N
                     card_fields,
                     "盈亏",
                     pnl_text,
+                    short=False,
+                    card_label="成交盈亏",
                 )
         trade_time = _clean_trade_text(trade.get("time"), 32)
         if trade_time:
@@ -204,7 +230,14 @@ def _trade_notification(trades: Iterable[Mapping[str, Any]]) -> Notification | N
                 reason,
                 short=False,
             )
-        card_sections.append({"title": heading, "fields": tuple(card_fields)})
+        card_sections.append({
+            "title": heading,
+            "sequence": index,
+            "action": action,
+            "name": name,
+            "code": code,
+            "fields": tuple(card_fields),
+        })
 
     count = len(normalized)
     return Notification(

@@ -142,7 +142,24 @@ def _feishu_card_elements(notification: Notification) -> list[dict[str, Any]]:
         raw_fields = section.get("fields")
         if not title or not isinstance(raw_fields, (list, tuple)):
             continue
-        fields: list[dict[str, Any]] = []
+        action = str(section.get("action") or "").strip().upper()
+        name = str(section.get("name") or "").strip()
+        code = str(section.get("code") or "").strip()
+        sequence = str(section.get("sequence") or "").strip()
+        if action in {"BUY", "SELL"} and name and code:
+            direction = "买入" if action == "BUY" else "卖出"
+            direction_color = "red" if action == "BUY" else "green"
+            sequence_prefix = f"{_escape_markdown(sequence)}. " if sequence else ""
+            heading_content = (
+                f"**{sequence_prefix}{_escape_markdown(name)}"
+                f"（{_escape_markdown(code)}）**　"
+                f"<font color='{direction_color}'>{direction}</font>"
+            )
+        else:
+            heading_content = f"**{_escape_markdown(title)}**"
+
+        short_fields: list[dict[str, Any]] = []
+        detail_lines: list[str] = []
         for raw_field in raw_fields:
             if not isinstance(raw_field, Mapping):
                 continue
@@ -150,33 +167,46 @@ def _feishu_card_elements(notification: Notification) -> list[dict[str, Any]]:
             value = str(raw_field.get("value") or "").strip()
             if not label or not value:
                 continue
-            field_content = (
-                f"**{_escape_markdown(label)}**\n"
-                f"{_escape_markdown(value)}"
-            )
-            if raw_field.get("color") == "red":
-                field_content = f"<font color='red'>{field_content}</font>"
-            fields.append({
-                "is_short": bool(raw_field.get("short")),
-                "text": {
-                    "tag": "lark_md",
-                    "content": field_content,
-                },
-            })
-        if not fields:
+            escaped_label = _escape_markdown(label)
+            escaped_value = _escape_markdown(value)
+            field_color = str(raw_field.get("color") or "").strip()
+            if bool(raw_field.get("short")):
+                field_content = f"**{escaped_label}**\n{escaped_value}"
+                if field_color in {"red", "green"}:
+                    field_content = f"<font color='{field_color}'>{field_content}</font>"
+                short_fields.append({
+                    "is_short": True,
+                    "text": {
+                        "tag": "lark_md",
+                        "content": field_content,
+                    },
+                })
+            else:
+                detail_content = f"**{escaped_label}**　{escaped_value}"
+                if field_color in {"red", "green"}:
+                    detail_content = f"<font color='{field_color}'>{detail_content}</font>"
+                detail_lines.append(detail_content)
+        if not short_fields and not detail_lines:
             continue
         if rendered_sections:
             elements.append({"tag": "hr"})
-        elements.extend((
-            {
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": heading_content,
+            },
+        })
+        if short_fields:
+            elements.append({"tag": "div", "fields": short_fields})
+        if detail_lines:
+            elements.append({
                 "tag": "div",
                 "text": {
                     "tag": "lark_md",
-                    "content": f"**{_escape_markdown(title)}**",
+                    "content": "\n".join(detail_lines),
                 },
-            },
-            {"tag": "div", "fields": fields},
-        ))
+            })
         rendered_sections += 1
     return elements if rendered_sections else []
 

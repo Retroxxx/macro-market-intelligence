@@ -205,19 +205,27 @@ class NotificationTests(unittest.TestCase):
         feishu_elements = feishu_payload["card"]["elements"]
         self.assertEqual(
             [element["tag"] for element in feishu_elements],
-            ["div", "div", "hr", "div", "div"],
+            ["div", "div", "div", "hr", "div", "div", "div"],
         )
         self.assertEqual(
             feishu_elements[0]["text"]["content"],
-            "**1. 买入｜平安银行（000001）**",
+            "**1. 平安银行（000001）**　<font color='red'>买入</font>",
         )
         buy_fields = feishu_elements[1]["fields"]
         self.assertEqual(
             [field["is_short"] for field in buy_fields],
-            [True, True, True, False, False, False],
+            [True, True, True, True],
         )
-        self.assertEqual(buy_fields[0]["text"]["content"], "**成交**\n100 股 × ¥10.123")
-        self.assertEqual(buy_fields[-1]["text"]["content"], "**原因**\n趋势回踩确认")
+        self.assertEqual(buy_fields[0]["text"]["content"], "**成交数量**\n100 股")
+        self.assertEqual(buy_fields[1]["text"]["content"], "**成交价格**\n¥10.123")
+        self.assertEqual(buy_fields[2]["text"]["content"], "**成交金额**\n¥1,012.30")
+        self.assertEqual(buy_fields[3]["text"]["content"], "**本笔成交仓位**\n1.01%")
+        self.assertEqual(
+            feishu_elements[2]["text"]["content"],
+            "**时间**　2026-07-11 10:00:01\n"
+            "**策略**　trend\\_pullback\n"
+            "**原因**　趋势回踩确认",
+        )
 
         dingtalk_payload = calls["dingtalk"]["payload"]
         self.assertEqual(dingtalk_payload["msgtype"], "markdown")
@@ -345,7 +353,8 @@ class NotificationTests(unittest.TestCase):
         self.assertTrue(all(result.ok for result in results), results)
         calls = {call["channel"]: call for call in transport.calls}
         feishu_json = json.dumps(calls["feishu"]["payload"], ensure_ascii=False)
-        self.assertIn("卖出｜浦发银行（600000）", feishu_json)
+        self.assertIn("**1. 浦发银行（600000）**", feishu_json)
+        self.assertIn("<font color='green'>卖出</font>", feishu_json)
         self.assertIn("+¥215.50（+9.43%）", feishu_json)
         dingtalk_text = calls["dingtalk"]["payload"]["markdown"]["text"]
         self.assertIn("卖出｜浦发银行（600000）", dingtalk_text)
