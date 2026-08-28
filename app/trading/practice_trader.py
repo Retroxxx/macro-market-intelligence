@@ -123,6 +123,13 @@ from strategies.exits import (
     niuone_climax_runner_active,
     resolve_niuone_partial_take_profit,
 )
+from strategies.exit_feedback import (
+    EXIT_FEEDBACK_ALGORITHM_VERSION,
+    EXIT_FEEDBACK_DEFAULT_COOLDOWN_SAMPLES,
+    EXIT_FEEDBACK_DEFAULT_MIN_MONTHS,
+    EXIT_FEEDBACK_DEFAULT_MIN_SAMPLES,
+    effective_exit_feedback_parameters,
+)
 from strategies.display import (
     localize_decision_display_fields,
     localize_strategy_text,
@@ -333,6 +340,10 @@ def load_dashboard_env() -> None:
         "DASHBOARD_MIN_CASH_RESERVE_PCT",
         "DASHBOARD_MARKET_GUIDANCE_ENABLED",
         "DASHBOARD_MORNING_MAX_OPEN_POSITIONS",
+        "DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED",
+        "DASHBOARD_EXIT_FEEDBACK_MIN_SAMPLES",
+        "DASHBOARD_EXIT_FEEDBACK_MIN_MONTHS",
+        "DASHBOARD_EXIT_FEEDBACK_COOLDOWN_SAMPLES",
         STOCK_UNIVERSE_ENV,
         STRATEGY_SOURCE_ENV,
         PERSONA_STRATEGY_ENV,
@@ -387,6 +398,66 @@ MARKET_ENV_CACHE: dict[str, Any] = {"ts": 0.0, "bullish": True, "index": "", "em
 MARKET_ENV_TTL_SECONDS = 300  # 5分钟缓存
 MARKET_SENTIMENT_CACHE: dict[str, Any] = {"ts": 0.0, "limit_up_count": 0, "sentiment": "neutral", "detail": ""}
 MARKET_SENTIMENT_TTL = 600  # 10分钟缓存
+
+
+def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(str(os.environ.get(name) or default).strip())
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def exit_feedback_auto_tune_config() -> dict[str, Any]:
+    """Read the existing Dashboard environment with defensive bounds."""
+    return {
+        "enabled": env_bool("DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED", False),
+        "min_samples": _bounded_env_int(
+            "DASHBOARD_EXIT_FEEDBACK_MIN_SAMPLES",
+            EXIT_FEEDBACK_DEFAULT_MIN_SAMPLES,
+            20,
+            500,
+        ),
+        "min_months": _bounded_env_int(
+            "DASHBOARD_EXIT_FEEDBACK_MIN_MONTHS",
+            EXIT_FEEDBACK_DEFAULT_MIN_MONTHS,
+            2,
+            12,
+        ),
+        "cooldown_samples": _bounded_env_int(
+            "DASHBOARD_EXIT_FEEDBACK_COOLDOWN_SAMPLES",
+            EXIT_FEEDBACK_DEFAULT_COOLDOWN_SAMPLES,
+            5,
+            100,
+        ),
+    }
+
+
+def current_exit_feedback_policy(state: Mapping[str, Any]) -> dict[str, Any]:
+    raw = state.get("exit_feedback_policy")
+    if not isinstance(raw, Mapping):
+        summary = state.get("post_exit_observation_summary")
+        raw = summary.get("feedback_policy") if isinstance(summary, Mapping) else {}
+    policy = dict(raw) if isinstance(raw, Mapping) else {}
+    policy["enabled"] = bool(
+        exit_feedback_auto_tune_config()["enabled"]
+        and policy.get("enabled")
+    )
+    policy.setdefault("algorithm_version", EXIT_FEEDBACK_ALGORITHM_VERSION)
+    policy["parameters"] = effective_exit_feedback_parameters(policy)
+    return policy
+
+
+def exit_feedback_trade_audit(state: Mapping[str, Any]) -> dict[str, Any]:
+    policy = current_exit_feedback_policy(state)
+    return {
+        "exit_feedback_enabled": bool(policy.get("enabled")),
+        "exit_feedback_policy_version": int(policy.get("version") or 0),
+        "exit_feedback_algorithm_version": str(
+            policy.get("algorithm_version") or EXIT_FEEDBACK_ALGORITHM_VERSION
+        ),
+        "exit_feedback_parameters": dict(policy.get("parameters") or {}),
+    }
 
 
 def check_market_sentiment() -> dict[str, Any]:
@@ -2265,6 +2336,7 @@ def enrich_portfolio(state: dict[str, Any]) -> dict[str, Any]:
         "post_exit_observation_summary": (
             state.get("post_exit_observation_summary") or {}
         ),
+        "exit_feedback_policy": current_exit_feedback_policy(state),
         "equity_history": state.get("equity_history", [])[-EQUITY_HISTORY_LIMIT:],
         "last_b1_generated_at": state.get("last_b1_generated_at") or "",
         "last_decision_at": state.get("last_decision_at") or "",
@@ -4694,6 +4766,13 @@ def post_exit_reentry_audit(
         watchlist.pop(normalized, None)
         return "", None
 
+    feedback_policy = current_exit_feedback_policy(state)
+    feedback_parameters = effective_exit_feedback_parameters(feedback_policy)
+    required_volume_ratio = float(feedback_parameters["reentry_volume_ratio"])
+    required_amount_percentile = float(
+        feedback_parameters["reentry_amount_percentile"]
+    )
+
     reclaim_level = max(
         _safe_float(watch.get("exit_high"), 0.0),
         _safe_float(watch.get("exit_bbi"), 0.0),
@@ -4709,7 +4788,10 @@ def post_exit_reentry_audit(
         _safe_float(candidate.get("stock_market_amount_percentile"), 0.0),
         _safe_float(candidate.get("amount_percentile"), 0.0),
     )
-    volume_supportive = volume_ratio >= 1.0 or amount_percentile >= 60.0
+    volume_supportive = (
+        volume_ratio >= required_volume_ratio
+        or amount_percentile >= required_amount_percentile
+    )
     theme_state = str(candidate.get("mainline_state") or "").strip().lower()
     watched_theme = str(
         watch.get("active_theme") or watch.get("entry_theme") or ""
@@ -4727,6 +4809,9 @@ def post_exit_reentry_audit(
         "execution_price": round(float(price), 4),
         "volume_ratio": round(volume_ratio, 4),
         "amount_percentile": round(amount_percentile, 4),
+        "required_volume_ratio": required_volume_ratio,
+        "required_amount_percentile": required_amount_percentile,
+        "exit_feedback_policy_version": int(feedback_policy.get("version") or 0),
         "theme_matches": theme_matches,
         "eligible": bool(
             price > reclaim_level > 0
@@ -6244,9 +6329,21 @@ def _resolve_staged_soft_exit(
     *,
     session_key: str,
     evidence_count: int = 1,
-    confirmations_required: int = SOFT_EXIT_CONFIRMATIONS,
+    confirmations_required: int | None = None,
 ) -> dict[str, Any] | None:
     """Apply the common score-veto/reduce/confirm policy to a soft exit."""
+    feedback_confirmations = int(
+        pos.get("exit_feedback_soft_exit_confirmations")
+        or SOFT_EXIT_CONFIRMATIONS
+    )
+    resolved_confirmations = max(
+        feedback_confirmations,
+        int(confirmations_required or feedback_confirmations),
+    )
+    feedback_reduce_ratio = float(
+        pos.get("exit_feedback_soft_exit_reduce_ratio")
+        or SOFT_EXIT_REDUCE_RATIO
+    )
     source_signal = str(candidate.get("signal") or "soft_exit")
     reason = str(candidate.get("reason") or "软退出条件成立")
     decision = arbitrate_staged_soft_exit(
@@ -6269,8 +6366,8 @@ def _resolve_staged_soft_exit(
             else None
         ),
         evidence_count=evidence_count,
-        confirmations_required=confirmations_required,
-        reduce_ratio=SOFT_EXIT_REDUCE_RATIO,
+        confirmations_required=resolved_confirmations,
+        reduce_ratio=feedback_reduce_ratio,
     )
     status = str(decision.get("status") or "runner_hold")
     count = int(decision.get("count") or 0)
@@ -6294,6 +6391,13 @@ def _resolve_staged_soft_exit(
     result["soft_exit_confirmations_required"] = required
     result["source_signal"] = source_signal
     result["exit_rule"] = classify_exit_rule(reason, source_signal)
+    result["exit_feedback_policy_version"] = int(
+        pos.get("exit_feedback_policy_version") or 0
+    )
+    result["exit_feedback_parameters"] = {
+        "soft_exit_confirmations": resolved_confirmations,
+        "soft_exit_reduce_ratio": feedback_reduce_ratio,
+    }
     if status == "reduce":
         result["reason"] = (
             f"软退出首次确认，先减仓{result['sell_ratio'] * 100:g}%保留观察仓；"
@@ -6314,6 +6418,7 @@ def evaluate_sell_signal(
     time_stop_allowed: bool | None = None,
     soft_exit_allowed: bool = True,
     soft_exit_confirmation_key: str = "",
+    exit_feedback_policy: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Evaluate the local sell rule stack for one open position.
 
@@ -6322,6 +6427,16 @@ def evaluate_sell_signal(
     tracking fields such as peak price and consecutive BBI-break days.
     """
     today = today or today_key()
+    feedback_parameters = effective_exit_feedback_parameters(exit_feedback_policy)
+    pos["exit_feedback_policy_version"] = int(
+        (exit_feedback_policy or {}).get("version") or 0
+    )
+    pos["exit_feedback_soft_exit_confirmations"] = int(
+        feedback_parameters["soft_exit_confirmations"]
+    )
+    pos["exit_feedback_soft_exit_reduce_ratio"] = float(
+        feedback_parameters["soft_exit_reduce_ratio"]
+    )
     entry_strategy = position_entry_strategy(pos)
     zettaranc_position = is_zettaranc_strategy(entry_strategy)
     shaofu_position = entry_strategy == "shaofu_b1"
@@ -7647,6 +7762,7 @@ def check_auto_exits(
     b3_exit_allowed = is_b3_exit_check_time(check_dt)
     soft_exit_allowed = is_shaofu_soft_exit_check_time(check_dt)
     soft_exit_confirmation_key = check_dt.strftime("%Y-%m-%d %H:%M")
+    feedback_policy = current_exit_feedback_policy(state)
     executed = []
     cash = float(state.get("cash") or 0)
     
@@ -7674,6 +7790,7 @@ def check_auto_exits(
             b3_exit_allowed=b3_exit_allowed,
             soft_exit_allowed=soft_exit_allowed,
             soft_exit_confirmation_key=soft_exit_confirmation_key,
+            exit_feedback_policy=feedback_policy,
         )
         if not exit_signal:
             continue
@@ -7877,6 +7994,7 @@ def check_auto_exits(
             "reason": exit_reason,
             "post_exit_reentry_watch_created": post_exit_watch_created,
         }
+        executed_trade.update(exit_feedback_trade_audit(state))
         for key in (
             "soft_exit_stage",
             "soft_exit_confirmation_count",
@@ -8857,6 +8975,14 @@ def call_model_decision(
     market_strategy_ctx: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     base_url, api_key = load_decision_model_config()
+    prompt_feedback_parameters = effective_exit_feedback_parameters(
+        portfolio.get("exit_feedback_policy")
+        if isinstance(portfolio.get("exit_feedback_policy"), Mapping)
+        else None
+    )
+    prompt_replacement_margin = float(
+        prompt_feedback_parameters["replacement_priority_margin"]
+    )
     market_env = check_market_environment()
     market_sent = check_market_sentiment()
     market_strategy_ctx = market_strategy_ctx or current_market_strategy_context()
@@ -9138,7 +9264,7 @@ def call_model_decision(
 牛牛组合容量与换仓纪律：
 - 牛牛新开仓不设上午/下午、单轮或单日数量限制，但账户最多同时持有{NIUONE_MAX_OPEN_POSITIONS}只；单笔、组合、主题风险预算、总仓和T+1继续硬执行。
 - 未满{NIUONE_MAX_OPEN_POSITIONS}只时，符合条件且风险预算允许的候选可直接BUY；候选超过剩余槽位时按组合优先级从高到低选择。
-- 满仓时必须比较当前账户JSON中每只牛牛持仓的niuone_priority与新候选组合优先级。只有新候选至少高出{NIUONE_REPLACEMENT_PRIORITY_MARGIN:g}分且最低优先级持仓全部可卖，才输出整仓SELL与新股BUY；SELL的intent写REPLACE、replacement_target_code写新股代码，BUY的intent写REPLACE、replacement_source_code写被卖持仓代码。差值不足、T+1不可卖、证据不足时HOLD，不为提高资金利用率强行换仓。
+- 满仓时必须比较当前账户JSON中每只牛牛持仓的niuone_priority与新候选组合优先级。只有新候选至少高出{prompt_replacement_margin:g}分且最低优先级持仓全部可卖，才输出整仓SELL与新股BUY；SELL的intent写REPLACE、replacement_target_code写新股代码，BUY的intent写REPLACE、replacement_source_code写被卖持仓代码。差值不足、T+1不可卖、证据不足时HOLD，不为提高资金利用率强行换仓。
 - 换仓reason必须同时写明新旧股票代码、两者优先级、比较依据和交易成本/失效风险；系统会再次校验并强制按先SELL后BUY执行。
 
 {preset_output_requirements}
@@ -9446,6 +9572,11 @@ def prepare_niuone_portfolio_actions(
     execution_date: str | None = None,
 ) -> list[dict[str, Any]]:
     """Enforce configured NiuOne capacity and strict priority upgrades."""
+    feedback_policy = current_exit_feedback_policy(state)
+    feedback_parameters = effective_exit_feedback_parameters(feedback_policy)
+    required_replacement_margin = float(
+        feedback_parameters["replacement_priority_margin"]
+    )
     positions = state.get("positions") or {}
     candidate_by_code = {
         normalize_code(item.get("code") or ""): item
@@ -9577,13 +9708,14 @@ def prepare_niuone_portfolio_actions(
             holding,
             incoming_strategy=incoming_strategy,
             holding_strategy=holding_strategy,
+            minimum_margin=required_replacement_margin,
         ):
             buy_action["action"] = "HOLD"
             buy_action["intent"] = "HOLD_PRIORITY"
             buy_action["reason"] = (
                 f"牛牛候选{incoming_code}优先级{incoming_priority['score']}仅高出"
                 f"最低持仓{holding_code} {replacement_priority_margin:g}分，未达到"
-                f"换仓滞回门槛{NIUONE_REPLACEMENT_PRIORITY_MARGIN:g}分，不换仓"
+                f"换仓滞回门槛{required_replacement_margin:g}分，不换仓"
             )
             add_execution_block(
                 decision,
@@ -9607,7 +9739,8 @@ def prepare_niuone_portfolio_actions(
             "niuone_priority_before": holding_priority,
             "niuone_priority_after": incoming_priority,
             "replacement_priority_margin": replacement_priority_margin,
-            "replacement_priority_margin_required": NIUONE_REPLACEMENT_PRIORITY_MARGIN,
+            "replacement_priority_margin_required": required_replacement_margin,
+            "exit_feedback_policy_version": int(feedback_policy.get("version") or 0),
             "reason": (
                 f"牛牛组合换仓：新候选{incoming_code}优先级"
                 f"{incoming_priority['score']}高于持仓{holding_code}优先级"
@@ -9621,7 +9754,8 @@ def prepare_niuone_portfolio_actions(
             "niuone_priority_before": holding_priority,
             "niuone_priority_after": incoming_priority,
             "replacement_priority_margin": replacement_priority_margin,
-            "replacement_priority_margin_required": NIUONE_REPLACEMENT_PRIORITY_MARGIN,
+            "replacement_priority_margin_required": required_replacement_margin,
+            "exit_feedback_policy_version": int(feedback_policy.get("version") or 0),
         })
         replacement_sells.append(sell_action)
         replacement_plan.append({
@@ -9630,7 +9764,8 @@ def prepare_niuone_portfolio_actions(
             "holding_priority": holding_priority,
             "incoming_priority": incoming_priority,
             "priority_margin": replacement_priority_margin,
-            "priority_margin_required": NIUONE_REPLACEMENT_PRIORITY_MARGIN,
+            "priority_margin_required": required_replacement_margin,
+            "exit_feedback_policy_version": int(feedback_policy.get("version") or 0),
         })
 
     # Replacement SELLs emitted by the model but not selected by the audited
@@ -11597,6 +11732,7 @@ def execute_actions(
                 "buy_strategy": buy_strategy,
                 "strategy_mark": entry_mark,
             }
+            executed_trade.update(exit_feedback_trade_audit(state))
             for key in (
                 "model_requested_shares",
                 "maximum_permitted_shares",
@@ -11726,6 +11862,17 @@ def execute_actions(
                 and not any(token in reason for token in hard_exit_tokens)
             )
             if model_soft_exit:
+                feedback_policy = current_exit_feedback_policy(state)
+                feedback_parameters = effective_exit_feedback_parameters(feedback_policy)
+                pos["exit_feedback_policy_version"] = int(
+                    feedback_policy.get("version") or 0
+                )
+                pos["exit_feedback_soft_exit_confirmations"] = int(
+                    feedback_parameters["soft_exit_confirmations"]
+                )
+                pos["exit_feedback_soft_exit_reduce_ratio"] = float(
+                    feedback_parameters["soft_exit_reduce_ratio"]
+                )
                 staged = _resolve_staged_soft_exit(
                     pos,
                     _sell_signal(reason, "model_soft_exit"),
@@ -11905,6 +12052,7 @@ def execute_actions(
                 "strategy_mark": entry_mark, "exit_strategy_mark": exit_mark,
                 "post_exit_reentry_watch_created": post_exit_watch_created,
             }
+            executed_trade.update(exit_feedback_trade_audit(state))
             for key in (
                 "sell_execution_evidence_schema_version",
                 "sell_execution_source",
@@ -12893,7 +13041,7 @@ def build_trade_rule_note() -> str:
         f"板块潮汐另行按市场状态硬执行单笔/组合/行业动态风险预算、总仓45%/30%/15%、行业敞口12%/10%/6%；"
         f"单票8%/6%/4%仅为绝对天花板。"
         f"牛牛战法按主线酝酿→主升→高潮→分歧→退幕识别，试仓只参与酝酿候选和启动早段，酝酿候选中的强势股等待启动确认；主升围绕启动/领涨，高潮不追普遍新仓，分歧只观察核心股调整后转强或减仓，持续回落不触发买点，退幕只退出。"
-        f"新开仓不设上午/下午、单轮或单日数量上限，盘面总结/评价不改变开仓数量，最多同时持有{NIUONE_MAX_OPEN_POSITIONS}只；满仓只在新候选优先级至少高出可卖出的最低优先级牛牛持仓{NIUONE_REPLACEMENT_PRIORITY_MARGIN:g}分时先卖后买，并硬执行单笔/组合/主题风险预算；总仓70%/55%/35%、主题敞口55%/40%/25%，"
+        f"新开仓不设上午/下午、单轮或单日数量上限，盘面总结/评价不改变开仓数量，最多同时持有{NIUONE_MAX_OPEN_POSITIONS}只；满仓换仓默认至少需要{NIUONE_REPLACEMENT_PRIORITY_MARGIN:g}分优势，自动反馈启用时只可在3～5分审计网格内调整，并硬执行单笔/组合/主题风险预算；总仓70%/55%/35%、主题敞口55%/40%/25%，"
         f"领涨/转强/启动/试仓单票绝对上限30%/25%/15%/10%，试仓单笔风险为0.35%/1.00%/0.25%。"
         f"同股同战法再次BUY只在评分严格刷新持仓期实际买入最高分时加仓；试仓当日禁加、亏损不补，成熟路径仍须主升强领涨且浮盈2%～12%。"
         f"允许无明确主线；单只股票独强不得确认主线，日线V型结构则按独立试仓路径评估。"
@@ -12929,8 +13077,16 @@ def snapshot_closing_equity_once() -> dict[str, Any]:
     try:
         from trading.post_exit_observations import refresh_post_exit_observations
 
+        feedback_config = exit_feedback_auto_tune_config()
         state["post_exit_observation_summary"] = refresh_post_exit_observations(
             now=now,
+            auto_tune_enabled=bool(feedback_config["enabled"]),
+            auto_tune_min_samples=int(feedback_config["min_samples"]),
+            auto_tune_min_months=int(feedback_config["min_months"]),
+            auto_tune_cooldown_samples=int(feedback_config["cooldown_samples"]),
+        )
+        state["exit_feedback_policy"] = dict(
+            state["post_exit_observation_summary"].get("feedback_policy") or {}
         )
     except Exception as exc:
         state["post_exit_observation_summary"] = {

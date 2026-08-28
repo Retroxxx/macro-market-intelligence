@@ -17,6 +17,30 @@ const emit = defineEmits(['manual-cycle', 'market-summary', 'resume'])
 
 const pnl = computed(() => Number(props.practice.total_pnl || 0))
 const exitReview = computed(() => props.practice.post_exit_observation_summary || {})
+const feedbackPolicy = computed(() => (
+  props.practice.exit_feedback_policy
+  || exitReview.value.feedback_policy
+  || {}
+))
+const feedbackStatusLabel = computed(() => ({
+  active: '已生效',
+  learning: '样本积累中',
+  cooldown: '冷却观察中',
+  disabled: '未启用',
+}[feedbackPolicy.value.status] || feedbackPolicy.value.status || '学习中'))
+const feedbackActionLabel = computed(() => {
+  const action = String(feedbackPolicy.value.action || '')
+  if (action.startsWith('reduce_sell_fly:')) return '降低卖飞（单档）'
+  if (action.startsWith('restore_defense:')) return '恢复防守（单档）'
+  return {
+    sample_gate: '等待样本门',
+    cooldown: '等待新增样本',
+    automatic_rollback: '自动回退上一版',
+    raise_replacement_margin: '提高换仓门槛',
+    lower_replacement_margin: '降低换仓门槛',
+    hold: '保持参数',
+  }[action] || action
+})
 const manualRunning = computed(() => props.manualCycle.running === true)
 const deploymentBlocked = computed(() => (
   props.dataReadiness?.blockers?.includes('runtime_storage_not_writable') === true
@@ -133,7 +157,7 @@ const manualButtonText = computed(() => {
       <div class="inline-field"><div class="inline-label">累计收益</div><div class="inline-value" :class="pnl >= 0 ? 'up' : 'down'">{{ formatPracticeAmount(practice.total_pnl) }} / {{ formatPracticeNumber(practice.total_pnl_pct) }}%</div></div>
     </div>
     <div
-      v-if="exitReview.completed_5d_count || exitReview.error"
+      v-if="exitReview.completed_5d_count || exitReview.error || feedbackPolicy.status"
       class="practice-exit-review"
       role="status"
     >
@@ -144,6 +168,13 @@ const manualButtonText = computed(() => {
         <span>避免续亏 {{ exitReview.avoided_loss_5d_count || 0 }}</span>
         <span>换仓后悔 {{ exitReview.replacement_regret_5d_count || 0 }}</span>
         <span v-if="exitReview.avg_close_return_5d_pct != null">原票均值 {{ formatPracticeNumber(exitReview.avg_close_return_5d_pct) }}%</span>
+        <span>自动调参 {{ feedbackPolicy.enabled ? `v${feedbackPolicy.version || 0} · ${feedbackStatusLabel}` : '未启用' }}</span>
+        <span v-if="feedbackPolicy.enabled && feedbackPolicy.action">本轮 {{ feedbackActionLabel }}</span>
+        <span v-if="feedbackPolicy.enabled && feedbackPolicy.parameters">
+          软退出 {{ feedbackPolicy.parameters.soft_exit_confirmations }} 次 / {{ formatPracticeNumber(Number(feedbackPolicy.parameters.soft_exit_reduce_ratio || 0) * 100, 0) }}%，
+          换仓差 {{ formatPracticeNumber(feedbackPolicy.parameters.replacement_priority_margin, 1) }} 分
+        </span>
+        <span v-if="feedbackPolicy.reason">{{ feedbackPolicy.reason }}</span>
       </template>
       <span v-else>盘后复盘暂不可用（{{ exitReview.error }}）</span>
     </div>

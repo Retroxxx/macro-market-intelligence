@@ -5137,6 +5137,39 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertEqual(confirmed["soft_exit_stage"], "exit")
         self.assertEqual(confirmed["sell_ratio"], 1.0)
 
+    def test_active_feedback_policy_changes_only_staged_soft_exit_parameters(self):
+        pos = {
+            "qty": 1000,
+            "avg_cost": 10.0,
+            "last_price": 9.9,
+            "max_pnl_pct": 0.2,
+            "sell_score": 2,
+            "buy_date_lots": {"2026-06-19": 1000},
+        }
+        policy = {
+            "enabled": True,
+            "version": 4,
+            "parameters": {
+                "soft_exit_confirmations": 3,
+                "soft_exit_reduce_ratio": 0.25,
+                "replacement_priority_margin": 4.0,
+                "reentry_volume_ratio": 0.9,
+                "reentry_amount_percentile": 55.0,
+            },
+        }
+
+        signal = trader.evaluate_sell_signal(
+            "600000",
+            pos,
+            "2026-06-24",
+            exit_feedback_policy=policy,
+        )
+
+        self.assertEqual(signal["soft_exit_stage"], "reduce")
+        self.assertEqual(signal["sell_ratio"], 0.25)
+        self.assertEqual(signal["soft_exit_confirmations_required"], 3)
+        self.assertEqual(signal["exit_feedback_policy_version"], 4)
+
     def test_soft_exit_reduction_does_not_masquerade_as_profit_taking(self):
         state = {
             "cash": 0.0,
@@ -5258,6 +5291,55 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertFalse(blocked_audit["eligible"])
         self.assertEqual(allowed, "")
         self.assertTrue(allowed_audit["eligible"])
+
+    def test_feedback_policy_can_lower_reentry_volume_gate_one_bounded_step(self):
+        original = trader.os.environ.get("DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED")
+        trader.os.environ["DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED"] = "1"
+        try:
+            state = {
+                "exit_feedback_policy": {
+                    "enabled": True,
+                    "version": 5,
+                    "parameters": {
+                        "soft_exit_confirmations": 3,
+                        "soft_exit_reduce_ratio": 0.25,
+                        "replacement_priority_margin": 4.0,
+                        "reentry_volume_ratio": 0.9,
+                        "reentry_amount_percentile": 55.0,
+                    },
+                },
+                "post_exit_reentry_watch": {
+                    "600000": {
+                        "exit_date": "2026-06-23",
+                        "exit_price": 10.0,
+                        "exit_high": 10.4,
+                        "exit_bbi": 10.2,
+                        "active_theme": "机器人",
+                        "expires_after_sessions": 5,
+                    }
+                },
+            }
+            blocker, audit = trader.post_exit_reentry_audit(
+                state,
+                "600000",
+                {
+                    "signal_theme": "机器人",
+                    "mainline_state": "mainline",
+                    "volume_ratio": 0.95,
+                },
+                price=10.5,
+                today="2026-06-24",
+            )
+        finally:
+            if original is None:
+                trader.os.environ.pop("DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED", None)
+            else:
+                trader.os.environ["DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED"] = original
+
+        self.assertEqual(blocker, "")
+        self.assertTrue(audit["eligible"])
+        self.assertEqual(audit["required_volume_ratio"], 0.9)
+        self.assertEqual(audit["exit_feedback_policy_version"], 5)
 
     def test_luzhu_signal_reduces_half(self):
         pos = {

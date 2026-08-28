@@ -213,6 +213,7 @@ def init_db():
         replacement_return_pct REAL,
         replacement_regret_pct REAL,
         replacement_regret INTEGER,
+        feedback_policy_version INTEGER NOT NULL DEFAULT 0,
         sell_fly_threshold_pct REAL,
         sell_fly INTEGER,
         avoided_loss INTEGER,
@@ -220,6 +221,27 @@ def init_db():
         quality_status TEXT NOT NULL DEFAULT '',
         updated_at TEXT NOT NULL,
         PRIMARY KEY(trade_key, horizon)
+    );
+
+    CREATE TABLE IF NOT EXISTS exit_feedback_policies (
+        version INTEGER PRIMARY KEY AUTOINCREMENT,
+        algorithm_version TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        effective_date TEXT NOT NULL DEFAULT '',
+        active INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'active',
+        action TEXT NOT NULL DEFAULT '',
+        reason TEXT NOT NULL DEFAULT '',
+        observation_count INTEGER NOT NULL DEFAULT 0,
+        new_observation_count INTEGER NOT NULL DEFAULT 0,
+        observation_span_months INTEGER NOT NULL DEFAULT 0,
+        source_fingerprint TEXT NOT NULL UNIQUE,
+        parameters_json TEXT NOT NULL,
+        metrics_json TEXT NOT NULL DEFAULT '{}',
+        baseline_metrics_json TEXT NOT NULL DEFAULT '{}',
+        previous_parameters_json TEXT NOT NULL DEFAULT '{}',
+        previous_version INTEGER,
+        rollback_of INTEGER
     );
     
     CREATE INDEX IF NOT EXISTS idx_trades_time ON trades(time);
@@ -234,6 +256,8 @@ def init_db():
         ON post_exit_observations(code, sell_time);
     CREATE INDEX IF NOT EXISTS idx_post_exit_horizon_completed
         ON post_exit_observations(horizon, completed);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_exit_feedback_active
+        ON exit_feedback_policies(active) WHERE active=1;
     CREATE TRIGGER IF NOT EXISTS account_history_no_update
         BEFORE UPDATE ON account_history
         BEGIN
@@ -318,6 +342,7 @@ def _ensure_post_exit_observation_columns(conn: sqlite3.Connection) -> None:
     }
     for name, definition in {
         "replacement_regret": "INTEGER",
+        "feedback_policy_version": "INTEGER NOT NULL DEFAULT 0",
         "sell_fly_threshold_pct": "REAL",
     }.items():
         if name not in columns:
@@ -694,7 +719,8 @@ def upsert_post_exit_observations(rows: list[dict[str, Any]]) -> int:
         "close_return_pct", "mfe_pct", "mae_pct", "benchmark_return_pct",
         "excess_return_pct", "replacement_return_pct",
         "replacement_regret_pct", "replacement_regret",
-        "sell_fly_threshold_pct", "sell_fly", "avoided_loss", "completed",
+        "feedback_policy_version", "sell_fly_threshold_pct", "sell_fly",
+        "avoided_loss", "completed",
         "quality_status", "updated_at",
     )
     placeholders = ",".join("?" for _ in columns)
@@ -703,7 +729,15 @@ def upsert_post_exit_observations(rows: list[dict[str, Any]]) -> int:
         for column in columns
         if column not in {"trade_key", "horizon"}
     )
-    values = [tuple(row.get(column) for column in columns) for row in rows]
+    values = [
+        tuple(
+            int(row.get(column) or 0)
+            if column == "feedback_policy_version"
+            else row.get(column)
+            for column in columns
+        )
+        for row in rows
+    ]
     conn = _connect()
     try:
         conn.executemany(
@@ -716,6 +750,150 @@ def upsert_post_exit_observations(rows: list[dict[str, Any]]) -> int:
     finally:
         conn.close()
     return len(values)
+
+
+def query_exit_feedback_tuning_observations() -> list[dict[str, Any]]:
+    """Return completed five-session aggregates used by the local tuner."""
+    conn = _connect()
+    try:
+        columns = (
+            "trade_key", "sell_time", "exit_rule", "exit_signal",
+            "replacement_target_code", "close_return_pct",
+            "mae_pct", "replacement_regret_pct", "replacement_regret",
+            "sell_fly", "avoided_loss", "completed",
+            "feedback_policy_version",
+        )
+        rows = conn.execute(
+            f"SELECT {','.join(columns)} FROM post_exit_observations "
+            "WHERE horizon=5 AND completed=1 ORDER BY sell_time, trade_key"
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(zip(columns, row)) for row in rows]
+
+
+def _decode_exit_feedback_policy(row: sqlite3.Row | tuple[Any, ...] | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    columns = (
+        "version", "algorithm_version", "created_at", "effective_date",
+        "active", "status", "action", "reason", "observation_count",
+        "new_observation_count", "observation_span_months",
+        "source_fingerprint", "parameters_json", "metrics_json",
+        "baseline_metrics_json", "previous_parameters_json",
+        "previous_version", "rollback_of",
+    )
+    payload = dict(zip(columns, row))
+    for source, target in (
+        ("parameters_json", "parameters"),
+        ("metrics_json", "metrics"),
+        ("baseline_metrics_json", "baseline_metrics"),
+        ("previous_parameters_json", "previous_parameters"),
+    ):
+        try:
+            decoded = json.loads(str(payload.pop(source) or "{}"))
+        except (TypeError, ValueError):
+            decoded = {}
+        payload[target] = decoded if isinstance(decoded, dict) else {}
+    payload["active"] = bool(payload.get("active"))
+    return payload
+
+
+def query_active_exit_feedback_policy() -> dict[str, Any] | None:
+    """Read the one active version without exposing individual trade rows."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT version,algorithm_version,created_at,effective_date,active,"
+            "status,action,reason,observation_count,new_observation_count,"
+            "observation_span_months,source_fingerprint,parameters_json,"
+            "metrics_json,baseline_metrics_json,previous_parameters_json,"
+            "previous_version,rollback_of FROM exit_feedback_policies "
+            "WHERE active=1 ORDER BY version DESC LIMIT 1"
+        ).fetchone()
+    finally:
+        conn.close()
+    return _decode_exit_feedback_policy(row)
+
+
+def record_exit_feedback_policy(policy: Mapping[str, Any]) -> dict[str, Any]:
+    """Atomically activate one idempotent, immutable feedback-policy version."""
+    fingerprint = str(policy.get("source_fingerprint") or "").strip()
+    if not fingerprint:
+        raise ValueError("exit feedback policy requires source_fingerprint")
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT version,algorithm_version,created_at,effective_date,active,"
+            "status,action,reason,observation_count,new_observation_count,"
+            "observation_span_months,source_fingerprint,parameters_json,"
+            "metrics_json,baseline_metrics_json,previous_parameters_json,"
+            "previous_version,rollback_of FROM exit_feedback_policies "
+            "WHERE source_fingerprint=? LIMIT 1",
+            (fingerprint,),
+        ).fetchone()
+        if existing is not None:
+            conn.commit()
+            decoded = _decode_exit_feedback_policy(existing)
+            if decoded is None:  # pragma: no cover - row was just fetched
+                raise RuntimeError("failed to decode exit feedback policy")
+            return decoded
+        active = conn.execute(
+            "SELECT version FROM exit_feedback_policies WHERE active=1 LIMIT 1"
+        ).fetchone()
+        previous_version = (
+            int(policy.get("previous_version") or 0)
+            or (int(active[0]) if active is not None else None)
+        )
+        conn.execute("UPDATE exit_feedback_policies SET active=0 WHERE active=1")
+        cursor = conn.execute(
+            "INSERT INTO exit_feedback_policies ("
+            "algorithm_version,created_at,effective_date,active,status,action,"
+            "reason,observation_count,new_observation_count,"
+            "observation_span_months,source_fingerprint,parameters_json,"
+            "metrics_json,baseline_metrics_json,previous_parameters_json,"
+            "previous_version,rollback_of) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                str(policy.get("algorithm_version") or ""),
+                str(policy.get("created_at") or ""),
+                str(policy.get("effective_date") or ""),
+                1,
+                str(policy.get("status") or "active"),
+                str(policy.get("action") or ""),
+                str(policy.get("reason") or ""),
+                int(policy.get("observation_count") or 0),
+                int(policy.get("new_observation_count") or 0),
+                int(policy.get("observation_span_months") or 0),
+                fingerprint,
+                _canonical_payload(policy.get("parameters") or {}),
+                _canonical_payload(policy.get("metrics") or {}),
+                _canonical_payload(policy.get("baseline_metrics") or {}),
+                _canonical_payload(policy.get("previous_parameters") or {}),
+                previous_version,
+                int(policy.get("rollback_of") or 0) or None,
+            ),
+        )
+        version = int(cursor.lastrowid)
+        row = conn.execute(
+            "SELECT version,algorithm_version,created_at,effective_date,active,"
+            "status,action,reason,observation_count,new_observation_count,"
+            "observation_span_months,source_fingerprint,parameters_json,"
+            "metrics_json,baseline_metrics_json,previous_parameters_json,"
+            "previous_version,rollback_of FROM exit_feedback_policies "
+            "WHERE version=?",
+            (version,),
+        ).fetchone()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    decoded = _decode_exit_feedback_policy(row)
+    if decoded is None:  # pragma: no cover - inserted row must exist
+        raise RuntimeError("failed to persist exit feedback policy")
+    return decoded
 
 
 def query_post_exit_observation_summary() -> dict[str, Any]:

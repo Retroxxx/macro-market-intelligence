@@ -47,6 +47,7 @@ class PostExitObservationTests(unittest.TestCase):
             "position_fully_closed": True,
             "replacement_target_code": "000001",
             "entry_atr20": 0.4,
+            "exit_feedback_policy_version": 7,
         }
         stock = bars(
             10.0,
@@ -80,6 +81,7 @@ class PostExitObservationTests(unittest.TestCase):
         self.assertEqual(five_day["replacement_regret_pct"], 15.0)
         self.assertEqual(five_day["replacement_regret"], 1)
         self.assertEqual(five_day["sell_fly_threshold_pct"], 5.0)
+        self.assertEqual(five_day["feedback_policy_version"], 7)
 
     def test_missing_sell_date_bar_is_persistable_as_pending(self):
         rows = build_post_exit_observations(
@@ -147,6 +149,52 @@ class PostExitObservationTests(unittest.TestCase):
                 self.assertEqual(summary["completed_5d_count"], 1)
                 self.assertEqual(summary["sell_fly_5d_count"], 1)
                 self.assertEqual(summary["avg_close_return_5d_pct"], 3.5)
+            finally:
+                practice_db.DB_PATH = original_path
+
+    def test_feedback_policy_activation_is_versioned_and_idempotent(self):
+        original_path = practice_db.DB_PATH
+        with tempfile.TemporaryDirectory() as temp_dir:
+            practice_db.DB_PATH = Path(temp_dir) / "practice.db"
+            try:
+                practice_db.init_db()
+                base = {
+                    "algorithm_version": "test-v1",
+                    "created_at": "2026-08-10 15:15:00",
+                    "effective_date": "2026-08-10",
+                    "status": "active",
+                    "action": "hold",
+                    "reason": "test",
+                    "observation_count": 30,
+                    "new_observation_count": 30,
+                    "observation_span_months": 3,
+                    "source_fingerprint": "fingerprint-1",
+                    "parameters": {"soft_exit_confirmations": 2},
+                    "metrics": {},
+                    "baseline_metrics": {},
+                    "previous_parameters": {},
+                }
+                first = practice_db.record_exit_feedback_policy(base)
+                duplicate = practice_db.record_exit_feedback_policy(base)
+                second = practice_db.record_exit_feedback_policy({
+                    **base,
+                    "source_fingerprint": "fingerprint-2",
+                    "parameters": {"soft_exit_confirmations": 3},
+                })
+
+                active = practice_db.query_active_exit_feedback_policy()
+                with sqlite3.connect(practice_db.DB_PATH) as connection:
+                    count = connection.execute(
+                        "SELECT count(*) FROM exit_feedback_policies"
+                    ).fetchone()[0]
+                    active_count = connection.execute(
+                        "SELECT count(*) FROM exit_feedback_policies WHERE active=1"
+                    ).fetchone()[0]
+                self.assertEqual(first["version"], duplicate["version"])
+                self.assertEqual(count, 2)
+                self.assertEqual(active_count, 1)
+                self.assertEqual(active["version"], second["version"])
+                self.assertEqual(active["parameters"]["soft_exit_confirmations"], 3)
             finally:
                 practice_db.DB_PATH = original_path
 

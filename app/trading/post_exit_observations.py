@@ -9,16 +9,40 @@ from typing import Any
 try:
     from app.market_data.tencent_kline_cache import load_kline_series_map
     from app.storage.practice_db import (
+        query_active_exit_feedback_policy,
+        query_exit_feedback_tuning_observations,
         query_post_exit_observation_summary,
         query_post_exit_sell_trades,
+        record_exit_feedback_policy,
         upsert_post_exit_observations,
+    )
+    from app.strategies.exit_feedback import (
+        EXIT_FEEDBACK_ALGORITHM_VERSION,
+        EXIT_FEEDBACK_DEFAULT_COOLDOWN_SAMPLES,
+        EXIT_FEEDBACK_DEFAULT_MIN_MONTHS,
+        EXIT_FEEDBACK_DEFAULT_MIN_SAMPLES,
+        EXIT_FEEDBACK_DEFAULT_PARAMETERS,
+        normalize_exit_feedback_parameters,
+        propose_exit_feedback_policy,
     )
 except ImportError:  # pragma: no cover - legacy top-level import path
     from market_data.tencent_kline_cache import load_kline_series_map
     from storage.practice_db import (
+        query_active_exit_feedback_policy,
+        query_exit_feedback_tuning_observations,
         query_post_exit_observation_summary,
         query_post_exit_sell_trades,
+        record_exit_feedback_policy,
         upsert_post_exit_observations,
+    )
+    from strategies.exit_feedback import (
+        EXIT_FEEDBACK_ALGORITHM_VERSION,
+        EXIT_FEEDBACK_DEFAULT_COOLDOWN_SAMPLES,
+        EXIT_FEEDBACK_DEFAULT_MIN_MONTHS,
+        EXIT_FEEDBACK_DEFAULT_MIN_SAMPLES,
+        EXIT_FEEDBACK_DEFAULT_PARAMETERS,
+        normalize_exit_feedback_parameters,
+        propose_exit_feedback_policy,
     )
 
 
@@ -213,6 +237,9 @@ def build_post_exit_observations(
                     else None
                 ),
                 "replacement_regret": replacement_regret,
+                "feedback_policy_version": int(
+                    _number(trade.get("exit_feedback_policy_version"), 0)
+                ),
                 "sell_fly_threshold_pct": round(atr_threshold_pct, 4),
                 "sell_fly": sell_fly,
                 "avoided_loss": avoided_loss,
@@ -223,10 +250,69 @@ def build_post_exit_observations(
     return observations
 
 
+def refresh_exit_feedback_policy(
+    *,
+    now: datetime,
+    enabled: bool,
+    min_samples: int = EXIT_FEEDBACK_DEFAULT_MIN_SAMPLES,
+    min_months: int = EXIT_FEEDBACK_DEFAULT_MIN_MONTHS,
+    cooldown_samples: int = EXIT_FEEDBACK_DEFAULT_COOLDOWN_SAMPLES,
+) -> dict[str, Any]:
+    """Evaluate and, when eligible, atomically activate one bounded version."""
+    current = query_active_exit_feedback_policy()
+    if not enabled:
+        return {
+            "enabled": False,
+            "status": "disabled",
+            "algorithm_version": EXIT_FEEDBACK_ALGORITHM_VERSION,
+            "version": int((current or {}).get("version") or 0),
+            "parameters": dict(EXIT_FEEDBACK_DEFAULT_PARAMETERS),
+            "reason": "自动调参未启用，交易链路继续使用兼容默认值",
+            "updated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    rows = query_exit_feedback_tuning_observations()
+    proposal = propose_exit_feedback_policy(
+        rows,
+        current,
+        min_samples=min_samples,
+        min_months=min_months,
+        cooldown_samples=cooldown_samples,
+    )
+    if bool(proposal.get("persist")):
+        activated = record_exit_feedback_policy({
+            **proposal,
+            "created_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "effective_date": now.strftime("%Y-%m-%d"),
+            "previous_version": int((current or {}).get("version") or 0) or None,
+        })
+        return {
+            **activated,
+            "enabled": True,
+            "parameters": normalize_exit_feedback_parameters(
+                activated.get("parameters")
+            ),
+            "updated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    parameters = normalize_exit_feedback_parameters(
+        (current or {}).get("parameters")
+    )
+    return {
+        **proposal,
+        "enabled": True,
+        "version": int((current or {}).get("version") or 0),
+        "parameters": parameters,
+        "updated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
 def refresh_post_exit_observations(
     *,
     now: datetime | None = None,
     trade_limit: int = 2000,
+    auto_tune_enabled: bool = False,
+    auto_tune_min_samples: int = EXIT_FEEDBACK_DEFAULT_MIN_SAMPLES,
+    auto_tune_min_months: int = EXIT_FEEDBACK_DEFAULT_MIN_MONTHS,
+    auto_tune_cooldown_samples: int = EXIT_FEEDBACK_DEFAULT_COOLDOWN_SAMPLES,
 ) -> dict[str, Any]:
     """Refresh all maturing horizons from the local daily-bar cache."""
     now = now or datetime.now()
@@ -249,15 +335,24 @@ def refresh_post_exit_observations(
         updated_at=now.strftime("%Y-%m-%d %H:%M:%S"),
     )
     upsert_post_exit_observations(rows)
+    feedback_policy = refresh_exit_feedback_policy(
+        now=now,
+        enabled=auto_tune_enabled,
+        min_samples=auto_tune_min_samples,
+        min_months=auto_tune_min_months,
+        cooldown_samples=auto_tune_cooldown_samples,
+    )
     return {
         **query_post_exit_observation_summary(),
         "tracked_sell_count": len(trades),
         "observation_row_count": len(rows),
+        "feedback_policy": feedback_policy,
     }
 
 
 __all__ = [
     "POST_EXIT_HORIZONS",
     "build_post_exit_observations",
+    "refresh_exit_feedback_policy",
     "refresh_post_exit_observations",
 ]
