@@ -16,6 +16,7 @@ const props = defineProps({
 const emit = defineEmits(['manual-cycle', 'market-summary', 'resume'])
 
 const pnl = computed(() => Number(props.practice.total_pnl || 0))
+const exitReview = computed(() => props.practice.post_exit_observation_summary || {})
 const manualRunning = computed(() => props.manualCycle.running === true)
 const deploymentBlocked = computed(() => (
   props.dataReadiness?.blockers?.includes('runtime_storage_not_writable') === true
@@ -131,6 +132,21 @@ const manualButtonText = computed(() => {
       <div class="inline-field"><div class="inline-label">现金</div><div class="inline-value">{{ formatPracticeAmount(practice.cash) }}</div></div>
       <div class="inline-field"><div class="inline-label">累计收益</div><div class="inline-value" :class="pnl >= 0 ? 'up' : 'down'">{{ formatPracticeAmount(practice.total_pnl) }} / {{ formatPracticeNumber(practice.total_pnl_pct) }}%</div></div>
     </div>
+    <div
+      v-if="exitReview.completed_5d_count || exitReview.error"
+      class="practice-exit-review"
+      role="status"
+    >
+      <strong>卖后 5 日复盘</strong>
+      <template v-if="!exitReview.error">
+        <span>完整样本 {{ exitReview.completed_5d_count || 0 }}</span>
+        <span>卖飞 {{ exitReview.sell_fly_5d_count || 0 }}</span>
+        <span>避免续亏 {{ exitReview.avoided_loss_5d_count || 0 }}</span>
+        <span>换仓后悔 {{ exitReview.replacement_regret_5d_count || 0 }}</span>
+        <span v-if="exitReview.avg_close_return_5d_pct != null">原票均值 {{ formatPracticeNumber(exitReview.avg_close_return_5d_pct) }}%</span>
+      </template>
+      <span v-else>盘后复盘暂不可用（{{ exitReview.error }}）</span>
+    </div>
     <slot name="chart" />
     <PracticePositions
       :positions="practice.positions || []"
@@ -157,6 +173,23 @@ const manualButtonText = computed(() => {
   background: var(--yellow-soft);
   color: var(--yellow-text);
   font-size: 12px;
+}
+
+.practice-exit-review {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.practice-exit-review strong {
+  color: var(--text);
 }
 
 .practice-data-readiness.is-not_ready {

@@ -26,6 +26,9 @@ try:
         NIUONE_REVERSAL_EARLY_PARTIAL_TAKE_PROFIT_RATIO,
         NIUONE_REVERSAL_EARLY_PROTECTION_REGIMES,
         NIUONE_REVERSAL_MAINLINE_WEAK_CONFIRMATIONS,
+        SOFT_EXIT_CONFIRMATIONS,
+        SOFT_EXIT_REDUCE_RATIO,
+        arbitrate_staged_soft_exit,
         evaluate_strategy_time_exit,
         niuone_climax_runner_active,
         resolve_niuone_partial_take_profit,
@@ -87,6 +90,9 @@ except ImportError:  # pragma: no cover - legacy top-level import path
         NIUONE_REVERSAL_EARLY_PARTIAL_TAKE_PROFIT_RATIO,
         NIUONE_REVERSAL_EARLY_PROTECTION_REGIMES,
         NIUONE_REVERSAL_MAINLINE_WEAK_CONFIRMATIONS,
+        SOFT_EXIT_CONFIRMATIONS,
+        SOFT_EXIT_REDUCE_RATIO,
+        arbitrate_staged_soft_exit,
         evaluate_strategy_time_exit,
         niuone_climax_runner_active,
         resolve_niuone_partial_take_profit,
@@ -467,6 +473,67 @@ class NiuOneDailyExitStrategy:
             reversal_early_ratio=self.reversal_early_partial_take_profit_ratio,
         )
 
+    @staticmethod
+    def _staged_soft_exit(
+        position: dict[str, Any],
+        context: SelectionContext,
+        *,
+        signal: str,
+        reason: str,
+        evidence_count: int = 1,
+        confirmations_required: int = SOFT_EXIT_CONFIRMATIONS,
+    ) -> PositionExitSignal | None:
+        decision = arbitrate_staged_soft_exit(
+            signal_family="soft_exit",
+            session_key=context.date,
+            previous_family=str(position.get("soft_exit_pending_family") or ""),
+            previous_session=str(position.get("soft_exit_last_session") or ""),
+            previous_count=max(
+                int(position.get("soft_exit_pending_count") or 0),
+                max(0, int(evidence_count or 0) - 1),
+            ),
+            already_reduced=bool(
+                position.get("soft_exit_reduced")
+                or position.get("soft_exit_reduction_deferred")
+                or position.get("partial_tp_done")
+            ),
+            sell_score=None,
+            evidence_count=evidence_count,
+            confirmations_required=confirmations_required,
+            reduce_ratio=SOFT_EXIT_REDUCE_RATIO,
+        )
+        status = str(decision.get("status") or "runner_hold")
+        count = int(decision.get("count") or 0)
+        required = int(decision.get("required") or SOFT_EXIT_CONFIRMATIONS)
+        position.update({
+            "soft_exit_status": status,
+            "soft_exit_pending_family": "soft_exit",
+            "soft_exit_pending_signal": signal,
+            "soft_exit_pending_reason": reason,
+            "soft_exit_pending_count": count,
+            "soft_exit_required": required,
+            "soft_exit_last_session": context.date,
+        })
+        if status in {"score_veto", "runner_hold"}:
+            return None
+        ratio = float(decision.get("sell_ratio") or 1.0)
+        prefix = (
+            f"软退出首次确认，先减仓{ratio * 100:g}%保留观察仓；"
+            if status == "reduce"
+            else "软退出跨交易日确认，清理观察仓；"
+        )
+        return PositionExitSignal(
+            signal=signal,
+            reason=f"{prefix}{reason}（确认{count}/{required}）",
+            sell_ratio=ratio,
+            metadata={
+                "soft_exit_stage": status,
+                "soft_exit_confirmation_count": count,
+                "soft_exit_confirmations_required": required,
+                "risk_reduction_only": status == "reduce",
+            },
+        )
+
     def _partial_take_profit(
         self,
         position: dict[str, Any],
@@ -792,41 +859,52 @@ class NiuOneDailyExitStrategy:
                     f"状态{theme_state or '-'}）"
                 ),
             )
-        if mature_leader_exit_identity and int(
-            position.get("niu_leader_lost_count") or 0
-        ) >= leader_loss_confirmations:
-            return PositionExitSignal(
+        leader_lost_count = int(position.get("niu_leader_lost_count") or 0)
+        if mature_leader_exit_identity and leader_lost_count >= 1:
+            staged = self._staged_soft_exit(
+                position,
+                context,
                 signal="niu_leader_lost",
                 reason=(
-                    f"连续{leader_loss_confirmations}个交易日跌出强势行业"
+                    f"连续{leader_lost_count}个交易日跌出强势行业"
                     f"龙头梯队（{industry}，当前排名"
                     f"{position.get('stock_leader_rank') or '-'}"
                     f"{'，高潮减仓后余仓' if climax_runner_active else ''}）"
                 ),
+                evidence_count=leader_lost_count,
+                confirmations_required=leader_loss_confirmations,
             )
-        if mature_mainline_exit_identity and (
-            int(position.get("mainline_weak_count") or 0)
-            >= NIUONE_MAINLINE_WEAK_CONFIRMATIONS
-            or theme_state == "inactive"
-        ):
+            if staged is not None:
+                return staged
+        if mature_mainline_exit_identity and theme_state == "inactive":
             return PositionExitSignal(
+                signal="niu_mainline_faded",
+                reason=(
+                    f"主线失活（{industry}分数{theme_score:.1f}）"
+                ),
+            )
+        mainline_weak_count = int(position.get("mainline_weak_count") or 0)
+        if mature_mainline_exit_identity and mainline_weak_count >= 1:
+            staged = self._staged_soft_exit(
+                position,
+                context,
                 signal="niu_mainline_faded",
                 reason=(
                     f"主线连续转弱（{industry}分数{theme_score:.1f}，"
                     f"状态{theme_state or '-'}）"
                 ),
+                evidence_count=mainline_weak_count,
+                confirmations_required=NIUONE_MAINLINE_WEAK_CONFIRMATIONS,
             )
+            if staged is not None:
+                return staged
 
         reversal_weak_required = self.reversal_mainline_weak_confirmations
         if (
             strategy_id == "niu_reversal_probe"
             and not reversal_exit_promoted
             and reversal_weak_required is not None
-            and (
-                int(position.get("mainline_weak_count") or 0)
-                >= reversal_weak_required
-                or theme_state == "inactive"
-            )
+            and theme_state == "inactive"
         ):
             return PositionExitSignal(
                 signal="niu_reversal_theme_failed",
@@ -836,6 +914,25 @@ class NiuOneDailyExitStrategy:
                     f"状态{theme_state or '-'}）"
                 ),
             )
+        if (
+            strategy_id == "niu_reversal_probe"
+            and not reversal_exit_promoted
+            and reversal_weak_required is not None
+            and mainline_weak_count >= 1
+        ):
+            staged = self._staged_soft_exit(
+                position,
+                context,
+                signal="niu_reversal_theme_failed",
+                reason=(
+                    "牛牛试仓所属题材未能维持主线酝酿强度"
+                    f"（{industry}分数{theme_score:.1f}，"
+                    f"状态{theme_state or '-'}）"
+                ),
+                evidence_count=mainline_weak_count,
+            )
+            if staged is not None:
+                return staged
 
         replacement = getattr(
             self,
@@ -856,8 +953,9 @@ class NiuOneDailyExitStrategy:
                 signal="niu_priority_replacement",
                 reason=(
                     f"牛牛组合优先级换仓：候选{incoming_symbol}优先级"
-                    f"{incoming_priority:.4f}严格高于持仓{symbol}优先级"
-                    f"{holding_priority:.4f}"
+                    f"{incoming_priority:.4f}高于持仓{symbol}优先级"
+                    f"{holding_priority:.4f}共"
+                    f"{incoming_priority - holding_priority:.4f}分"
                 ),
                 metadata=dict(replacement),
             )
@@ -961,7 +1059,9 @@ class NiuOneDailyExitStrategy:
             and hold_sessions >= 1
             and peak_drawdown >= peak_drawdown_limit - 1e-9
         ):
-            return PositionExitSignal(
+            staged = self._staged_soft_exit(
+                position,
+                context,
                 signal="niu_reversal_mainline_peak_decay",
                 reason=(
                     "牛牛试仓所属主线从持仓期峰值回落"
@@ -969,6 +1069,8 @@ class NiuOneDailyExitStrategy:
                     f"{peak_drawdown_limit:g}分）"
                 ),
             )
+            if staged is not None:
+                return staged
 
         partial_take_profit = self._partial_take_profit(
             position,
@@ -993,7 +1095,9 @@ class NiuOneDailyExitStrategy:
             and max_pnl_pct < 2.0
             and pnl_pct <= 0.0
         ):
-            return PositionExitSignal(
+            staged = self._staged_soft_exit(
+                position,
+                context,
                 signal="niu_reversal_unconfirmed_failure",
                 reason=(
                     "牛牛试仓未形成跨日主线且价格仍未延续"
@@ -1001,6 +1105,8 @@ class NiuOneDailyExitStrategy:
                     f"现盈亏{pnl_pct:.1f}%）"
                 ),
             )
+            if staged is not None:
+                return staged
         time_exit = evaluate_strategy_time_exit(
             entry_strategy=(
                 "niu_leader"
@@ -1039,10 +1145,11 @@ class NiuOneDailyExitStrategy:
         ):
             time_exit = None
         if time_exit:
-            return PositionExitSignal(
+            return self._staged_soft_exit(
+                position,
+                context,
                 signal=str(time_exit["signal"]),
                 reason=str(time_exit["reason"]),
-                sell_ratio=float(time_exit.get("sell_ratio") or 1.0),
             )
 
         if partial_take_profit is not None:
@@ -1094,6 +1201,17 @@ class NiuOneDailyExitStrategy:
                     f"{NIUONE_MAX_HOLD_CALENDAR_DAYS}天）"
                 ),
             )
+        if str(position.get("soft_exit_last_session") or "") != context.date:
+            position["soft_exit_status"] = "clear"
+            for key in (
+                "soft_exit_pending_family",
+                "soft_exit_pending_signal",
+                "soft_exit_pending_reason",
+                "soft_exit_pending_count",
+                "soft_exit_required",
+                "soft_exit_last_session",
+            ):
+                position.pop(key, None)
         return None
 
     def on_exit_filled(
@@ -1104,6 +1222,9 @@ class NiuOneDailyExitStrategy:
         context: SelectionContext,
     ) -> None:
         """Arm exactly one re-entry only after a wave trim actually fills."""
+        if decision.metadata.get("soft_exit_stage") == "reduce":
+            position["soft_exit_reduced"] = True
+            return
         if decision.signal in {"niu_r_partial", "niu_2r_partial"}:
             fill_price = _number(leg.get("price"), 0.0)
             if fill_price > 0:
@@ -1336,6 +1457,11 @@ class NiuOneStrategyBacktestPolicy(NiuOneDailyExitStrategy):
                 "incoming_strategy_id": incoming_strategy,
                 "holding_priority": holding_priority["score"],
                 "incoming_priority": incoming_priority["score"],
+                "priority_margin": round(
+                    float(incoming_priority["score"])
+                    - float(holding_priority["score"]),
+                    4,
+                ),
                 "signal_date": context.date,
             }
         ordered_signals = sorted(

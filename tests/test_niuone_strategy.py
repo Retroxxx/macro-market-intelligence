@@ -53,7 +53,9 @@ from strategies.niuone_risk import (  # noqa: E402
     NIUONE_MARKUP_UPGRADE_MIN_PNL_PCT,
     NIUONE_MARKUP_UPGRADE_POSITION_CAP_PCT,
     NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY,
+    NIUONE_REPLACEMENT_PRIORITY_MARGIN,
     niuone_chase_limits,
+    niuone_priority_is_higher,
     niuone_risk_budget,
     niuone_structural_stop_limits,
     niuone_structure_risk_ok,
@@ -4369,13 +4371,16 @@ class NiuOneStrategyTests(unittest.TestCase):
             payload("2026-07-16", {"role": "core", "leader_rank": 4, "leader_tier": False, "strong": True}),
         )
         self.assertEqual(state["positions"]["600000"]["niu_leader_lost_count"], 1)
-        no_exit = trader.evaluate_sell_signal(
+        first_reduction = trader.evaluate_sell_signal(
             "600000",
             state["positions"]["600000"],
             "2026-07-16",
             time_exit_allowed=False,
         )
-        self.assertIsNone(no_exit)
+        self.assertEqual(first_reduction["signal"], "niu_leader_lost")
+        self.assertEqual(first_reduction["soft_exit_stage"], "reduce")
+        self.assertEqual(first_reduction["sell_ratio"], 0.5)
+        state["positions"]["600000"]["soft_exit_reduced"] = True
 
         trader.sync_niuone_position_context(
             state,
@@ -4821,7 +4826,7 @@ class NiuOneStrategyTests(unittest.TestCase):
         self.assertIsNone(monday)
         self.assertEqual(tuesday["signal"], "niu_emerging_unconfirmed")
 
-    def test_reversal_probe_exits_on_t1_without_confirmation_and_t2_if_not_upgraded(self):
+    def test_reversal_probe_observes_t1_and_reduces_on_unconfirmed_t2(self):
         pos = {
             "qty": 100,
             "avg_cost": 10.0,
@@ -4841,7 +4846,7 @@ class NiuOneStrategyTests(unittest.TestCase):
             "2026-07-27",
             time_exit_allowed=True,
         )
-        self.assertEqual(monday["signal"], "niu_reversal_unconfirmed")
+        self.assertIsNone(monday)
 
         pos["mainline_cross_day_persistent"] = True
         confirmed_monday = trader.evaluate_sell_signal(
@@ -4852,6 +4857,15 @@ class NiuOneStrategyTests(unittest.TestCase):
         )
         self.assertIsNone(confirmed_monday)
 
+        confirmed_tuesday = trader.evaluate_sell_signal(
+            "600000",
+            pos,
+            "2026-07-28",
+            time_exit_allowed=True,
+        )
+        self.assertIsNone(confirmed_tuesday)
+
+        pos.pop("mainline_cross_day_persistent", None)
         tuesday = trader.evaluate_sell_signal(
             "600000",
             pos,
@@ -4859,6 +4873,8 @@ class NiuOneStrategyTests(unittest.TestCase):
             time_exit_allowed=True,
         )
         self.assertEqual(tuesday["signal"], "niu_reversal_not_upgraded")
+        self.assertEqual(tuesday["soft_exit_stage"], "reduce")
+        self.assertEqual(tuesday["sell_ratio"], 0.5)
 
     def test_daily_v_reversal_uses_three_day_no_progress_exit(self):
         pos = {
@@ -5026,11 +5042,35 @@ class NiuOneStrategyTests(unittest.TestCase):
         self.assertEqual(actions[0]["action"], "HOLD")
         self.assertEqual(actions[0]["intent"], "HOLD_PRIORITY")
         self.assertEqual(decision["niuone_replacement_plan"], [])
-        self.assertIn("未严格高于", actions[0]["reason"])
+        self.assertIn("未达到换仓滞回门槛", actions[0]["reason"])
         self.assertEqual(
             decision["execution_blocks"][0]["category"],
             "portfolio_priority",
         )
+
+    def test_niuone_replacement_requires_material_priority_margin(self):
+        holding = {
+            "strategy_id": "niu_emerging",
+            "score": 7.0,
+            "mainline_score": 60,
+            "mainline_state": "emerging",
+        }
+        immaterial = {**holding, "score": 8.0}
+        material = {**holding, "score": 8.5}
+
+        self.assertEqual(NIUONE_REPLACEMENT_PRIORITY_MARGIN, 3.0)
+        self.assertFalse(niuone_priority_is_higher(
+            immaterial,
+            holding,
+            incoming_strategy="niu_emerging",
+            holding_strategy="niu_emerging",
+        ))
+        self.assertTrue(niuone_priority_is_higher(
+            material,
+            holding,
+            incoming_strategy="niu_emerging",
+            holding_strategy="niu_emerging",
+        ))
 
     def test_niuone_full_book_logs_buyable_candidate_without_model_buy(self):
         positions = {

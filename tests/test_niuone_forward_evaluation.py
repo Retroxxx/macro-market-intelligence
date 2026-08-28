@@ -419,7 +419,7 @@ def operating_settings(*times: str) -> dict[str, str]:
 
 class NiuOneForwardEvaluationTests(unittest.TestCase):
     def test_protocol_identity_covers_evidence_pipeline_and_effective_paths(self):
-        self.assertEqual(DEFAULT_COHORT_START, "2026-08-27")
+        self.assertEqual(DEFAULT_COHORT_START, "2026-08-28")
         expected_sources = {
             "app/automation/cron.py",
             "app/automation/scheduler_service.py",
@@ -430,6 +430,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
             "app/screening/holding_cycle.py",
             "app/trading/niuone_forward.py",
             "app/trading/niuone_forward_service.py",
+            "app/trading/post_exit_observations.py",
             "app/trading/practice_trader.py",
         }
         self.assertTrue(expected_sources.issubset(PROTOCOL_SOURCE_PATHS))
@@ -538,6 +539,22 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
         self.assertEqual(
             identity["protocol"]["priority_replacement_rule"],
             protocol["priority_replacement_rule"],
+        )
+        self.assertEqual(
+            identity["protocol"]["priority_replacement_minimum_margin"],
+            3.0,
+        )
+        self.assertEqual(
+            identity["protocol"]["staged_soft_exit_confirmations"],
+            2,
+        )
+        self.assertEqual(
+            identity["protocol"]["staged_soft_exit_reduce_ratio"],
+            0.5,
+        )
+        self.assertEqual(
+            identity["protocol"]["staged_soft_exit_score_veto_threshold"],
+            4,
         )
         self.assertEqual(
             identity["protocol"]
@@ -909,7 +926,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
 
         self.assertEqual(first_code, 0)
         self.assertEqual(first_report["protocol_integrity"]["status"], "frozen")
-        self.assertEqual(first_report["protocol_integrity"]["source_file_count"], 23)
+        self.assertEqual(first_report["protocol_integrity"]["source_file_count"], 24)
         self.assertEqual(first_report["protocol_integrity"]["runtime_setting_count"], 53)
         self.assertEqual(
             first_report["evidence_gate"]["status"],
@@ -2715,7 +2732,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
 
         self.assertEqual(report["overall"]["completed_trade_count"], 1)
         self.assertEqual(report["coverage"]["duplicate_trade_count"], 2)
-        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v42")
+        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v43")
         self.assertEqual(
             report["protocol"][
                 "niuone_markup_upgrade_absolute_position_cap_pct"

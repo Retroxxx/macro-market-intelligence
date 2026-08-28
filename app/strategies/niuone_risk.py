@@ -41,6 +41,9 @@ NIUONE_LIFECYCLE_PRIORITY_ADJUSTMENT = {
     "brewing": 0.0,
     "fade": -20.0,
 }
+# Replacing a whole holding has friction and timing risk.  A tiny floating
+# point edge is not enough evidence to rotate the book.
+NIUONE_REPLACEMENT_PRIORITY_MARGIN = 3.0
 NIUONE_ENTRY_REGIMES = frozenset({
     "offensive",
     "rotation",
@@ -388,8 +391,9 @@ def niuone_priority_is_higher(
     *,
     incoming_strategy: str | None = None,
     holding_strategy: str | None = None,
+    minimum_margin: float = NIUONE_REPLACEMENT_PRIORITY_MARGIN,
 ) -> bool:
-    """Return true only for a strict, non-tied portfolio priority upgrade."""
+    """Return true only for a material, non-tied portfolio priority upgrade."""
     incoming_priority = niuone_portfolio_priority(
         incoming,
         incoming_strategy,
@@ -398,7 +402,9 @@ def niuone_priority_is_higher(
         holding,
         holding_strategy,
     )["score"]
-    return float(incoming_priority) > float(holding_priority) + 1e-9
+    return float(incoming_priority) >= (
+        float(holding_priority) + max(0.0, float(minimum_margin))
+    )
 
 
 def niuone_risk_budget(

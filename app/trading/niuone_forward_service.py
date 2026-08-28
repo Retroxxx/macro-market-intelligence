@@ -74,6 +74,7 @@ PROTOCOL_SOURCE_PATHS = (
     "app/trading/fees.py",
     "app/trading/niuone_forward.py",
     "app/trading/niuone_forward_service.py",
+    "app/trading/post_exit_observations.py",
     "app/trading/practice_trader.py",
 )
 PROTOCOL_RUNTIME_SETTING_DEFAULTS = {
@@ -566,6 +567,13 @@ def _build_protocol_identity(
             "daily_new_position_limit_rule",
             "maximum_open_niuone_positions",
             "priority_replacement_rule",
+            "priority_replacement_minimum_margin",
+            "staged_soft_exit_rule",
+            "staged_soft_exit_confirmations",
+            "staged_soft_exit_reduce_ratio",
+            "staged_soft_exit_score_veto_threshold",
+            "post_exit_observation_rule",
+            "post_exit_reentry_rule",
             "niuone_reversal_minimum_recovery_ratio_inclusive",
             "niuone_reversal_maximum_recovery_ratio_exclusive",
             "niuone_reversal_recovery_rule",

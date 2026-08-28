@@ -7,6 +7,9 @@ from typing import Any
 
 SHAOFU_MIN_HOLD_TRADING_DAYS = 3
 SHAOFU_SOFT_EXIT_CONFIRMATIONS = 2
+SOFT_EXIT_CONFIRMATIONS = 2
+SOFT_EXIT_REDUCE_RATIO = 0.50
+SOFT_EXIT_SCORE_VETO_THRESHOLD = 4
 NIUONE_MAX_HOLD_CALENDAR_DAYS = 25
 NIUONE_LEADER_LOSS_CONFIRMATIONS = 2
 NIUONE_MAINLINE_WEAK_CONFIRMATIONS = 2
@@ -126,6 +129,76 @@ def evaluate_shaofu_soft_exit(
     return {"status": "confirmed", "allow_reduce": True, "count": count, "required": required}
 
 
+def arbitrate_staged_soft_exit(
+    *,
+    signal_family: str,
+    session_key: str,
+    previous_family: str,
+    previous_session: str,
+    previous_count: int,
+    already_reduced: bool,
+    sell_score: float | None,
+    evidence_count: int = 1,
+    confirmations_required: int = SOFT_EXIT_CONFIRMATIONS,
+    reduce_ratio: float = SOFT_EXIT_REDUCE_RATIO,
+) -> dict[str, Any]:
+    """Resolve a non-structural exit without allowing a one-shot full sale.
+
+    A distinct trading session is one confirmation.  The first actionable
+    confirmation releases risk while preserving a runner; a full exit is only
+    available after the runner has already been reduced and the same soft
+    family persists on another session.  A strong 4-5 sell-fly score vetoes
+    the first session, but does not erase the evidence or block later risk
+    reduction.  Structural and market hard stops never call this arbiter.
+    """
+    family = str(signal_family or "soft_exit").strip() or "soft_exit"
+    session = str(session_key or "").strip()
+    prior_family = str(previous_family or "").strip()
+    prior_session = str(previous_session or "").strip()
+    count = max(0, int(previous_count or 0)) if family == prior_family else 0
+    if session and (family != prior_family or session != prior_session):
+        count += 1
+    count = max(count, max(1, int(evidence_count or 1)))
+
+    required = max(2, int(confirmations_required or 2))
+    score = float(sell_score) if isinstance(sell_score, (int, float)) else None
+    if score is not None and score >= SOFT_EXIT_SCORE_VETO_THRESHOLD and count < required:
+        return {
+            "status": "score_veto",
+            "count": count,
+            "required": required,
+            "sell_ratio": 0.0,
+            "signal_family": family,
+            "session_key": session,
+        }
+    if not already_reduced:
+        return {
+            "status": "reduce",
+            "count": count,
+            "required": required,
+            "sell_ratio": max(0.0, min(0.75, float(reduce_ratio))),
+            "signal_family": family,
+            "session_key": session,
+        }
+    if count >= required:
+        return {
+            "status": "exit",
+            "count": count,
+            "required": required,
+            "sell_ratio": 1.0,
+            "signal_family": family,
+            "session_key": session,
+        }
+    return {
+        "status": "runner_hold",
+        "count": count,
+        "required": required,
+        "sell_ratio": 0.0,
+        "signal_family": family,
+        "session_key": session,
+    }
+
+
 def evaluate_strategy_time_exit(
     *,
     entry_strategy: str,
@@ -187,20 +260,11 @@ def evaluate_strategy_time_exit(
             entry_strategy == "niu_reversal_probe"
             and strategy_variant != "daily_v"
             and hold_days >= 2
+            and not strategy_confirmation_met
         ):
             return _sell_signal(
                 f"牛牛试仓T+2仍未升级 ({hold_days}d，最高盈利{max_pnl_pct:.1f}%，现盈亏{pnl_pct:.1f}%)",
                 "niu_reversal_not_upgraded",
-            )
-        if (
-            entry_strategy == "niu_reversal_probe"
-            and strategy_variant != "daily_v"
-            and hold_days >= 1
-            and not strategy_confirmation_met
-        ):
-            return _sell_signal(
-                f"牛牛试仓T+1未形成跨日延续 ({hold_days}d，最高盈利{max_pnl_pct:.1f}%，现盈亏{pnl_pct:.1f}%)",
-                "niu_reversal_unconfirmed",
             )
         if entry_strategy == "niu_emerging" and hold_days >= 2 and max_pnl_pct < 1.5 and pnl_pct <= 0.5:
             return _sell_signal(

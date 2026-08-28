@@ -1634,7 +1634,8 @@ def _run_trade_lifecycle_backtest(
                 - exit_fee
             )
             if position["remaining_units"] > 1e-8:
-                position["partial_tp_done"] = True
+                if not decision.metadata.get("risk_reduction_only"):
+                    position["partial_tp_done"] = True
                 trade["mark_net_return_pct"] = _trade_mark_to_market(
                     position,
                     current_bar.close,
@@ -2354,6 +2355,14 @@ def _run_strategy_portfolio_backtest(
                 position["deferred_exit_signal"] = decision.signal
                 position["deferred_exit_reason"] = decision.reason
                 continue
+            board_lot = int(getattr(strategy, "board_lot", 100))
+            if (
+                decision.metadata.get("risk_reduction_only")
+                and available_units < 2 * board_lot
+            ):
+                position["soft_exit_reduction_deferred"] = True
+                position["soft_exit_status"] = "board_lot_runner_hold"
+                continue
             exit_price = _fill_price(
                 current_bar,
                 entry=False,
@@ -2364,10 +2373,10 @@ def _run_strategy_portfolio_backtest(
                 exit_units = available_units
             else:
                 exit_units = max(
-                    int(getattr(strategy, "board_lot", 100)),
+                    board_lot,
                     int(available_units * decision.sell_ratio)
-                    // int(getattr(strategy, "board_lot", 100))
-                    * int(getattr(strategy, "board_lot", 100)),
+                    // board_lot
+                    * board_lot,
                 )
                 exit_units = min(available_units, exit_units)
             exit_amount = exit_price * exit_units
@@ -2403,7 +2412,10 @@ def _run_strategy_portfolio_backtest(
                         "portfolio strategy failed while recording filled "
                         f"exit for {symbol}: {exc}"
                     ) from exc
-            if decision.sell_ratio < 1.0 - 1e-12:
+            if (
+                decision.sell_ratio < 1.0 - 1e-12
+                and not decision.metadata.get("risk_reduction_only")
+            ):
                 position["partial_tp_done"] = True
             if int(position["remaining_units"]) > 0:
                 trade["mark_net_return_pct"] = _trade_mark_to_market(

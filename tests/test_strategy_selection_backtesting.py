@@ -1827,11 +1827,14 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
                     "atr20": 0.5,
                 }
 
-        self.assertIsNone(policy.on_close(
+        decision = policy.on_close(
             position,
             context,
             DivergenceSelector(),
-        ))
+        )
+        self.assertEqual(decision.signal, "niu_leader_lost")
+        self.assertEqual(decision.sell_ratio, 0.5)
+        self.assertEqual(decision.metadata["soft_exit_stage"], "reduce")
         self.assertEqual(position["niuone_lifecycle_stage"], "divergence")
 
     def test_niuone_reversal_strong_leader_can_promote_only_exit_identity(self):
@@ -1907,9 +1910,10 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
                     "atr20": 0.5,
                 }
 
-        self.assertIsNone(
-            policy.on_close(position, fading_context, FadingSelector())
-        )
+        first_fade = policy.on_close(position, fading_context, FadingSelector())
+        self.assertEqual(first_fade.sell_ratio, 0.5)
+        self.assertEqual(first_fade.metadata["soft_exit_stage"], "reduce")
+        position["soft_exit_reduced"] = True
         second_fading_context = selection_module.SelectionContext(
             date="2026-01-12",
             session_index=5,
@@ -1993,13 +1997,14 @@ class StrategySelectionBacktestingTests(unittest.TestCase):
                     "atr20": 0.5,
                 }
 
-        self.assertIsNone(
-            policy.on_close(
+        first_fade = policy.on_close(
                 position,
                 context("2026-01-09", 4),
                 FadingSelector(),
             )
-        )
+        self.assertEqual(first_fade.sell_ratio, 0.5)
+        self.assertEqual(first_fade.metadata["soft_exit_stage"], "reduce")
+        position["soft_exit_reduced"] = True
         self.assertEqual(position["niu_leader_lost_count"], 0)
         decision = policy.on_close(
             position,

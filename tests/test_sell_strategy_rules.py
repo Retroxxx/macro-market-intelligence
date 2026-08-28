@@ -1444,6 +1444,90 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertEqual(fill["sell_execution_evidence_schema_version"], 2)
         self.assertFalse(fill["position_fully_closed"])
 
+    def test_execute_actions_stages_niuone_model_soft_sell_across_sessions(self):
+        original_execution_time = trader.is_a_share_execution_time
+        original_quote = trader.execution_quote
+        try:
+            trader.is_a_share_execution_time = lambda dt=None: (
+                True,
+                "连续竞价交易时段",
+            )
+            trader.execution_quote = lambda code: {
+                "price": 10.0,
+                "name": "牛牛测试股",
+                "source": "test",
+            }
+            state = {
+                "cash": 0.0,
+                "positions": {
+                    "600000": {
+                        "code": "600000",
+                        "name": "牛牛测试股",
+                        "qty": 1000,
+                        "avg_cost": 9.0,
+                        "last_price": 10.0,
+                        "sell_score": 3,
+                        "buy_strategy": "niu_leader",
+                        "entry_theme": "算力",
+                        "day_high": 10.3,
+                        "bbi": 9.8,
+                        "buy_date_lots": {"2026-06-19": 1000},
+                    }
+                },
+                "trade_log": [],
+            }
+            first_decision = {
+                "actions": [{
+                    "action": "SELL",
+                    "code": "600000",
+                    "shares": 1000,
+                    "reason": "卖出评分转弱，建议降低仓位",
+                }],
+            }
+
+            first = trader.execute_actions(
+                state,
+                first_decision,
+                [],
+                True,
+                "连续竞价交易时段",
+                permissive_market_context(),
+                evaluated_at=datetime(2026, 6, 24, 10, 0),
+            )
+            second_decision = {
+                "actions": [{
+                    "action": "SELL",
+                    "code": "600000",
+                    "shares": 500,
+                    "reason": "卖出评分转弱，建议降低仓位",
+                }],
+            }
+            second = trader.execute_actions(
+                state,
+                second_decision,
+                [],
+                True,
+                "连续竞价交易时段",
+                permissive_market_context(),
+                evaluated_at=datetime(2026, 6, 25, 10, 0),
+            )
+        finally:
+            trader.is_a_share_execution_time = original_execution_time
+            trader.execution_quote = original_quote
+
+        self.assertEqual(first[0]["shares"], 500)
+        self.assertEqual(first[0]["soft_exit_stage"], "reduce")
+        self.assertEqual(first[0]["model_requested_sell_shares"], 1000)
+        self.assertEqual(second[0]["shares"], 500)
+        self.assertEqual(second[0]["soft_exit_stage"], "exit")
+        self.assertTrue(second[0]["position_fully_closed"])
+        self.assertTrue(second[0]["post_exit_reentry_watch_created"])
+        self.assertNotIn("600000", state["positions"])
+        self.assertEqual(
+            state["post_exit_reentry_watch"]["600000"]["exit_high"],
+            10.3,
+        )
+
     def test_execute_actions_keeps_niuone_sell_fail_closed_when_nothing_is_available(self):
         original_execution_time = trader.is_a_share_execution_time
         original_quote = trader.execution_quote
@@ -5030,6 +5114,150 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertIsNotNone(signal)
         self.assertEqual(signal["signal"], "sell_score_reduce")
         self.assertEqual(signal["sell_ratio"], trader.TAKE_PROFIT_PARTIAL_RATIO)
+
+    def test_soft_exit_score_veto_then_reduce_and_confirm_runner_exit(self):
+        pos = {
+            "qty": 1000,
+            "avg_cost": 10.0,
+            "last_price": 9.9,
+            "max_pnl_pct": 0.2,
+            "sell_score": 5,
+            "sell_score_reason": "趋势仍完整",
+            "buy_date_lots": {"2026-06-19": 1000},
+        }
+
+        vetoed = trader.evaluate_sell_signal("600000", pos, "2026-06-24")
+        reduced = trader.evaluate_sell_signal("600000", pos, "2026-06-25")
+        pos["soft_exit_reduced"] = True
+        confirmed = trader.evaluate_sell_signal("600000", pos, "2026-06-26")
+
+        self.assertIsNone(vetoed)
+        self.assertEqual(reduced["soft_exit_stage"], "reduce")
+        self.assertEqual(reduced["sell_ratio"], 0.5)
+        self.assertEqual(confirmed["soft_exit_stage"], "exit")
+        self.assertEqual(confirmed["sell_ratio"], 1.0)
+
+    def test_soft_exit_reduction_does_not_masquerade_as_profit_taking(self):
+        state = {
+            "cash": 0.0,
+            "positions": {
+                "600000": {
+                    "code": "600000",
+                    "name": "测试股",
+                    "qty": 1000,
+                    "avg_cost": 10.0,
+                    "last_price": 9.9,
+                    "max_pnl_pct": 0.2,
+                    "sell_score": 2,
+                    "buy_date_lots": {"2026-06-19": 1000},
+                }
+            },
+            "trade_log": [],
+            "decision_log": [],
+        }
+
+        executed = trader.check_auto_exits(
+            state,
+            datetime(2026, 6, 24, 14, 45),
+        )
+
+        self.assertEqual(len(executed), 1)
+        self.assertEqual(executed[0]["soft_exit_stage"], "reduce")
+        self.assertEqual(executed[0]["position_before_qty"], 1000)
+        self.assertEqual(executed[0]["position_after_qty"], 500)
+        self.assertTrue(state["positions"]["600000"]["soft_exit_reduced"])
+        self.assertNotIn("partial_tp_done", state["positions"]["600000"])
+
+    def test_one_lot_soft_exit_waits_for_confirmation_instead_of_selling_all(self):
+        state = {
+            "cash": 0.0,
+            "positions": {
+                "600000": {
+                    "code": "600000",
+                    "name": "测试股",
+                    "qty": 100,
+                    "avg_cost": 10.0,
+                    "last_price": 9.9,
+                    "max_pnl_pct": 0.2,
+                    "sell_score": 2,
+                    "buy_date_lots": {"2026-06-19": 100},
+                }
+            },
+            "trade_log": [],
+            "decision_log": [],
+        }
+
+        first = trader.check_auto_exits(
+            state,
+            datetime(2026, 6, 24, 14, 45),
+        )
+        second = trader.check_auto_exits(
+            state,
+            datetime(2026, 6, 25, 14, 45),
+        )
+
+        self.assertEqual(first, [])
+        self.assertEqual(len(second), 1)
+        self.assertEqual(second[0]["soft_exit_stage"], "exit")
+        self.assertNotIn("600000", state["positions"])
+        self.assertTrue(second[0]["post_exit_reentry_watch_created"])
+
+    def test_hard_structure_stop_is_not_vetoed_by_high_sell_score(self):
+        signal = trader.evaluate_sell_signal(
+            "600000",
+            {
+                "qty": 1000,
+                "avg_cost": 10.0,
+                "last_price": 9.4,
+                "sell_score": 5,
+                "entry_stop_price": 9.5,
+                "entry_stop_source": "n_structure_low",
+                "buy_date_lots": {"2026-06-19": 1000},
+            },
+            "2026-06-24",
+        )
+
+        self.assertEqual(signal["signal"], "shaofu_entry_stop")
+        self.assertEqual(signal["sell_ratio"], 1.0)
+
+    def test_recent_soft_exit_reentry_requires_reclaim_volume_and_thesis(self):
+        state = {
+            "post_exit_reentry_watch": {
+                "600000": {
+                    "exit_date": "2026-06-23",
+                    "exit_price": 10.0,
+                    "exit_high": 10.4,
+                    "exit_bbi": 10.2,
+                    "active_theme": "机器人",
+                    "expires_after_sessions": 5,
+                }
+            }
+        }
+        candidate = {
+            "signal_theme": "机器人",
+            "mainline_state": "mainline",
+            "volume_ratio": 1.2,
+        }
+
+        blocker, blocked_audit = trader.post_exit_reentry_audit(
+            state,
+            "600000",
+            candidate,
+            price=10.3,
+            today="2026-06-24",
+        )
+        allowed, allowed_audit = trader.post_exit_reentry_audit(
+            state,
+            "600000",
+            candidate,
+            price=10.5,
+            today="2026-06-24",
+        )
+
+        self.assertIn("尚未站回", blocker)
+        self.assertFalse(blocked_audit["eligible"])
+        self.assertEqual(allowed, "")
+        self.assertTrue(allowed_audit["eligible"])
 
     def test_luzhu_signal_reduces_half(self):
         pos = {

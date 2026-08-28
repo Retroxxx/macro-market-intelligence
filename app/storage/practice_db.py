@@ -190,6 +190,37 @@ def init_db():
         archived_at  TEXT NOT NULL,
         UNIQUE(history_kind, event_key)
     );
+
+    CREATE TABLE IF NOT EXISTS post_exit_observations (
+        trade_key TEXT NOT NULL,
+        horizon INTEGER NOT NULL,
+        sell_time TEXT NOT NULL,
+        code TEXT NOT NULL,
+        sell_price REAL NOT NULL,
+        shares INTEGER NOT NULL,
+        full_exit INTEGER NOT NULL,
+        exit_rule TEXT NOT NULL DEFAULT '',
+        exit_signal TEXT NOT NULL DEFAULT '',
+        buy_strategy TEXT NOT NULL DEFAULT '',
+        replacement_target_code TEXT NOT NULL DEFAULT '',
+        sessions_observed INTEGER NOT NULL DEFAULT 0,
+        observation_date TEXT NOT NULL DEFAULT '',
+        close_return_pct REAL,
+        mfe_pct REAL,
+        mae_pct REAL,
+        benchmark_return_pct REAL,
+        excess_return_pct REAL,
+        replacement_return_pct REAL,
+        replacement_regret_pct REAL,
+        replacement_regret INTEGER,
+        sell_fly_threshold_pct REAL,
+        sell_fly INTEGER,
+        avoided_loss INTEGER,
+        completed INTEGER NOT NULL DEFAULT 0,
+        quality_status TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(trade_key, horizon)
+    );
     
     CREATE INDEX IF NOT EXISTS idx_trades_time ON trades(time);
     CREATE INDEX IF NOT EXISTS idx_trades_code ON trades(code);
@@ -199,6 +230,10 @@ def init_db():
         ON account_history(history_kind, event_time, id);
     CREATE INDEX IF NOT EXISTS idx_account_history_kind_logical
         ON account_history(history_kind, logical_key, id);
+    CREATE INDEX IF NOT EXISTS idx_post_exit_code_time
+        ON post_exit_observations(code, sell_time);
+    CREATE INDEX IF NOT EXISTS idx_post_exit_horizon_completed
+        ON post_exit_observations(horizon, completed);
     CREATE TRIGGER IF NOT EXISTS account_history_no_update
         BEFORE UPDATE ON account_history
         BEGIN
@@ -213,6 +248,7 @@ def init_db():
     _ensure_trade_payload_column(conn)
     _ensure_decision_evidence_columns(conn)
     _ensure_daily_equity_evidence_columns(conn)
+    _ensure_post_exit_observation_columns(conn)
     _deduplicate_trades(conn)
     conn.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_unique_event
@@ -270,6 +306,24 @@ def _ensure_daily_equity_evidence_columns(conn: sqlite3.Connection):
             "ALTER TABLE daily_equity ADD COLUMN account_created_at "
             "TEXT NOT NULL DEFAULT ''"
         )
+
+
+def _ensure_post_exit_observation_columns(conn: sqlite3.Connection) -> None:
+    """Extend derived observations without rewriting immutable trade facts."""
+    columns = {
+        str(row[1])
+        for row in conn.execute(
+            "PRAGMA table_info(post_exit_observations)"
+        ).fetchall()
+    }
+    for name, definition in {
+        "replacement_regret": "INTEGER",
+        "sell_fly_threshold_pct": "REAL",
+    }.items():
+        if name not in columns:
+            conn.execute(
+                f"ALTER TABLE post_exit_observations ADD COLUMN {name} {definition}"
+            )
 
 
 def _deduplicate_trades(conn: sqlite3.Connection):
@@ -591,6 +645,104 @@ def record_trade(t: dict) -> bool:
                 pass
         print(f"[niuniu_db] 写入 trade 失败: {type(e).__name__}")
         return False
+
+
+def query_post_exit_sell_trades(limit: int = 2000) -> list[dict[str, Any]]:
+    """Return lossless SELL payloads used to build derived exit observations."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT time, code, name, shares, price, amount, pnl, reason, "
+            "payload_json FROM trades WHERE action='SELL' "
+            "ORDER BY time DESC, id DESC LIMIT ?",
+            (max(1, int(limit)),),
+        ).fetchall()
+    finally:
+        conn.close()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        payload: dict[str, Any] = {}
+        try:
+            decoded = json.loads(str(row[8] or "{}"))
+            if isinstance(decoded, dict):
+                payload = decoded
+        except (TypeError, ValueError):
+            payload = {}
+        result.append({
+            "time": row[0],
+            "action": "SELL",
+            "code": row[1],
+            "name": row[2],
+            "shares": row[3],
+            "price": row[4],
+            "amount": row[5],
+            "pnl": row[6],
+            "reason": row[7],
+            **payload,
+        })
+    return result
+
+
+def upsert_post_exit_observations(rows: list[dict[str, Any]]) -> int:
+    """Idempotently refresh derived observations without changing trade facts."""
+    if not rows:
+        return 0
+    columns = (
+        "trade_key", "horizon", "sell_time", "code", "sell_price", "shares",
+        "full_exit", "exit_rule", "exit_signal", "buy_strategy",
+        "replacement_target_code", "sessions_observed", "observation_date",
+        "close_return_pct", "mfe_pct", "mae_pct", "benchmark_return_pct",
+        "excess_return_pct", "replacement_return_pct",
+        "replacement_regret_pct", "replacement_regret",
+        "sell_fly_threshold_pct", "sell_fly", "avoided_loss", "completed",
+        "quality_status", "updated_at",
+    )
+    placeholders = ",".join("?" for _ in columns)
+    update_clause = ",".join(
+        f"{column}=excluded.{column}"
+        for column in columns
+        if column not in {"trade_key", "horizon"}
+    )
+    values = [tuple(row.get(column) for column in columns) for row in rows]
+    conn = _connect()
+    try:
+        conn.executemany(
+            f"INSERT INTO post_exit_observations ({','.join(columns)}) "
+            f"VALUES ({placeholders}) ON CONFLICT(trade_key, horizon) "
+            f"DO UPDATE SET {update_clause}",
+            values,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return len(values)
+
+
+def query_post_exit_observation_summary() -> dict[str, Any]:
+    """Return aggregate labels only; individual private trades stay in SQLite."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT count(*), sum(CASE WHEN sell_fly=1 THEN 1 ELSE 0 END), "
+            "sum(CASE WHEN avoided_loss=1 THEN 1 ELSE 0 END), "
+            "sum(CASE WHEN replacement_regret=1 THEN 1 ELSE 0 END), "
+            "avg(close_return_pct), avg(mfe_pct), avg(mae_pct), "
+            "avg(replacement_regret_pct), max(updated_at) "
+            "FROM post_exit_observations WHERE horizon=5 AND completed=1"
+        ).fetchone()
+    finally:
+        conn.close()
+    return {
+        "completed_5d_count": int(row[0] or 0),
+        "sell_fly_5d_count": int(row[1] or 0),
+        "avoided_loss_5d_count": int(row[2] or 0),
+        "replacement_regret_5d_count": int(row[3] or 0),
+        "avg_close_return_5d_pct": round(float(row[4]), 4) if row[4] is not None else None,
+        "avg_mfe_5d_pct": round(float(row[5]), 4) if row[5] is not None else None,
+        "avg_mae_5d_pct": round(float(row[6]), 4) if row[6] is not None else None,
+        "avg_replacement_regret_5d_pct": round(float(row[7]), 4) if row[7] is not None else None,
+        "updated_at": str(row[8] or ""),
+    }
 
 
 def record_decision(d: dict) -> bool:

@@ -33,10 +33,14 @@ from app.strategies.niuone_risk import (
     NIUONE_MAX_NEW_POSITIONS_PER_TRADING_DAY,
     NIUONE_MAX_OPEN_POSITIONS,
     NIUONE_REVERSAL_RISK_BUDGETS,
+    NIUONE_REPLACEMENT_PRIORITY_MARGIN,
 )
 from app.strategies.exits import (
     NIUONE_LIFECYCLE_CLIMAX_MIN_PNL_PCT,
     NIUONE_LIFECYCLE_CLIMAX_PARTIAL_RATIO,
+    SOFT_EXIT_CONFIRMATIONS,
+    SOFT_EXIT_REDUCE_RATIO,
+    SOFT_EXIT_SCORE_VETO_THRESHOLD,
 )
 from app.strategies.policy import (
     NIUONE_DAILY_V_MAX_RECOVERY_RATIO,
@@ -49,7 +53,7 @@ from app.strategies.policy import (
 from app.strategies.selection import strategy_daily_candidate_limit
 
 
-DEFAULT_COHORT_START = "2026-08-27"
+DEFAULT_COHORT_START = "2026-08-28"
 DEFAULT_MIN_COMPLETED_TRADES = 30
 DEFAULT_MIN_CALENDAR_MONTHS = 3
 DEFAULT_SHADOW_EXECUTION_GAP_PCT = 1.0
@@ -58,7 +62,7 @@ DEFAULT_HISTORICAL_REFERENCE_WIN_RATE_PCT = 59.71
 DEFAULT_WIN_RATE_CONFIDENCE_LEVEL = 0.95
 DEFAULT_MAX_PORTFOLIO_DRAWDOWN_PCT = 6.0
 DEFAULT_MIN_RETURN_TO_DRAWDOWN_RATIO = 1.0
-FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v42"
+FORWARD_PROTOCOL_VERSION = "niuone-strict-forward-v43"
 FORWARD_PERFORMANCE_CLUSTER_UNIT = "entry_date_x_entry_theme"
 FORWARD_SHADOW_CANDIDATES = {
     "execution_gap": "round13_execution_gap_le_1pct",
@@ -3314,8 +3318,33 @@ def evaluate_niuone_forward(
                 "when the configured maximum-position book is full, a new "
                 "NiuOne candidate may "
                 "replace only a fully T+1-sellable NiuOne holding with a "
-                "strictly lower audited current portfolio priority; execute "
+                f"current audited portfolio priority at least "
+                f"{NIUONE_REPLACEMENT_PRIORITY_MARGIN:g} points lower; execute "
                 "the full SELL before the BUY"
+            ),
+            "priority_replacement_minimum_margin": (
+                NIUONE_REPLACEMENT_PRIORITY_MARGIN
+            ),
+            "staged_soft_exit_rule": (
+                "non-structural no-progress, score, theme/sector weakening, "
+                "and ordinary giveback exits reduce first and close the runner "
+                "only after distinct-session confirmation; score 4-5 vetoes "
+                "the first session; hard structural and market stops bypass it"
+            ),
+            "staged_soft_exit_confirmations": SOFT_EXIT_CONFIRMATIONS,
+            "staged_soft_exit_reduce_ratio": SOFT_EXIT_REDUCE_RATIO,
+            "staged_soft_exit_score_veto_threshold": (
+                SOFT_EXIT_SCORE_VETO_THRESHOLD
+            ),
+            "post_exit_observation_rule": (
+                "durable 1/3/5/10-session forward observations store close, "
+                "MFE, MAE, benchmark excess, and replacement relative return; "
+                "five-session labels define sell-fly and avoided-loss outcomes"
+            ),
+            "post_exit_reentry_rule": (
+                "a fully closed staged soft exit remains on a five-session "
+                "shadow watch; only a full scan may reopen after reclaiming the "
+                "exit high/BBI with volume and the original thesis intact"
             ),
             "niuone_reversal_minimum_recovery_ratio_inclusive": (
                 NIUONE_DAILY_V_MIN_RECOVERY_RATIO
