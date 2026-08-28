@@ -439,11 +439,18 @@ def current_exit_feedback_policy(state: Mapping[str, Any]) -> dict[str, Any]:
         summary = state.get("post_exit_observation_summary")
         raw = summary.get("feedback_policy") if isinstance(summary, Mapping) else {}
     policy = dict(raw) if isinstance(raw, Mapping) else {}
-    policy["enabled"] = bool(
-        exit_feedback_auto_tune_config()["enabled"]
-        and policy.get("enabled")
-    )
+    policy["enabled"] = bool(exit_feedback_auto_tune_config()["enabled"])
+    policy.setdefault("version", 0)
     policy.setdefault("algorithm_version", EXIT_FEEDBACK_ALGORITHM_VERSION)
+    if policy["enabled"]:
+        if str(policy.get("status") or "") in {"", "disabled"}:
+            policy["status"] = "learning"
+            policy["action"] = "awaiting_first_review"
+            policy["reason"] = "等待首次盘后复盘生成有效样本与评估检查点"
+    else:
+        policy["status"] = "disabled"
+        policy["action"] = ""
+        policy["reason"] = "自动调参已在运行配置中关闭"
     policy["parameters"] = effective_exit_feedback_parameters(policy)
     return policy
 

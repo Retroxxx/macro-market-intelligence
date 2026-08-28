@@ -7742,6 +7742,11 @@ process.stdout.write(JSON.stringify({{
         self.assertEqual(item["default"], "1")
         self.assertEqual(item["kind"], "bool")
         self.assertEqual(item["effect"], "next_run")
+        self.assertIn("awaiting_first_review", DASHBOARD_FRONTEND)
+        self.assertNotIn(
+            "v-if=\"exitReview.completed_5d_count || exitReview.error || feedbackPolicy.status\"",
+            DASHBOARD_FRONTEND,
+        )
 
     def test_about_group_saves_auto_version_check_and_updates_bootstrap(self):
         name = 'DASHBOARD_AUTO_VERSION_CHECK_ENABLED'

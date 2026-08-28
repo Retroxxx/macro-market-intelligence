@@ -5356,6 +5356,40 @@ class SellStrategyRuleTests(unittest.TestCase):
             else:
                 trader.os.environ[name] = original
 
+    def test_feedback_policy_is_observable_before_first_post_close_review(self):
+        name = "DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED"
+        original = trader.os.environ.pop(name, None)
+        try:
+            policy = trader.current_exit_feedback_policy({
+                "exit_feedback_policy": {"enabled": False},
+            })
+
+            self.assertTrue(policy["enabled"])
+            self.assertEqual(policy["version"], 0)
+            self.assertEqual(policy["status"], "learning")
+            self.assertEqual(policy["action"], "awaiting_first_review")
+            self.assertIn("首次盘后复盘", policy["reason"])
+
+            trader.os.environ[name] = "0"
+            disabled = trader.current_exit_feedback_policy({
+                "exit_feedback_policy": {
+                    "enabled": True,
+                    "status": "active",
+                    "parameters": {"soft_exit_confirmations": 3},
+                },
+            })
+            self.assertFalse(disabled["enabled"])
+            self.assertEqual(disabled["status"], "disabled")
+            self.assertEqual(
+                disabled["parameters"],
+                trader.effective_exit_feedback_parameters({"enabled": False}),
+            )
+        finally:
+            if original is None:
+                trader.os.environ.pop(name, None)
+            else:
+                trader.os.environ[name] = original
+
     def test_stale_json_policy_reconciles_from_active_sqlite_version(self):
         original_env = trader.os.environ.get(
             "DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED"

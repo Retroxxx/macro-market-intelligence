@@ -37,6 +37,7 @@ const feedbackActionLabel = computed(() => {
   if (action.startsWith('tighten_reentry:')) return '提高再入门槛（单档）'
   return {
     sample_gate: '等待样本门',
+    awaiting_first_review: '等待首次盘后复盘',
     cooldown: '等待新增样本',
     automatic_rollback: '自动回退上一版',
     algorithm_upgrade: '升级反馈基线',
@@ -160,11 +161,7 @@ const manualButtonText = computed(() => {
       <div class="inline-field"><div class="inline-label">现金</div><div class="inline-value">{{ formatPracticeAmount(practice.cash) }}</div></div>
       <div class="inline-field"><div class="inline-label">累计收益</div><div class="inline-value" :class="pnl >= 0 ? 'up' : 'down'">{{ formatPracticeAmount(practice.total_pnl) }} / {{ formatPracticeNumber(practice.total_pnl_pct) }}%</div></div>
     </div>
-    <div
-      v-if="exitReview.completed_5d_count || exitReview.error || feedbackPolicy.status"
-      class="practice-exit-review"
-      role="status"
-    >
+    <div class="practice-exit-review" role="status">
       <strong>卖后 5 日复盘</strong>
       <template v-if="!exitReview.error">
         <span>完整样本 {{ exitReview.completed_5d_count || 0 }}</span>
