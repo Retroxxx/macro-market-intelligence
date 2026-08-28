@@ -489,7 +489,7 @@ def refresh_post_exit_observations(
     *,
     now: datetime | None = None,
     trade_limit: int = 2000,
-    auto_tune_enabled: bool = False,
+    auto_tune_enabled: bool = True,
     auto_tune_min_samples: int = EXIT_FEEDBACK_DEFAULT_MIN_SAMPLES,
     auto_tune_min_months: int = EXIT_FEEDBACK_DEFAULT_MIN_MONTHS,
     auto_tune_cooldown_samples: int = EXIT_FEEDBACK_DEFAULT_COOLDOWN_SAMPLES,

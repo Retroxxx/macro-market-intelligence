@@ -251,7 +251,7 @@ By default, runtime data is stored in:
 | `DASHBOARD_NIUONE_EQUITY_SNAPSHOT_CRON` | `15 15 * * 1-5` | Refresh marks without trading and persist account equity after each actual A-share session |
 | `DASHBOARD_NIUONE_FORWARD_CRON` | `20 15 * * 1-5` | Recompute the NiuOne strict-forward report from the durable fill ledger after each Monday-through-Friday session; applies on the next Cron cycle |
 | `DASHBOARD_NIUONE_FORWARD_COHORT_START` | `2026-08-31` | Strict-forward cohort start; archive the old protocol lock and restart from a new trading day after a rule change |
-| `DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED` | `0` | Enable bounded five-session post-exit tuning on the next post-close review |
+| `DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED` | `1` | Enable bounded five-session post-exit tuning by default; set `0` to disable it on the next post-close review |
 | `DASHBOARD_EXIT_FEEDBACK_MIN_SAMPLES` | `30` | Required independent valid five-session clusters, from 20 through 500 |
 | `DASHBOARD_EXIT_FEEDBACK_MIN_MONTHS` | `3` | Required observation span in months, from 2 through 12 |
 | `DASHBOARD_EXIT_FEEDBACK_COOLDOWN_SAMPLES` | `10` | New exit/re-entry outcomes required between evaluation checkpoints, from 5 through 100 |
@@ -350,6 +350,7 @@ v43 routes non-structural no-progress, sell-score, theme/sector weakening, and o
 
 v44 adds opt-in bounded post-exit feedback. Once the configured complete-sample and cross-month gates are met, each new-sample batch can move at most one audited grid step. Only soft exits, replacement advantage, and post-exit re-entry confirmation are tunable; structural stops, T+1, account/portfolio/theme risk, and position caps remain frozen. Fills retain the version and parameters, SQLite activates versions atomically, and materially worse version-tagged outcomes roll back automatically. Standalone strict-forward advances to `niuone-strict-forward-v44`; backtest remains fixed-default `niuone-backtest-v40`, and the new cohort starts on `2026-08-31`.
 v45 upgrades feedback to v2. Completed observations mature only forward, returns use actual fills, replacement evidence requires an executed BUY, and allowed or blocked re-entry decisions produce direct five-session shadow outcomes. The latest 120 valid observations are clustered by security and day, capital-weighted, and evaluated with 90% confidence intervals and minimum economic effects. Hold evaluations no longer create policy versions, while account loads reconcile the active SQLite version after interrupted cross-file commits. Structural stops and all portfolio-risk limits remain frozen. Strict-forward advances to `niuone-strict-forward-v45`; the cohort still begins on `2026-08-31`.
+v46 enables bounded five-session post-exit tuning by default. Standalone deployments without an explicit setting enter learning or evaluation on the next post-close review, while `DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED=0` still opts out. Sample gates, bounded grids, automatic rollback, and frozen risk boundaries are unchanged. Strict-forward advances to `niuone-strict-forward-v46`; the cohort still begins on `2026-08-31`.
 
 ### One-Click Enablement
 

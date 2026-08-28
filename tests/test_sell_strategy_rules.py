@@ -5341,6 +5341,21 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertEqual(audit["required_volume_ratio"], 0.9)
         self.assertEqual(audit["exit_feedback_policy_version"], 5)
 
+    def test_exit_feedback_auto_tune_defaults_on_and_accepts_override(self):
+        name = "DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED"
+        original = trader.os.environ.pop(name, None)
+        try:
+            self.assertTrue(trader.exit_feedback_auto_tune_config()["enabled"])
+            trader.os.environ[name] = "0"
+            self.assertFalse(trader.exit_feedback_auto_tune_config()["enabled"])
+            trader.os.environ[name] = "1"
+            self.assertTrue(trader.exit_feedback_auto_tune_config()["enabled"])
+        finally:
+            if original is None:
+                trader.os.environ.pop(name, None)
+            else:
+                trader.os.environ[name] = original
+
     def test_stale_json_policy_reconciles_from_active_sqlite_version(self):
         original_env = trader.os.environ.get(
             "DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED"

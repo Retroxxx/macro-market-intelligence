@@ -7732,6 +7732,17 @@ process.stdout.write(JSON.stringify({{
             if original is not None:
                 dashboard.os.environ[name] = original
 
+    def test_exit_feedback_auto_tune_setting_defaults_on(self):
+        item = next(
+            item
+            for item in dashboard.ENV_CONFIG_SCHEMA
+            if item["name"] == "DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED"
+        )
+
+        self.assertEqual(item["default"], "1")
+        self.assertEqual(item["kind"], "bool")
+        self.assertEqual(item["effect"], "next_run")
+
     def test_about_group_saves_auto_version_check_and_updates_bootstrap(self):
         name = 'DASHBOARD_AUTO_VERSION_CHECK_ENABLED'
         original = dashboard.os.environ.pop(name, None)

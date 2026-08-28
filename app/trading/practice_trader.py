@@ -411,7 +411,7 @@ def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int
 def exit_feedback_auto_tune_config() -> dict[str, Any]:
     """Read the existing Dashboard environment with defensive bounds."""
     return {
-        "enabled": env_bool("DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED", False),
+        "enabled": env_bool("DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED", True),
         "min_samples": _bounded_env_int(
             "DASHBOARD_EXIT_FEEDBACK_MIN_SAMPLES",
             EXIT_FEEDBACK_DEFAULT_MIN_SAMPLES,

@@ -251,7 +251,7 @@ NiuOne 的盘面总结和买卖决策需要接入大模型。美股机构评级�
 | `DASHBOARD_NIUONE_EQUITY_SNAPSHOT_CRON` | `15 15 * * 1-5` | 实际 A 股运行日盘后刷新行情并保存无交易副作用的账户权益快照 |
 | `DASHBOARD_NIUONE_FORWARD_CRON` | `20 15 * * 1-5` | 周一至周五盘后从耐久成交账本重算牛牛严格前向报告；下一轮 Cron 生效 |
 | `DASHBOARD_NIUONE_FORWARD_COHORT_START` | `2026-08-31` | 严格前向队列起始日；修改规则时归档旧协议锁并从新交易日重新累计 |
-| `DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED` | `0` | 启用受约束的 5 日卖后自动调参；下一轮盘后复盘生效 |
+| `DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED` | `1` | 默认启用受约束的 5 日卖后自动调参；设为 `0` 可关闭，下一轮盘后复盘生效 |
 | `DASHBOARD_EXIT_FEEDBACK_MIN_SAMPLES` | `30` | 自动调参要求的 5 日独立有效样本簇数，允许 20～500 |
 | `DASHBOARD_EXIT_FEEDBACK_MIN_MONTHS` | `3` | 自动调参样本最少覆盖月份，允许 2～12 |
 | `DASHBOARD_EXIT_FEEDBACK_COOLDOWN_SAMPLES` | `10` | 两次评估检查点之间要求的新增退出/再入样本数，允许 5～100 |
@@ -350,6 +350,7 @@ v43 将未兑现、卖出评分、题材/行业转弱和普通盈利回撤统一
 
 v44 增加默认关闭的卖后自动反馈。启用后，5 日完整样本达到配置的数量和跨月门槛，每累计一批新增样本最多移动一个受审计档位；只调软退出、换仓优势和卖后再入确认，结构止损、T+1、账户/组合/主题风险及仓位上限冻结。成交保存版本与参数，SQLite 原子切换版本，显著恶化时自动回退。独立部署严格前向升级为 `niuone-strict-forward-v44`，回测仍为固定默认参数的 `niuone-backtest-v40`，新队列从 `2026-08-31` 开始。
 v45 把自动反馈升级为 v2：完成复盘单向成熟，收益锚定真实成交，换仓只使用实际 BUY，再入放行与拦截都保存直接影子结果；最近 120 个有效样本按同股同日簇去重、按成交资金加权并使用 90% 置信区间。无参数变化的评估不再生成版本，活动 SQLite 版本在加载账户时自动对账。所有硬止损和组合风险边界保持冻结；独立部署严格前向升级为 `niuone-strict-forward-v45`，队列仍从 `2026-08-31` 开始。
+v46 默认开启受约束的 5 日卖后自动调参；未显式配置的独立部署会在下一轮盘后复盘进入学习或评估，设置 `DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED=0` 仍可关闭。样本门槛、有界网格、自动回滚和冻结风控均不变；独立部署严格前向升级为 `niuone-strict-forward-v46`，队列仍从 `2026-08-31` 开始。
 
 ### 一键启用
 

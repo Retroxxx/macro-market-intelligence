@@ -442,6 +442,12 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
             "DASHBOARD_PORTFOLIO_STATE",
         }.issubset(PROTOCOL_RUNTIME_SETTING_DEFAULTS))
         self.assertEqual(
+            PROTOCOL_RUNTIME_SETTING_DEFAULTS[
+                "DASHBOARD_EXIT_FEEDBACK_AUTO_TUNE_ENABLED"
+            ],
+            "1",
+        )
+        self.assertEqual(
             set(PROTOCOL_DERIVED_RUNTIME_SETTING_NAMES),
             {
                 "NIUONE_CRON_SCHEDULER_STATE_PATH",
@@ -2732,7 +2738,7 @@ class NiuOneForwardEvaluationTests(unittest.TestCase):
 
         self.assertEqual(report["overall"]["completed_trade_count"], 1)
         self.assertEqual(report["coverage"]["duplicate_trade_count"], 2)
-        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v45")
+        self.assertEqual(report["protocol"]["version"], "niuone-strict-forward-v46")
         self.assertEqual(
             report["protocol"][
                 "niuone_markup_upgrade_absolute_position_cap_pct"
