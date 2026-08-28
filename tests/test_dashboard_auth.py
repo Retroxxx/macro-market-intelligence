@@ -92,6 +92,7 @@ PRACTICE_DATA = (
 ).read_text(encoding='utf-8')
 PRACTICE_PAYLOAD_UTILS_PATH = ROOT / 'web' / 'src' / 'utils' / 'practicePayload.js'
 PRACTICE_PAYLOAD_UTILS = PRACTICE_PAYLOAD_UTILS_PATH.read_text(encoding='utf-8')
+PRACTICE_DISPLAY_UTILS_PATH = ROOT / 'web' / 'src' / 'utils' / 'practiceDisplay.js'
 PRACTICE_CHART_UTILS_PATH = ROOT / 'web' / 'src' / 'utils' / 'practiceChart.js'
 PRACTICE_CHART_UTILS = PRACTICE_CHART_UTILS_PATH.read_text(encoding='utf-8')
 INDUSTRY_FLOW_ANIMATION_PATH = (
@@ -5539,6 +5540,36 @@ process.stdout.write(JSON.stringify({
         checks = json.loads(result.stdout)
 
         self.assertTrue(all(checks.values()), checks)
+
+    def test_sold_card_does_not_coerce_missing_quotes_to_zero(self):
+        scenario = (
+            "import { finitePracticeNumber } from "
+            f"{json.dumps(PRACTICE_DISPLAY_UTILS_PATH.as_uri())};\n"
+            "process.stdout.write(JSON.stringify({"
+            "nullMissing:finitePracticeNumber(null) === null,"
+            "undefinedMissing:finitePracticeNumber(undefined) === null,"
+            "emptyMissing:finitePracticeNumber('') === null,"
+            "zeroPreserved:finitePracticeNumber(0) === 0,"
+            "numberParsed:finitePracticeNumber('1.25') === 1.25"
+            "}));"
+        )
+        result = subprocess.run(
+            ['node', '--input-type=module', '-e', scenario],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        checks = json.loads(result.stdout)
+
+        self.assertTrue(all(checks.values()), checks)
+        self.assertIn(
+            'finitePracticeNumber(props.sold.after_sell_pnl)',
+            PRACTICE_COMPONENTS,
+        )
+        self.assertIn(
+            'finitePracticeNumber(props.sold.change_after_sell_pct)',
+            PRACTICE_COMPONENTS,
+        )
 
     def test_index_template_does_not_guess_missing_decision_model(self):
         self.assertIn("const model = String(props.practice.decision_model || '').trim()", PRACTICE_COMPONENTS)

@@ -1964,30 +1964,41 @@ def apply_realtime_price_snapshot(
 
 
 def refresh_position_marks_without_trading() -> bool:
-    """Refresh open-position quote fields without creating trades or equity history."""
+    """Refresh account quote fields without creating trades or equity history."""
 
     refreshed_state = load_state()
-    if not any(
+    has_open_positions = any(
         isinstance(position, dict) and position_qty(position) > 0
         for position in (refreshed_state.get("positions") or {}).values()
-    ):
+    )
+    has_today_sells = bool(build_today_sold_stocks(
+        refreshed_state,
+        quote_map={},
+    ))
+    if not has_open_positions and not has_today_sells:
         return False
 
-    try:
-        refresh_realtime_prices(refreshed_state)
-    except Exception as exc:
-        refreshed_state["last_quote_refresh"] = {
-            "time": now_ts(),
-            "updated": 0,
-            "error": f"{type(exc).__name__}: {exc}",
-        }
+    if has_open_positions:
+        try:
+            refresh_realtime_prices(refreshed_state)
+        except Exception as exc:
+            refreshed_state["last_quote_refresh"] = {
+                "time": now_ts(),
+                "updated": 0,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+    if has_today_sells:
+        refresh_today_sold_stocks(refreshed_state)
 
     with state_file_write_lock():
         state = load_state()
-        apply_realtime_price_snapshot(state, refreshed_state)
-        state["last_quote_refresh"] = dict(
-            refreshed_state.get("last_quote_refresh") or {}
-        )
+        if has_open_positions:
+            apply_realtime_price_snapshot(state, refreshed_state)
+            state["last_quote_refresh"] = dict(
+                refreshed_state.get("last_quote_refresh") or {}
+            )
+        if has_today_sells:
+            apply_today_sold_quote_snapshot(state, refreshed_state)
         save_state(state)
     return True
 
@@ -2913,9 +2924,19 @@ def refresh_today_sold_stocks(state: dict[str, Any], today: str | None = None) -
     quote_map = _cached_today_sold_quotes(state, today)
     quote_meta: dict[str, Any] = {"quote_time": now_ts(), "updated": 0}
     try:
-        refreshed_quotes, quote_meta = fetch_realtime_quotes(
+        refreshed_quotes, fetched_meta = fetch_realtime_quotes(
             sorted(row["code"] for row in rows_without_quotes)
         )
+        quote_times = [
+            str(quote.get("quote_time") or "")
+            for quote in refreshed_quotes.values()
+            if isinstance(quote, dict) and quote.get("quote_time")
+        ]
+        quote_meta = {
+            **(fetched_meta if isinstance(fetched_meta, dict) else {}),
+            "quote_time": max(quote_times, default=now_ts()),
+            "updated": len(refreshed_quotes),
+        }
         quote_map.update(refreshed_quotes)
     except Exception as exc:
         quote_meta = {"quote_time": now_ts(), "updated": 0, "error": f"{type(exc).__name__}: {exc}"}
@@ -2929,6 +2950,25 @@ def refresh_today_sold_stocks(state: dict[str, Any], today: str | None = None) -
     state["today_sold_stocks"] = rows
     state["today_sold_quote_refresh"] = quote_meta
     return rows
+
+
+def apply_today_sold_quote_snapshot(
+    state: dict[str, Any],
+    refreshed_state: dict[str, Any],
+    today: str | None = None,
+) -> None:
+    """Merge fetched sold-stock quotes without restoring an older trade ledger."""
+    today = today or today_key()
+    quote_map = _cached_today_sold_quotes(refreshed_state, today)
+    quote_meta = refreshed_state.get("today_sold_quote_refresh")
+    resolved_meta = dict(quote_meta) if isinstance(quote_meta, dict) else {}
+    state["today_sold_stocks"] = build_today_sold_stocks(
+        state,
+        today=today,
+        quote_map=quote_map,
+        quote_meta=resolved_meta,
+    )
+    state["today_sold_quote_refresh"] = resolved_meta
 
 
 # ====== 自动止盈止损规则 ======
@@ -7673,6 +7713,7 @@ def maybe_record_session_equity_heartbeat(min_interval_seconds: int = EQUITY_HEA
             "updated": 0,
             "error": f"{type(exc).__name__}: {exc}",
         }
+    refresh_today_sold_stocks(refreshed_state)
 
     # Re-read under the cross-process write lock after the network call. A trade
     # may have committed while quotes were loading; its same-minute point must
@@ -7693,6 +7734,11 @@ def maybe_record_session_equity_heartbeat(min_interval_seconds: int = EQUITY_HEA
                 save_state(state)
             return False
         apply_realtime_price_snapshot(state, refreshed_state)
+        apply_today_sold_quote_snapshot(
+            state,
+            refreshed_state,
+            today=commit_now.strftime("%Y-%m-%d"),
+        )
         recorded = record_equity(state)
         save_state(state)
         return recorded

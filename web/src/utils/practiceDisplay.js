@@ -85,6 +85,12 @@ export function formatPracticeNumber(value, digits = 2) {
     : '--'
 }
 
+export function finitePracticeNumber(value) {
+  if (value == null || value === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
 export function formatPracticeAmount(value) {
   const number = Number(value)
   if (!Number.isFinite(number)) return '--'

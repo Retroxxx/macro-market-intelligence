@@ -3904,6 +3904,143 @@ class SellStrategyRuleTests(unittest.TestCase):
             ["2026-07-17 14:59:00", "2026-07-17 15:00:00"],
         )
 
+    def test_session_equity_heartbeat_refreshes_today_sold_quotes(self):
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 7, 17, 10, 1, 1)
+
+        state = {
+            "initial_cash": 100000.0,
+            "cash": 110000.0,
+            "positions": {},
+            "trade_log": [{
+                "time": "2026-07-17 10:00:30",
+                "action": "SELL",
+                "code": "600000",
+                "name": "测试股",
+                "shares": 1000,
+                "price": 10.0,
+                "amount": 10000.0,
+                "net_proceeds": 9990.0,
+                "fee": 10.0,
+                "pnl": 990.0,
+            }],
+            "decision_log": [],
+            "equity_history": [{
+                "time": "2026-07-17 10:00:00",
+                "equity": 110000.0,
+                "cash": 110000.0,
+                "market_value": 0.0,
+                "pnl_pct": 10.0,
+            }],
+            "daily_equity_history": [],
+        }
+        quote_calls = []
+        fake_db = types.ModuleType("niuniu_db")
+        fake_db.record_daily_equity = lambda _point: None
+        original_db = sys.modules.get("niuniu_db")
+        originals = {
+            "datetime": trader.datetime,
+            "is_a_share_trading_day": trader.is_a_share_trading_day,
+            "load_state": trader.load_state,
+            "save_state": trader.save_state,
+            "refresh_realtime_prices": trader.refresh_realtime_prices,
+            "fetch_realtime_quotes": trader.fetch_realtime_quotes,
+        }
+        try:
+            sys.modules["niuniu_db"] = fake_db
+            trader.datetime = FixedDateTime
+            trader.is_a_share_trading_day = lambda dt=None: True
+            trader.load_state = lambda: state
+            trader.save_state = lambda _state: None
+            trader.refresh_realtime_prices = lambda _state: {}
+
+            def fetch_quotes(codes):
+                quote_calls.append(list(codes))
+                return ({
+                    "600000": {
+                        "code": "600000",
+                        "name": "测试股",
+                        "price": 10.5,
+                        "change_pct": 2.0,
+                        "quote_time": "2026-07-17 10:01:00",
+                        "source": "test",
+                    }
+                }, {})
+
+            trader.fetch_realtime_quotes = fetch_quotes
+            self.assertTrue(trader.maybe_record_session_equity_heartbeat())
+        finally:
+            for name, value in originals.items():
+                setattr(trader, name, value)
+            if original_db is None:
+                sys.modules.pop("niuniu_db", None)
+            else:
+                sys.modules["niuniu_db"] = original_db
+
+        self.assertEqual(quote_calls, [["600000"]])
+        self.assertEqual(state["today_sold_stocks"][0]["current_price"], 10.5)
+        self.assertEqual(state["today_sold_stocks"][0]["after_sell_pnl"], 500.0)
+        self.assertEqual(state["today_sold_quote_refresh"]["updated"], 1)
+
+    def test_sold_quote_snapshot_preserves_concurrent_sell(self):
+        fetched_state = {
+            "today_sold_stocks": [{
+                "code": "600000",
+                "name": "先卖出的股票",
+                "last_sell_time": "2026-07-17 10:00:00",
+                "current_price": 10.5,
+                "current_change_pct": 2.0,
+                "quote_time": "2026-07-17 10:01:00",
+                "quote_source": "test",
+            }],
+            "today_sold_quote_refresh": {
+                "quote_time": "2026-07-17 10:01:00",
+                "updated": 1,
+            },
+        }
+        state = {
+            "trade_log": [
+                {
+                    "time": "2026-07-17 10:00:00",
+                    "action": "SELL",
+                    "code": "600000",
+                    "name": "先卖出的股票",
+                    "shares": 1000,
+                    "price": 10.0,
+                    "amount": 10000.0,
+                    "net_proceeds": 9990.0,
+                    "fee": 10.0,
+                    "pnl": 990.0,
+                },
+                {
+                    "time": "2026-07-17 10:01:01",
+                    "action": "SELL",
+                    "code": "600001",
+                    "name": "并发卖出的股票",
+                    "shares": 1000,
+                    "price": 20.0,
+                    "amount": 20000.0,
+                    "net_proceeds": 19990.0,
+                    "fee": 10.0,
+                    "pnl": 1990.0,
+                },
+            ]
+        }
+
+        trader.apply_today_sold_quote_snapshot(
+            state,
+            fetched_state,
+            today="2026-07-17",
+        )
+
+        rows_by_code = {row["code"]: row for row in state["today_sold_stocks"]}
+        self.assertEqual(set(rows_by_code), {"600000", "600001"})
+        self.assertEqual(rows_by_code["600000"]["current_price"], 10.5)
+        self.assertIsNone(rows_by_code["600001"]["current_price"])
+        self.assertEqual(len(state["trade_log"]), 2)
+
     def test_post_close_snapshot_persists_account_mark_without_trading(self):
         class ClosingSnapshotDateTime(datetime):
             @classmethod
