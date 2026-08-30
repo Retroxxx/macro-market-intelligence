@@ -2,7 +2,15 @@ x-niuone-environment: &niuone-environment
   NIUONE_CONTAINER_DATA_DIR: /data
   NIUONE_CONTAINER_HOST: 0.0.0.0
   NIUONE_CONTAINER_PORT: "8787"
+  DASHBOARD_ACCESS_LOG: "0"
   TZ: Asia/Shanghai
+
+x-niuone-logging: &niuone-logging
+  driver: local
+  options:
+    max-size: "5m"
+    max-file: "3"
+    compress: "true"
 
 x-niuone-common: &niuone-common
   image: ${NIUONE_IMAGE:-niuone:local}
@@ -14,6 +22,7 @@ x-niuone-common: &niuone-common
   init: true
   restart: unless-stopped
   stop_grace_period: 6m
+  logging: *niuone-logging
   environment: *niuone-environment
   volumes:
     - niuone-data:/data
@@ -34,6 +43,7 @@ services:
   newsnow:
     image: ${NEWSNOW_IMAGE:-ghcr.io/ourongxing/newsnow:latest}
     restart: unless-stopped
+    logging: *niuone-logging
     environment:
       HOST: 0.0.0.0
       PORT: "4444"

@@ -435,13 +435,16 @@ def run(*, host: str, port: int, legacy_module: ModuleType | None = None) -> Non
     import uvicorn
 
     app = create_app(legacy_module=legacy_module)
+    access_log = str(
+        os.environ.get("DASHBOARD_ACCESS_LOG", "1") or "1"
+    ).strip().lower() not in {"0", "false", "no", "off"}
     uvicorn.run(
         app,
         host=host,
         port=port,
         proxy_headers=False,
         server_header=False,
-        access_log=True,
+        access_log=access_log,
     )
 
 

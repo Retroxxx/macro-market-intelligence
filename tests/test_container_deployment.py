@@ -44,8 +44,21 @@ class ContainerDeploymentTests(unittest.TestCase):
 
     def test_compose_runs_niuone_processes_with_bundled_newsnow(self):
         config = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
+        fastapi_source = (
+            ROOT / "app" / "dashboard" / "fastapi_app.py"
+        ).read_text(encoding="utf-8")
         services = config["services"]
         self.assertEqual(set(services), {"dashboard", "scheduler", "newsnow"})
+        expected_logging = {
+            "driver": "local",
+            "options": {
+                "max-size": "5m",
+                "max-file": "3",
+                "compress": "true",
+            },
+        }
+        for service in services.values():
+            self.assertEqual(service["logging"], expected_logging)
         self.assertEqual(services["dashboard"]["command"], ["dashboard"])
         self.assertEqual(services["scheduler"]["command"], ["scheduler"])
         for name in ("dashboard", "scheduler"):
@@ -66,6 +79,12 @@ class ContainerDeploymentTests(unittest.TestCase):
             services["dashboard"]["environment"]["NIUONE_BUNDLED_NEWSNOW_URL"],
             "http://newsnow:4444/api/s",
         )
+        self.assertEqual(
+            services["dashboard"]["environment"]["DASHBOARD_ACCESS_LOG"],
+            "0",
+        )
+        self.assertIn('os.environ.get("DASHBOARD_ACCESS_LOG", "1")', fastapi_source)
+        self.assertIn("access_log=access_log", fastapi_source)
         self.assertEqual(
             services["dashboard"]["depends_on"],
             {"newsnow": {"condition": "service_started"}},

@@ -39,6 +39,8 @@ DASHBOARD_ENV_FILE = get_dashboard_env_file(PROJECT_ROOT)
 DASHBOARD_HOME = get_dashboard_home(PROJECT_ROOT)
 LOG_DIR = Path(os.environ.get("DASHBOARD_LOG_DIR") or str(DASHBOARD_HOME / "logs")).expanduser()
 LOG_PATH = LOG_DIR / "niuone_cron_scheduler.log"
+LOG_MAX_BYTES = 2 * 1024 * 1024
+LOG_BACKUP_COUNT = 3
 STATE_PATH = DASHBOARD_HOME / "cron" / "state" / "niuone_cron_scheduler.json"
 CN_TZ = ZoneInfo("Asia/Shanghai")
 STOP = False
@@ -87,10 +89,36 @@ IWENCAI_STARTUP_CATCH_UP_JOB = Job(
 )
 
 
+def _rotate_log_if_needed(incoming_bytes: int) -> None:
+    try:
+        current_bytes = LOG_PATH.stat().st_size
+    except FileNotFoundError:
+        return
+    except OSError:
+        return
+    if current_bytes + max(0, incoming_bytes) <= LOG_MAX_BYTES:
+        return
+    for index in range(LOG_BACKUP_COUNT, 0, -1):
+        source = (
+            LOG_PATH
+            if index == 1
+            else LOG_PATH.with_name(f"{LOG_PATH.name}.{index - 1}")
+        )
+        target = LOG_PATH.with_name(f"{LOG_PATH.name}.{index}")
+        try:
+            source.replace(target)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return
+
+
 def log(message: str) -> None:
+    line = f"{datetime.now(CN_TZ).isoformat()} {message}\n"
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _rotate_log_if_needed(len(line.encode("utf-8")))
     with LOG_PATH.open("a", encoding="utf-8") as f:
-        f.write(f"{datetime.now(CN_TZ).isoformat()} {message}\n")
+        f.write(line)
         f.flush()
 
 

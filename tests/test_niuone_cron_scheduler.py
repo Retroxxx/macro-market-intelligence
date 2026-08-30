@@ -27,6 +27,41 @@ def load_scheduler_module():
 
 
 class NiuoneCronSchedulerTests(unittest.TestCase):
+    def test_scheduler_log_rotates_at_a_bounded_size(self):
+        scheduler = load_scheduler_module()
+        original_values = (
+            scheduler.LOG_DIR,
+            scheduler.LOG_PATH,
+            scheduler.LOG_MAX_BYTES,
+            scheduler.LOG_BACKUP_COUNT,
+        )
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="niuone-scheduler-log-"
+            ) as directory:
+                scheduler.LOG_DIR = Path(directory)
+                scheduler.LOG_PATH = scheduler.LOG_DIR / "scheduler.log"
+                scheduler.LOG_MAX_BYTES = 96
+                scheduler.LOG_BACKUP_COUNT = 2
+                for index in range(12):
+                    scheduler.log(f"bounded scheduler message {index}")
+
+                self.assertTrue(scheduler.LOG_PATH.is_file())
+                self.assertTrue(Path(f"{scheduler.LOG_PATH}.1").is_file())
+                self.assertTrue(Path(f"{scheduler.LOG_PATH}.2").is_file())
+                self.assertFalse(Path(f"{scheduler.LOG_PATH}.3").exists())
+                self.assertLessEqual(
+                    sum(path.stat().st_size for path in scheduler.LOG_DIR.iterdir()),
+                    scheduler.LOG_MAX_BYTES * (scheduler.LOG_BACKUP_COUNT + 1),
+                )
+        finally:
+            (
+                scheduler.LOG_DIR,
+                scheduler.LOG_PATH,
+                scheduler.LOG_MAX_BYTES,
+                scheduler.LOG_BACKUP_COUNT,
+            ) = original_values
+
     def test_scheduler_state_is_atomic_and_corruption_fails_closed(self):
         scheduler = load_scheduler_module()
         original_path = scheduler.STATE_PATH
