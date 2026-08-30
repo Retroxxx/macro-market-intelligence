@@ -144,6 +144,34 @@ class BacktestReplayCacheTests(unittest.TestCase):
             with cache.build_lock(key, timeout_seconds=0) as acquired_after_release:
                 self.assertTrue(acquired_after_release)
 
+    def test_usage_and_clear_only_manage_cache_owned_files(self):
+        key = self._key(_bar())
+        tape = SelectionReplayTape(frames={}, diagnostics={})
+        with tempfile.TemporaryDirectory(prefix="niuone-replay-cache-") as tmp:
+            cache = ReplayTapeCache(Path(tmp) / "replay-cache")
+            self.assertTrue(cache.store(key, tape))
+            target = cache.path_for(key)
+            lock = target.with_suffix(target.suffix + ".lock")
+            temporary = target.with_name(
+                f".{target.name}.123.456.tmp"
+            )
+            unknown = target.parent / "keep.txt"
+            lock.write_text("123\n", encoding="utf-8")
+            temporary.write_bytes(b"partial")
+            unknown.write_text("preserve", encoding="utf-8")
+
+            usage = cache.usage()
+            self.assertEqual(usage["entry_count"], 1)
+            self.assertEqual(usage["file_count"], 3)
+            self.assertEqual(usage["temporary_file_count"], 1)
+            self.assertGreater(usage["byte_count"], 0)
+
+            cleared = cache.clear()
+            self.assertEqual(cleared["removed_file_count"], 3)
+            self.assertEqual(cleared["entry_count"], 0)
+            self.assertEqual(cleared["file_count"], 0)
+            self.assertTrue(unknown.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

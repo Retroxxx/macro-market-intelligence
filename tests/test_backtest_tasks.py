@@ -442,6 +442,47 @@ class BacktestTaskTests(unittest.TestCase):
             release.set()
             manager.shutdown()
 
+    def test_manager_clears_replay_cache_only_when_no_job_is_active(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        def runner(request, *, progress_callback):
+            entered.set()
+            release.wait(timeout=2)
+            return {"request": request}
+
+        with tempfile.TemporaryDirectory(prefix="niuone-backtest-") as tmp:
+            state_dir = Path(tmp)
+            cache_file = (
+                state_dir
+                / "replay-cache"
+                / "aa"
+                / f"{'a' * 64}.json.gz"
+            )
+            cache_file.parent.mkdir(parents=True)
+            cache_file.write_bytes(b"cached replay")
+            manager = BacktestTaskManager(runner=runner, state_dir=state_dir)
+            try:
+                self.assertEqual(manager.cache_usage()["entry_count"], 1)
+                created = manager.start({
+                    "strategy_id": "base",
+                    "start_date": "2026-01-01",
+                    "end_date": "2026-02-01",
+                    "adjustment": "qfq",
+                    "source": "eastmoney",
+                })
+                self.assertTrue(entered.wait(timeout=2))
+                with self.assertRaisesRegex(BacktestTaskError, "不能清理缓存"):
+                    manager.clear_cache()
+                manager.cancel(created["id"])
+                cleared = manager.clear_cache()
+                self.assertEqual(cleared["removed_file_count"], 1)
+                self.assertEqual(cleared["entry_count"], 0)
+                self.assertFalse(cache_file.exists())
+            finally:
+                release.set()
+                manager.shutdown()
+
     def test_manager_persists_structured_day_timing_details(self):
         entered = threading.Event()
         release = threading.Event()

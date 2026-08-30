@@ -16,6 +16,9 @@ const options = ref(null)
 const optionsError = ref('')
 const starting = ref(false)
 const cancelling = ref(false)
+const clearingCache = ref(false)
+const cacheUsage = ref(null)
+const cacheMessage = ref('')
 const taskError = ref('')
 const job = ref(null)
 const elapsedTick = ref(0)
@@ -133,6 +136,13 @@ const canStart = computed(() => (
   && !isActive.value
 ))
 const canCancel = computed(() => isActive.value && !cancelling.value)
+const canClearCache = computed(() => (
+  state.value === 'ready'
+  && cacheUsage.value?.available
+  && Number(cacheUsage.value?.file_count || 0) > 0
+  && !isActive.value
+  && !clearingCache.value
+))
 const strategyLabels = computed(() => {
   const ids = strategy.value?.strategy_ids || []
   const labels = strategy.value?.strategy_labels || []
@@ -218,6 +228,36 @@ function responseError(payload, fallback) {
   return new Error(String(payload?.error || fallback))
 }
 
+function formatBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0)
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let amount = bytes / 1024
+  let index = 0
+  while (amount >= 1024 && index < units.length - 1) {
+    amount /= 1024
+    index += 1
+  }
+  return `${amount.toFixed(amount >= 10 ? 1 : 2)} ${units[index]}`
+}
+
+async function loadCacheUsage() {
+  try {
+    const response = await fetch('/api/admin/backtests/cache', {
+      credentials: 'same-origin', cache: 'no-store',
+    })
+    if (response.status === 403) {
+      await refresh()
+      return
+    }
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || !payload) throw responseError(payload, '回测缓存状态加载失败')
+    cacheUsage.value = payload
+  } catch (error) {
+    cacheMessage.value = error instanceof Error ? error.message : '回测缓存状态加载失败'
+  }
+}
+
 function applyDefaults() {
   const defaults = options.value?.defaults || {}
   if (!form.startDate) form.startDate = String(defaults.start_date || '')
@@ -246,6 +286,7 @@ async function loadOptions() {
     options.value = payload
     applyDefaults()
     setTitle(strategy.value ? `${strategy.value.label}回测` : '策略回测')
+    await loadCacheUsage()
     if (strategy.value) await restoreLatestJob()
   } catch (error) {
     optionsError.value = error instanceof Error ? error.message : '回测配置加载失败'
@@ -274,6 +315,8 @@ async function loadServerJob(expectedStrategyId = strategyId.value) {
     job.value = payload.job || null
     if (['queued', 'running'].includes(payload.job?.status)) {
       pollTimer = window.setTimeout(() => loadServerJob(expectedStrategyId), 1200)
+    } else {
+      await loadCacheUsage()
     }
   } catch (error) {
     if (expectedStrategyId !== strategyId.value) return
@@ -358,6 +401,34 @@ async function cancelBacktest() {
     }
   } finally {
     cancelling.value = false
+  }
+}
+
+async function clearBacktestCache() {
+  if (!canClearCache.value) return
+  const confirmed = window.confirm('清除回测重放缓存？下次回测会重新计算选股回放。')
+  if (!confirmed) return
+  clearingCache.value = true
+  cacheMessage.value = ''
+  try {
+    const response = await fetch('/api/admin/backtests/cache/clear', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-NiuOne-Action': '1' },
+    })
+    if (response.status === 403) {
+      await refresh()
+      return
+    }
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || !payload) throw responseError(payload, '回测缓存清理失败')
+    cacheUsage.value = payload
+    cacheMessage.value = `已删除 ${Number(payload.removed_file_count || 0)} 个缓存文件，释放 ${formatBytes(payload.removed_byte_count)}`
+  } catch (error) {
+    cacheMessage.value = error instanceof Error ? error.message : '回测缓存清理失败'
+    await loadCacheUsage()
+  } finally {
+    clearingCache.value = false
   }
 }
 
@@ -722,6 +793,13 @@ onBeforeUnmount(() => {
               </label>
             </div>
             <div class="backtest-actions">
+              <div class="backtest-cache-control">
+                <button class="backtest-cache-clear" type="button" :disabled="!canClearCache" @click="clearBacktestCache">
+                  {{ clearingCache ? '正在清理…' : '清除回测缓存' }}
+                </button>
+                <small v-if="cacheUsage?.available">重放缓存 {{ Number(cacheUsage.entry_count || 0) }} 项 · {{ formatBytes(cacheUsage.byte_count) }}</small>
+                <small v-if="cacheMessage" :class="{ 'is-error': !cacheUsage?.available }">{{ cacheMessage }}</small>
+              </div>
               <button v-if="isActive" class="backtest-cancel" type="button" :disabled="!canCancel" @click="cancelBacktest">
                 {{ cancelling ? '正在终止…' : '终止回测' }}
               </button>
@@ -1133,6 +1211,20 @@ onBeforeUnmount(() => {
   border-top:1px solid var(--line);
   background:var(--surface2);
 }
+.backtest-cache-control{display:grid;gap:3px;margin-right:auto}
+.backtest-cache-control small{color:var(--muted);font-size:10px}
+.backtest-cache-control small.is-error{color:var(--danger)}
+.backtest-cache-clear{
+  min-height:32px;
+  border:1px solid var(--line);
+  border-radius:var(--settings-control-radius,4px);
+  padding:6px 10px;
+  background:var(--surface);
+  color:var(--text);
+  font-size:11px;
+  font-weight:750;
+}
+.backtest-cache-clear:disabled{cursor:not-allowed;opacity:.55}
 .backtest-start,
 .backtest-cancel{
   min-width:112px;
@@ -1248,5 +1340,7 @@ onBeforeUnmount(() => {
   .backtest-overview>div:last-child{border-bottom:0}
   .backtest-fields{padding:9px}
   .backtest-actions{padding:8px 9px}
+  .backtest-cache-control{width:100%;margin-right:0}
+  .backtest-cache-clear{width:100%}
 }
 </style>

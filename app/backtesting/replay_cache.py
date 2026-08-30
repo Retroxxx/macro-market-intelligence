@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import time
 from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
@@ -282,6 +283,105 @@ class ReplayTapeCache:
         ):
             raise ValueError("invalid replay cache digest")
         return self.root / key.digest[:2] / f"{key.digest}.json.gz"
+
+    @staticmethod
+    def _managed_kind(bucket: str, name: str) -> str | None:
+        cache_match = re.fullmatch(r"([0-9a-f]{64})\.json\.gz", name)
+        if cache_match and cache_match.group(1).startswith(bucket):
+            return "cache"
+        lock_match = re.fullmatch(r"([0-9a-f]{64})\.json\.gz\.lock", name)
+        if lock_match and lock_match.group(1).startswith(bucket):
+            return "lock"
+        temporary_match = re.fullmatch(
+            r"\.([0-9a-f]{64})\.json\.gz\.\d+\.\d+\.tmp",
+            name,
+        )
+        if temporary_match and temporary_match.group(1).startswith(bucket):
+            return "temporary"
+        return None
+
+    def _managed_files(self) -> list[tuple[str, Path]]:
+        if not self.root.is_dir() or self.root.is_symlink():
+            return []
+        managed: list[tuple[str, Path]] = []
+        try:
+            buckets = tuple(self.root.iterdir())
+        except OSError:
+            return []
+        for bucket in buckets:
+            if (
+                not re.fullmatch(r"[0-9a-f]{2}", bucket.name)
+                or bucket.is_symlink()
+                or not bucket.is_dir()
+            ):
+                continue
+            try:
+                children = tuple(bucket.iterdir())
+            except OSError:
+                continue
+            for path in children:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                kind = self._managed_kind(bucket.name, path.name)
+                if kind is not None:
+                    managed.append((kind, path))
+        return managed
+
+    def usage(self) -> dict[str, int]:
+        """Return the size of cache-owned files without following symlinks."""
+        files = self._managed_files()
+        byte_count = 0
+        for _kind, path in files:
+            try:
+                byte_count += path.stat().st_size
+            except OSError:
+                continue
+        return {
+            "entry_count": sum(kind == "cache" for kind, _path in files),
+            "file_count": len(files),
+            "temporary_file_count": sum(
+                kind == "temporary" for kind, _path in files
+            ),
+            "byte_count": byte_count,
+        }
+
+    def clear(self) -> dict[str, int]:
+        """Delete only files owned by this cache and preserve unknown content."""
+        removed_file_count = 0
+        removed_byte_count = 0
+        for _kind, path in self._managed_files():
+            try:
+                size = path.stat().st_size
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                continue
+            removed_file_count += 1
+            removed_byte_count += size
+        if self.root.is_dir() and not self.root.is_symlink():
+            try:
+                buckets = tuple(self.root.iterdir())
+            except OSError:
+                buckets = ()
+            for bucket in buckets:
+                if (
+                    re.fullmatch(r"[0-9a-f]{2}", bucket.name)
+                    and not bucket.is_symlink()
+                ):
+                    try:
+                        bucket.rmdir()
+                    except OSError:
+                        pass
+            try:
+                self.root.rmdir()
+            except OSError:
+                pass
+        return {
+            "removed_file_count": removed_file_count,
+            "removed_byte_count": removed_byte_count,
+            **self.usage(),
+        }
 
     def load(self, key: ReplayCacheKey) -> SelectionReplayTape | None:
         try:

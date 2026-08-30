@@ -915,6 +915,36 @@ class BacktestTaskManager:
     def options(self) -> dict[str, Any]:
         return backtest_strategy_options()
 
+    def cache_usage(self) -> dict[str, Any]:
+        if self._state_dir is None:
+            return {
+                "available": False,
+                "entry_count": 0,
+                "file_count": 0,
+                "temporary_file_count": 0,
+                "byte_count": 0,
+            }
+        return {
+            "available": True,
+            **ReplayTapeCache(self._state_dir / "replay-cache").usage(),
+        }
+
+    def clear_cache(self) -> dict[str, Any]:
+        if self._state_dir is None:
+            raise BacktestTaskError("当前回测运行模式未启用回放缓存")
+        with self._lock:
+            if any(
+                job.get("status") in {"queued", "running"}
+                for job in self._jobs.values()
+            ):
+                raise BacktestTaskError(
+                    "回测执行期间不能清理缓存，请先等待完成或终止任务"
+                )
+            return {
+                "available": True,
+                **ReplayTapeCache(self._state_dir / "replay-cache").clear(),
+            }
+
     def start(self, values: dict[str, Any]) -> dict[str, Any]:
         request = normalize_backtest_request(values)
         now = datetime.now().astimezone().isoformat(timespec="seconds")
