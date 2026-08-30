@@ -133,7 +133,7 @@ docker compose -p niuone-smoke down -v
 | 普通重启全部容器 | `docker compose restart` | 是 |
 | 只重启 Dashboard 和调度器 | `docker compose restart dashboard scheduler` | 是 |
 | 修改 Compose、环境变量或端口后应用配置 | `docker compose up -d` | 是 |
-| 修改源码后更新 | `docker compose up -d --build` | 是 |
+| 修改源码后更新 | `./scripts/docker-build.sh` 后执行 `docker compose up -d --no-build` | 是 |
 | 更新 Docker Hub 镜像 | `docker compose pull` 后执行 `docker compose up -d --no-build` | 是 |
 | 停止并移除容器 | `docker compose down` | 是 |
 | 持续查看日志 | `docker compose logs -f` | 是 |

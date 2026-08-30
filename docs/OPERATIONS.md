@@ -376,7 +376,8 @@ docker compose up -d
 docker compose restart
 
 # 源码更新后
-docker compose up -d --build
+./scripts/docker-build.sh
+docker compose up -d --no-build
 
 # Docker Hub 镜像更新后
 docker compose pull

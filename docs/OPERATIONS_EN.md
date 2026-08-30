@@ -378,7 +378,8 @@ docker compose up -d
 docker compose restart
 
 # After source changes
-docker compose up -d --build
+./scripts/docker-build.sh
+docker compose up -d --no-build
 
 # After a Docker Hub image update
 docker compose pull

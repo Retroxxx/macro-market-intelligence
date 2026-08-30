@@ -232,9 +232,12 @@ NIUONE_LOCAL_DATA_DIR=/path/to/private-data ./run.sh
 从源码构建并启动：
 
 ```bash
-docker compose up -d --build
+./scripts/docker-build.sh
+docker compose up -d --no-build
 docker compose ps
 ```
+
+Windows PowerShell 使用 `powershell -ExecutionPolicy Bypass -File .\scripts\docker-build.ps1` 完成构建，再执行 `docker compose up -d --no-build`。构建脚本只会在构建前后清理带 NiuOne 镜像标签且已悬空的旧镜像；不会执行全局 Docker 构建缓存清理，也不会删除其他项目镜像、容器或数据卷。
 
 ### Docker 日常启动与重启
 
@@ -255,7 +258,8 @@ docker compose restart dashboard scheduler
 
 ```bash
 # 源码构建
-docker compose up -d --build
+./scripts/docker-build.sh
+docker compose up -d --no-build
 
 # Docker Hub 镜像
 docker compose pull

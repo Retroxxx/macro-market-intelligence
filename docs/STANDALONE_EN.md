@@ -133,7 +133,7 @@ The commands below apply to the Compose configuration included with the project 
 | Restart every container | `docker compose restart` | Yes |
 | Restart only the Dashboard and scheduler | `docker compose restart dashboard scheduler` | Yes |
 | Apply Compose, environment-variable, or port changes | `docker compose up -d` | Yes |
-| Update after source changes | `docker compose up -d --build` | Yes |
+| Update after source changes | Run `./scripts/docker-build.sh`, then `docker compose up -d --no-build` | Yes |
 | Update a Docker Hub image | Run `docker compose pull`, then `docker compose up -d --no-build` | Yes |
 | Stop and remove containers | `docker compose down` | Yes |
 | Follow service logs | `docker compose logs -f` | Yes |

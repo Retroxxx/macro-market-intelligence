@@ -28,7 +28,17 @@ class ContainerDeploymentTests(unittest.TestCase):
         dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
         self.assertIn("FROM node:24-bookworm-slim AS web-builder", dockerfile)
         self.assertIn("pnpm install --frozen-lockfile", dockerfile)
-        self.assertIn("RUN pnpm run build", dockerfile)
+        self.assertIn("id=niuone-pnpm-store", dockerfile)
+        self.assertIn("sharing=locked", dockerfile)
+        self.assertLess(
+            dockerfile.index("COPY web/src/ ./src/"),
+            dockerfile.index("pnpm install --frozen-lockfile"),
+        )
+        self.assertIn("&& pnpm run build", dockerfile)
+        self.assertIn("&& rm -rf node_modules", dockerfile)
+        self.assertIn("&& pnpm store prune", dockerfile)
+        self.assertIn("--no-cache-dir", dockerfile)
+        self.assertNotIn("target=/root/.cache/pip", dockerfile)
         self.assertIn("COPY app/ ./app/", dockerfile)
         self.assertIn("COPY frontend/ ./frontend/", dockerfile)
         self.assertIn("COPY --from=web-builder /build/web/dist ./web/dist", dockerfile)
@@ -41,6 +51,23 @@ class ContainerDeploymentTests(unittest.TestCase):
         self.assertIn("NIUONE_VERSION=${NIUONE_VERSION}", dockerfile)
         self.assertIn("python3 -m pip install", dockerfile)
         self.assertIn('CMD ["python3", "-c"', dockerfile)
+
+    def test_local_build_scripts_only_prune_dangling_niuone_images(self):
+        shell = (ROOT / "scripts" / "docker-build.sh").read_text(encoding="utf-8")
+        powershell = (
+            ROOT / "scripts" / "docker-build.ps1"
+        ).read_text(encoding="utf-8")
+        label_filter = "label=org.opencontainers.image.title=NiuOne"
+
+        self.assertIn("docker compose build", shell)
+        self.assertEqual(shell.count(label_filter), 1)
+        self.assertIn("docker compose build", powershell)
+        self.assertEqual(powershell.count(label_filter), 2)
+        for source in (shell, powershell):
+            self.assertIn("docker image prune --force", source)
+            self.assertNotIn("--all", source)
+            self.assertNotIn("docker system prune", source)
+            self.assertNotIn("docker builder prune", source)
 
     def test_compose_runs_niuone_processes_with_bundled_newsnow(self):
         config = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
