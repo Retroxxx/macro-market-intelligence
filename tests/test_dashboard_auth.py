@@ -7772,6 +7772,8 @@ process.stdout.write(JSON.stringify({{
         self.assertNotIn('us-market', {group['slug'] for group in payload['groups']})
         self.assertNotIn('X_WATCHLIST_HANDLES', item_names)
         self.assertFalse(any(name.startswith('X_WATCHLIST_') for name in item_names))
+        self.assertNotIn('gatedNames', ADMIN_FRONTEND)
+        self.assertNotIn('data-feature-gated', ADMIN_FRONTEND)
         for name in (
             'DASHBOARD_US_FEATURES_ENABLED',
             'FMP_API_BASE_URL',

@@ -459,7 +459,6 @@ onBeforeUnmount(() => {
             v-for="item in items"
             :key="item.name"
             class="setting-row"
-            :data-feature-gated="gatedNames.has(item.name) ? 'us' : null"
             :data-strategy-source-gated="item.name === strategyPreset ? 'preset_text' : null"
             :hidden="rowHidden(item)"
             :aria-hidden="String(rowHidden(item))"
