@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import copy
+import hashlib
 import json
 import math
 import os
@@ -1570,6 +1571,16 @@ def _apply_trade_to_account_snapshot(
             "avg_cost": round((old_qty * old_avg_cost + total_cost) / new_qty, 4),
         })
         position.pop("shares", None)
+        if old_qty <= 0:
+            opened_at = str(trade.get("time") or "")
+            position[POSITION_LIFECYCLE_ID_FIELD] = str(
+                trade.get(POSITION_LIFECYCLE_ID_FIELD)
+                or _new_position_lifecycle_id(code, opened_at)
+            )
+            position["position_opened_at"] = opened_at
+            position.pop(AUTO_EXIT_COMPLETED_KEYS_FIELD, None)
+            for field in AUTO_EXIT_MONOTONIC_BOOL_FIELDS:
+                position.pop(field, None)
         if not position.get("last_price"):
             position["last_price"] = _safe_float(trade.get("price"), 0.0)
         if old_qty <= 0:
@@ -1812,6 +1823,7 @@ def save_state(state: dict[str, Any]) -> None:
             # append-only trade merge succeeded. Re-apply the retained ledger
             # after merging so a completed SELL cannot be resurrected.
             reconcile_positions_with_trade_log(state)
+            _merge_position_auto_exit_guards(state, current)
             if rejected_trade_count:
                 _repair_pending_equity_after_accounting_rejection(
                     state,
@@ -8058,9 +8070,40 @@ def _refresh_frozen_prompt_position_exits(
 AUTO_EXIT_PERSISTENCE_STATUS_KEY = "_auto_exit_persistence_status"
 AUTO_EXIT_ELIGIBLE_CODES_KEY = "_auto_exit_eligible_codes"
 AUTO_EXIT_REFRESH_BASELINE_KEY = "_auto_exit_refresh_baseline"
+POSITION_LIFECYCLE_ID_FIELD = "position_lifecycle_id"
+AUTO_EXIT_COMPLETED_KEYS_FIELD = "auto_exit_completed_idempotency_keys"
+AUTO_EXIT_IDEMPOTENCY_VERSION = "auto-exit-v1"
+POSITION_LIFECYCLE_VERSION = "position-lifecycle-v1"
+AUTO_EXIT_COMPLETED_KEYS_LIMIT = 32
+AUTO_EXIT_PARTIAL_SIGNALS = frozenset({
+    "luzhu_half",
+    "shaofu_soft_reduce",
+    "niu_lifecycle_climax_partial",
+    "niu_r_partial",
+    "niu_2r_partial",
+    "tide_2r_partial",
+    "niu_markup_rebalance_partial",
+    "partial_take_profit",
+})
+AUTO_EXIT_MONOTONIC_BOOL_FIELDS = frozenset({
+    "partial_tp_done",
+    "sell_score_half_done",
+    "luzhu_half_done",
+    "shaofu_soft_exit_reduced",
+    "niuone_lifecycle_climax_partial_done",
+})
+AUTO_EXIT_LAST_EVENT_FIELDS = (
+    "last_exit_rule",
+    "last_exit_label",
+    "last_exit_reason",
+    "last_exit_marked_at",
+    "last_exit_strategy_mark",
+)
 _AUTO_EXIT_ACCOUNT_POSITION_FIELDS = frozenset({
     "avg_cost",
+    AUTO_EXIT_COMPLETED_KEYS_FIELD,
     "buy_date_lots",
+    POSITION_LIFECYCLE_ID_FIELD,
     "qty",
     "shares",
 })
@@ -8068,6 +8111,343 @@ _AUTO_EXIT_REFRESH_META_FIELDS = (
     "last_quote_refresh",
     "last_intraday_refresh",
 )
+
+
+def _stable_identity(prefix: str, value: Mapping[str, Any]) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return f"{prefix}:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
+
+
+def _new_position_lifecycle_id(
+    code: str,
+    opened_at: str,
+    account_created_at: str = "",
+) -> str:
+    return _stable_identity(
+        POSITION_LIFECYCLE_VERSION,
+        {
+            "code": normalize_code(code),
+            "opened_at": str(opened_at or ""),
+            "account_created_at": str(account_created_at or ""),
+        },
+    )
+
+
+def _position_cycle_trades(
+    state: Mapping[str, Any],
+    code: str,
+) -> list[dict[str, Any]]:
+    """Return retained, accounted fills from the latest opening cycle."""
+    normalized = normalize_code(code)
+    rows = sorted(
+        (
+            trade
+            for trade in (state.get("trade_log") or [])
+            if isinstance(trade, dict)
+            and trade_counts_for_account(trade)
+            and normalize_code(trade.get("code") or "") == normalized
+        ),
+        key=lambda trade: str(trade.get("time") or ""),
+    )
+    opening_index: int | None = None
+    last_full_close_index = -1
+    running_qty = 0
+    quantity_known = False
+    for index, trade in enumerate(rows):
+        action = str(trade.get("action") or "").upper()
+        before_qty = trade.get("position_before_qty")
+        after_qty = trade.get("position_after_qty")
+        explicit_before = (
+            before_qty is not None and not isinstance(before_qty, bool)
+        )
+        explicit_after = after_qty is not None and not isinstance(after_qty, bool)
+        shares = max(0, int(_safe_float(trade.get("shares"), 0.0)))
+        if action == "BUY":
+            resolved_before = (
+                max(0, int(_safe_float(before_qty, 0.0)))
+                if explicit_before
+                else running_qty
+            )
+            if trade.get("position_opened") is True or resolved_before <= 0:
+                opening_index = index
+            running_qty = (
+                max(0, int(_safe_float(after_qty, 0.0)))
+                if explicit_after
+                else resolved_before + shares
+            )
+            quantity_known = True
+            continue
+        if action != "SELL":
+            continue
+        resolved_before = (
+            max(0, int(_safe_float(before_qty, 0.0)))
+            if explicit_before
+            else running_qty
+        )
+        resolved_after = (
+            max(0, int(_safe_float(after_qty, 0.0)))
+            if explicit_after
+            else max(0, resolved_before - shares)
+        )
+        explicit_close = trade.get("position_fully_closed") is True
+        if explicit_close or (
+            (quantity_known or explicit_before or explicit_after)
+            and resolved_after <= 0
+        ):
+            last_full_close_index = index
+            opening_index = None
+        running_qty = resolved_after
+        quantity_known = quantity_known or explicit_before or explicit_after
+    if opening_index is not None:
+        return rows[opening_index:]
+    return rows[last_full_close_index + 1:]
+
+
+def _ensure_position_lifecycle_id(
+    state: Mapping[str, Any],
+    code: str,
+    position: dict[str, Any],
+    durable_lifecycle_id: str = "",
+) -> tuple[str, list[dict[str, Any]]]:
+    cycle_trades = _position_cycle_trades(state, code)
+    lifecycle_id = str(position.get(POSITION_LIFECYCLE_ID_FIELD) or "")
+    lifecycle_id = lifecycle_id or str(durable_lifecycle_id or "")
+    if not lifecycle_id:
+        opening_trade = next(
+            (
+                trade
+                for trade in cycle_trades
+                if str(trade.get("action") or "").upper() == "BUY"
+            ),
+            None,
+        )
+        if opening_trade is not None:
+            lifecycle_id = str(
+                opening_trade.get(POSITION_LIFECYCLE_ID_FIELD) or ""
+            )
+            if not lifecycle_id:
+                lifecycle_id = _stable_identity(
+                    POSITION_LIFECYCLE_VERSION,
+                    {
+                        "code": normalize_code(code),
+                        "time": str(opening_trade.get("time") or ""),
+                        "shares": opening_trade.get("shares"),
+                        "price": opening_trade.get("price"),
+                    },
+                )
+        if not lifecycle_id:
+            lots = position.get("buy_date_lots")
+            lot_dates = (
+                sorted(str(day) for day in lots)
+                if isinstance(lots, Mapping)
+                else []
+            )
+            lifecycle_id = _stable_identity(
+                POSITION_LIFECYCLE_VERSION,
+                {
+                    "code": normalize_code(code),
+                    "entry_anchor": str(
+                        position.get("position_opened_at")
+                        or position.get("entry_signal_generated_at")
+                        or position.get("strategy_marked_at")
+                        or (lot_dates[0] if lot_dates else "legacy-open")
+                    ),
+                    "entry_strategy": position_entry_strategy(position),
+                },
+            )
+    position[POSITION_LIFECYCLE_ID_FIELD] = lifecycle_id
+    return lifecycle_id, cycle_trades
+
+
+def _bounded_auto_exit_keys(values: Any) -> list[str]:
+    keys: list[str] = []
+    iterable = (
+        values
+        if isinstance(values, (list, tuple, set, frozenset))
+        else []
+    )
+    for value in iterable:
+        key = str(value or "")
+        if key and key not in keys:
+            keys.append(key)
+    return keys[-AUTO_EXIT_COMPLETED_KEYS_LIMIT:]
+
+
+def _remember_auto_exit_key(position: dict[str, Any], key: str) -> None:
+    keys = _bounded_auto_exit_keys(position.get(AUTO_EXIT_COMPLETED_KEYS_FIELD))
+    if key and key not in keys:
+        keys.append(key)
+    position[AUTO_EXIT_COMPLETED_KEYS_FIELD] = keys[-AUTO_EXIT_COMPLETED_KEYS_LIMIT:]
+
+
+def _restore_auto_exit_markers(
+    position: dict[str, Any],
+    evidence: Mapping[str, Any],
+) -> None:
+    signal = str(
+        evidence.get("exit_signal")
+        or evidence.get("signal")
+        or evidence.get("source_signal")
+        or ""
+    )
+    if signal == "sell_score_reduce":
+        position["sell_score_half_done"] = True
+    if signal == "luzhu_half":
+        position["luzhu_half_done"] = True
+    if signal == "shaofu_soft_reduce":
+        position["shaofu_soft_exit_reduced"] = True
+    if signal == "niu_lifecycle_climax_partial":
+        position["niuone_lifecycle_climax_partial_done"] = True
+    if signal in {"niu_r_partial", "niu_2r_partial"}:
+        position["niuone_markup_rebalance_reduced"] = True
+    if signal in AUTO_EXIT_PARTIAL_SIGNALS:
+        position["partial_tp_done"] = True
+    if str(evidence.get("soft_exit_stage") or "") == "reduce":
+        position["soft_exit_reduced"] = True
+        position["soft_exit_status"] = "runner"
+    key = str(evidence.get("idempotency_key") or "")
+    if key:
+        _remember_auto_exit_key(position, key)
+
+
+def _recover_auto_exit_guards(
+    position: dict[str, Any],
+    lifecycle_id: str,
+    cycle_trades: list[dict[str, Any]],
+) -> set[str]:
+    keys = set(_bounded_auto_exit_keys(
+        position.get(AUTO_EXIT_COMPLETED_KEYS_FIELD)
+    ))
+    for trade in cycle_trades:
+        if str(trade.get("action") or "").upper() != "SELL":
+            continue
+        trade_lifecycle = str(trade.get(POSITION_LIFECYCLE_ID_FIELD) or "")
+        if trade_lifecycle and trade_lifecycle != lifecycle_id:
+            continue
+        _restore_auto_exit_markers(position, trade)
+        key = str(trade.get("idempotency_key") or "")
+        if key:
+            keys.add(key)
+    position[AUTO_EXIT_COMPLETED_KEYS_FIELD] = _bounded_auto_exit_keys(keys)
+    return keys
+
+
+def _auto_exit_idempotency_key(
+    code: str,
+    position: Mapping[str, Any],
+    lifecycle_id: str,
+    signal: Mapping[str, Any],
+) -> str:
+    signal_name = str(
+        signal.get("signal")
+        or signal.get("source_signal")
+        or signal.get("exit_rule")
+        or "unknown_exit"
+    )
+    cycle = "single"
+    if signal_name == "niu_markup_rebalance_partial":
+        cycle = str(
+            int(position.get("niuone_markup_rebalance_trim_count") or 0) + 1
+        )
+    return _stable_identity(
+        AUTO_EXIT_IDEMPOTENCY_VERSION,
+        {
+            "code": normalize_code(code),
+            "position_lifecycle_id": lifecycle_id,
+            "signal": signal_name,
+            "soft_exit_stage": str(signal.get("soft_exit_stage") or ""),
+            "cycle": cycle,
+        },
+    )
+
+
+def _durable_trade_idempotency_keys(state: Mapping[str, Any]) -> set[str]:
+    keys = {
+        str(trade.get("idempotency_key") or "")
+        for trade in (state.get("trade_log") or [])
+        if isinstance(trade, Mapping)
+        and trade_counts_for_account(trade)
+        and str(trade.get("idempotency_key") or "")
+    }
+    try:
+        from niuniu_db import query_trade_idempotency_keys as _query_keys
+
+        keys.update(_query_keys())
+    except Exception as exc:
+        print(
+            "[WARN] 成交幂等键读取失败，使用账户 JSON 防重: "
+            f"{type(exc).__name__}",
+            flush=True,
+        )
+    return keys
+
+
+def _durable_position_lifecycle_ids(codes: list[str]) -> dict[str, str]:
+    try:
+        from niuniu_db import query_latest_position_lifecycle_ids as _query_ids
+
+        return {
+            normalize_code(code): str(lifecycle_id)
+            for code, lifecycle_id in _query_ids(codes).items()
+            if normalize_code(code) and str(lifecycle_id or "")
+        }
+    except Exception as exc:
+        print(
+            "[WARN] 持仓周期读取失败，使用账户 JSON 恢复: "
+            f"{type(exc).__name__}",
+            flush=True,
+        )
+        return {}
+
+
+def _merge_position_auto_exit_guards(
+    state: dict[str, Any],
+    current: Mapping[str, Any],
+) -> None:
+    """Keep monotonic execution guards when a stale snapshot is saved."""
+    current_positions = {
+        normalize_code(code): position
+        for code, position in (current.get("positions") or {}).items()
+        if isinstance(position, Mapping) and normalize_code(code)
+    }
+    for code, position in (state.get("positions") or {}).items():
+        if not isinstance(position, dict):
+            continue
+        persisted = current_positions.get(normalize_code(code))
+        if persisted is None:
+            continue
+        incoming_lifecycle = str(position.get(POSITION_LIFECYCLE_ID_FIELD) or "")
+        persisted_lifecycle = str(
+            persisted.get(POSITION_LIFECYCLE_ID_FIELD) or ""
+        )
+        if (
+            incoming_lifecycle
+            and persisted_lifecycle
+            and incoming_lifecycle != persisted_lifecycle
+        ):
+            continue
+        if persisted_lifecycle and not incoming_lifecycle:
+            position[POSITION_LIFECYCLE_ID_FIELD] = persisted_lifecycle
+        merged_keys = _bounded_auto_exit_keys([
+            *_bounded_auto_exit_keys(
+                persisted.get(AUTO_EXIT_COMPLETED_KEYS_FIELD)
+            ),
+            *_bounded_auto_exit_keys(position.get(AUTO_EXIT_COMPLETED_KEYS_FIELD)),
+        ])
+        if merged_keys:
+            position[AUTO_EXIT_COMPLETED_KEYS_FIELD] = merged_keys
+        for field in AUTO_EXIT_MONOTONIC_BOOL_FIELDS:
+            if persisted.get(field) is True:
+                position[field] = True
+        for field in AUTO_EXIT_LAST_EVENT_FIELDS:
+            if field not in position and field in persisted:
+                position[field] = copy.deepcopy(persisted[field])
 
 
 def _auto_exit_refresh_baseline(state: Mapping[str, Any]) -> dict[str, Any]:
@@ -8243,6 +8623,12 @@ def check_auto_exits(
     positions = state.get("positions") or {}
     if not positions:
         return []
+    durable_idempotency_keys = _durable_trade_idempotency_keys(state)
+    durable_lifecycle_ids = _durable_position_lifecycle_ids([
+        normalize_code(code)
+        for code in positions
+        if normalize_code(code)
+    ])
     eligible_raw = state.get(AUTO_EXIT_ELIGIBLE_CODES_KEY)
     eligible_codes = (
         {
@@ -8267,6 +8653,19 @@ def check_auto_exits(
         if eligible_codes is not None and normalize_code(code) not in eligible_codes:
             continue
         pos = positions[code]
+        position_lifecycle_id, cycle_trades = _ensure_position_lifecycle_id(
+            state,
+            code,
+            pos,
+            durable_lifecycle_ids.get(normalize_code(code), ""),
+        )
+        durable_idempotency_keys.update(
+            _recover_auto_exit_guards(
+                pos,
+                position_lifecycle_id,
+                cycle_trades,
+            )
+        )
         sellable = available_to_sell(pos, today)
         if sellable <= 0:
             continue
@@ -8310,6 +8709,35 @@ def check_auto_exits(
             exit_reason,
             str(exit_signal.get("signal") or ""),
         )
+        auto_exit_idempotency_key = _auto_exit_idempotency_key(
+            code,
+            pos,
+            position_lifecycle_id,
+            {**exit_signal, "exit_rule": exit_rule},
+        )
+        if auto_exit_idempotency_key in durable_idempotency_keys:
+            _restore_auto_exit_markers(
+                pos,
+                {
+                    **exit_signal,
+                    "exit_signal": exit_signal.get("signal") or "",
+                    "idempotency_key": auto_exit_idempotency_key,
+                },
+            )
+            previous_block = state.get("last_auto_exit_duplicate_block")
+            if not isinstance(previous_block, Mapping) or str(
+                previous_block.get("idempotency_key") or ""
+            ) != auto_exit_idempotency_key:
+                state["auto_exit_duplicate_block_count"] = int(
+                    state.get("auto_exit_duplicate_block_count") or 0
+                ) + 1
+            state["last_auto_exit_duplicate_block"] = {
+                "time": now_ts(),
+                "code": normalize_code(code),
+                "signal": str(exit_signal.get("signal") or ""),
+                "idempotency_key": auto_exit_idempotency_key,
+            }
+            continue
         trade_time = now_ts()
         niuone_entry_context = (
             niuone_entry_context_from_position(pos)
@@ -8404,6 +8832,8 @@ def check_auto_exits(
         qty = qty // 100 * 100
         if qty <= 0:
             continue
+        _remember_auto_exit_key(pos, auto_exit_idempotency_key)
+        durable_idempotency_keys.add(auto_exit_idempotency_key)
         total_equity = portfolio_total_equity_for_limits(cash, positions)
         current_position_value = position_market_value(pos, float(price))
         current_market_value = portfolio_market_value(positions)
@@ -8497,6 +8927,8 @@ def check_auto_exits(
             "position_before_qty": position_before_qty,
             "position_after_qty": max(0, position_before_qty - qty),
             "position_fully_closed": position_closed,
+            "position_lifecycle_id": position_lifecycle_id,
+            "idempotency_key": auto_exit_idempotency_key,
             "exit_signal": exit_signal.get("signal") or "",
             "buy_strategy": entry_strategy,
             "exit_rule": exit_rule,
@@ -11620,7 +12052,20 @@ def execute_actions(
                         category="strategy_policy",
                     )
                     continue
+            buy_trade_time = now_ts()
             pos = positions.setdefault(code, {"code": code, "name": name, "qty": 0, "avg_cost": 0.0, "buy_date_lots": {}, "last_price": price})
+            if old_qty <= 0:
+                pos[POSITION_LIFECYCLE_ID_FIELD] = _new_position_lifecycle_id(
+                    code,
+                    buy_trade_time,
+                    str(state.get("created_at") or ""),
+                )
+                pos["position_opened_at"] = buy_trade_time
+                pos.pop(AUTO_EXIT_COMPLETED_KEYS_FIELD, None)
+                for field in AUTO_EXIT_MONOTONIC_BOOL_FIELDS:
+                    pos.pop(field, None)
+                for field in AUTO_EXIT_LAST_EVENT_FIELDS:
+                    pos.pop(field, None)
             old_cost = old_qty * float(pos.get("avg_cost") or 0)
             new_qty = old_qty + qty
             pos["qty"] = new_qty
@@ -12226,7 +12671,7 @@ def execute_actions(
                 if isinstance(watchlist, dict):
                     watchlist.pop(code, None)
             executed_trade = {
-                "time": now_ts(), "action": "BUY", "code": code, "name": name,
+                "time": buy_trade_time, "action": "BUY", "code": code, "name": name,
                 "shares": qty, "price": round(price, 3), "amount": round(gross, 2),
                 "commission": fees["commission"], "transfer_fee": fees["transfer_fee"],
                 "stamp_duty": fees["stamp_duty"], "fee": fees["total_fee"],
@@ -12236,6 +12681,9 @@ def execute_actions(
                 "position_before_qty": old_qty,
                 "position_after_qty": old_qty + qty,
                 "position_opened": old_qty <= 0,
+                "position_lifecycle_id": str(
+                    pos.get(POSITION_LIFECYCLE_ID_FIELD) or ""
+                ),
                 "order_position_pct": order_position_pct,
                 "position_after_trade_pct": position_after_trade_pct,
                 "total_position_after_trade_pct": total_position_after_trade_pct,
@@ -12298,6 +12746,9 @@ def execute_actions(
             pos = positions.get(code)
             if not pos:
                 continue
+            sell_position_lifecycle_id, _sell_cycle_trades = (
+                _ensure_position_lifecycle_id(state, code, pos)
+            )
             entry_strategy = str(
                 position_entry_strategy(pos)
                 or latest_buy_strategy_for_code(state, code)
@@ -12558,6 +13009,7 @@ def execute_actions(
                 "position_before_qty": position_before_qty,
                 "position_after_qty": max(0, position_qty(pos)),
                 "position_fully_closed": position_closed,
+                "position_lifecycle_id": sell_position_lifecycle_id,
                 "trade_reason": current_reason, "reason": reason,
                 "buy_strategy": entry_strategy, "exit_rule": exit_rule,
                 "exit_signal": str(action.get("source_signal") or ""),

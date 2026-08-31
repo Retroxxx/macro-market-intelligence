@@ -21,6 +21,7 @@ _tmp_home = tempfile.TemporaryDirectory()
 os.environ["DASHBOARD_HOME"] = _tmp_home.name
 
 import niuniu_practice_trader as trader  # noqa: E402
+import niuniu_db as practice_db  # noqa: E402
 from dashboard.practice_payload import compact_trade_markers  # noqa: E402
 from trading.accounting import trade_counts_for_account  # noqa: E402
 from trading.niuone_forward import (  # noqa: E402
@@ -587,6 +588,306 @@ class TradeAccountingTests(unittest.TestCase):
         self.assertEqual(position["quote_time"], "2026-08-17 10:01:00")
         self.assertEqual(position["highest_price"], 12.0)
         self.assertEqual(position["shaofu_soft_exit_count"], 1)
+
+    def test_auto_exit_ledger_key_blocks_repeat_after_guard_fields_are_lost(self):
+        buy = {
+            "time": "2026-06-23 10:00:00",
+            "action": "BUY",
+            "code": "600000",
+            "name": "测试股",
+            "shares": 1000,
+            "price": 10.0,
+            "amount": 10_000.0,
+            "total_cost": 10_000.0,
+            "position_before_qty": 0,
+            "position_after_qty": 1000,
+            "position_opened": True,
+            "reason": "测试建仓",
+        }
+        state = self._base_state(
+            cash=90_000.0,
+            positions={
+                "600000": {
+                    "code": "600000",
+                    "name": "测试股",
+                    "qty": 1000,
+                    "avg_cost": 10.0,
+                    "last_price": 10.9,
+                    "buy_date_lots": {"2026-06-23": 1000},
+                }
+            },
+            trade_log=[buy],
+        )
+        original_now = trader.now_ts
+        try:
+            trader.now_ts = lambda: "2026-06-24 10:00:01"
+            first = trader.check_auto_exits(
+                state,
+                datetime(2026, 6, 24, 10, 0),
+            )
+        finally:
+            trader.now_ts = original_now
+
+        self.assertEqual(len(first), 1)
+        self.assertTrue(first[0]["idempotency_key"].startswith("auto-exit-v1:"))
+        self.assertTrue(first[0]["position_lifecycle_id"].startswith(
+            "position-lifecycle-v1:"
+        ))
+
+        # Simulate the observed failure: quantity and durable fills survive,
+        # while an old mutable position snapshot loses every exit marker.
+        stale = copy.deepcopy(state)
+        position = stale["positions"]["600000"]
+        for field in (
+            trader.POSITION_LIFECYCLE_ID_FIELD,
+            trader.AUTO_EXIT_COMPLETED_KEYS_FIELD,
+            "partial_tp_done",
+            "last_exit_rule",
+            "last_exit_marked_at",
+            "last_exit_strategy_mark",
+        ):
+            position.pop(field, None)
+
+        second = trader.check_auto_exits(
+            stale,
+            datetime(2026, 6, 24, 10, 1),
+        )
+
+        self.assertEqual(second, [])
+        recovered = stale["positions"]["600000"]
+        self.assertTrue(recovered["partial_tp_done"])
+        self.assertEqual(
+            recovered[trader.AUTO_EXIT_COMPLETED_KEYS_FIELD],
+            [first[0]["idempotency_key"]],
+        )
+        self.assertEqual(recovered["qty"], 500)
+
+    def test_legacy_partial_fill_restores_guard_without_new_idempotency_key(self):
+        state = self._base_state(
+            cash=95_450.0,
+            positions={
+                "600000": {
+                    "code": "600000",
+                    "qty": 500,
+                    "avg_cost": 10.0,
+                    "last_price": 10.9,
+                    "buy_date_lots": {"2026-06-23": 500},
+                }
+            },
+            trade_log=[
+                {
+                    "time": "2026-06-23 10:00:00",
+                    "action": "BUY",
+                    "code": "600000",
+                    "shares": 1000,
+                    "price": 10.0,
+                    "amount": 10_000.0,
+                    "reason": "历史建仓",
+                },
+                {
+                    "time": "2026-06-24 09:40:00",
+                    "action": "SELL",
+                    "code": "600000",
+                    "shares": 500,
+                    "price": 10.9,
+                    "amount": 5_450.0,
+                    "reason": "历史首段止盈",
+                    "exit_signal": "partial_take_profit",
+                },
+            ],
+        )
+
+        executed = trader.check_auto_exits(
+            state,
+            datetime(2026, 6, 24, 10, 0),
+        )
+
+        self.assertEqual(executed, [])
+        self.assertEqual(state["positions"]["600000"]["qty"], 500)
+        self.assertTrue(state["positions"]["600000"]["partial_tp_done"])
+
+    def test_auto_exit_recovers_guard_from_sqlite_after_json_compaction(self):
+        lifecycle_id = "position-lifecycle-v1:durable"
+        position = {
+            "code": "600000",
+            "qty": 500,
+            "avg_cost": 10.0,
+            "last_price": 10.9,
+            "buy_date_lots": {"2026-06-23": 500},
+        }
+        idempotency_key = trader._auto_exit_idempotency_key(
+            "600000",
+            position,
+            lifecycle_id,
+            {"signal": "partial_take_profit"},
+        )
+        state = self._base_state(
+            cash=95_450.0,
+            positions={"600000": position},
+            trade_log=[],
+        )
+        originals = {
+            "_durable_trade_idempotency_keys": (
+                trader._durable_trade_idempotency_keys
+            ),
+            "_durable_position_lifecycle_ids": (
+                trader._durable_position_lifecycle_ids
+            ),
+        }
+        try:
+            trader._durable_trade_idempotency_keys = (
+                lambda _state: {idempotency_key}
+            )
+            trader._durable_position_lifecycle_ids = (
+                lambda _codes: {"600000": lifecycle_id}
+            )
+            executed = trader.check_auto_exits(
+                state,
+                datetime(2026, 6, 24, 10, 0),
+            )
+        finally:
+            for name, value in originals.items():
+                setattr(trader, name, value)
+
+        self.assertEqual(executed, [])
+        recovered = state["positions"]["600000"]
+        self.assertEqual(recovered["position_lifecycle_id"], lifecycle_id)
+        self.assertTrue(recovered["partial_tp_done"])
+        self.assertEqual(
+            recovered["auto_exit_completed_idempotency_keys"],
+            [idempotency_key],
+        )
+
+    def test_save_state_preserves_monotonic_auto_exit_guards(self):
+        lifecycle_id = "position-lifecycle-v1:test"
+        idempotency_key = "auto-exit-v1:test"
+        trade = {
+            "time": "2026-08-17 10:00:01",
+            "action": "SELL",
+            "code": "600000",
+            "shares": 500,
+            "price": 10.9,
+            "amount": 5_450.0,
+            "reason": "首次减仓",
+            "position_lifecycle_id": lifecycle_id,
+            "idempotency_key": idempotency_key,
+        }
+        current = self._base_state(
+            cash=95_450.0,
+            positions={
+                "600000": {
+                    "code": "600000",
+                    "qty": 500,
+                    "avg_cost": 10.0,
+                    "last_price": 10.9,
+                    "buy_date_lots": {"2026-08-14": 500},
+                    "position_lifecycle_id": lifecycle_id,
+                    "auto_exit_completed_idempotency_keys": [idempotency_key],
+                    "partial_tp_done": True,
+                    "last_exit_rule": "take_profit",
+                }
+            },
+            trade_log=[trade],
+        )
+        trader.STATE_FILE.write_text(
+            json.dumps(current, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        stale = copy.deepcopy(current)
+        stale_position = stale["positions"]["600000"]
+        for field in (
+            "position_lifecycle_id",
+            "auto_exit_completed_idempotency_keys",
+            "partial_tp_done",
+            "last_exit_rule",
+        ):
+            stale_position.pop(field, None)
+
+        trader.save_state(stale)
+        saved = trader.load_state()["positions"]["600000"]
+
+        self.assertEqual(saved["position_lifecycle_id"], lifecycle_id)
+        self.assertEqual(
+            saved["auto_exit_completed_idempotency_keys"],
+            [idempotency_key],
+        )
+        self.assertTrue(saved["partial_tp_done"])
+        self.assertEqual(saved["last_exit_rule"], "take_profit")
+
+    def test_practice_db_enforces_trade_idempotency_key(self):
+        module = practice_db
+        original_db_path = module.DB_PATH
+        module.DB_PATH = Path(self.temp_dir.name) / "idempotency.db"
+        first = {
+            "time": "2026-08-17 10:00:01",
+            "action": "SELL",
+            "code": "600000",
+            "shares": 500,
+            "price": 10.9,
+            "amount": 5_450.0,
+            "reason": "首次减仓",
+            "position_lifecycle_id": "position-lifecycle-v1:test",
+            "idempotency_key": "auto-exit-v1:test",
+        }
+        duplicate = {
+            **first,
+            "time": "2026-08-17 10:01:01",
+            "shares": 200,
+            "amount": 2_180.0,
+            "reason": "旧快照再次减仓",
+        }
+        try:
+            module.init_db()
+            self.assertTrue(module.record_trade(first))
+            self.assertTrue(module.record_trade(duplicate))
+            with sqlite3.connect(module.DB_PATH) as connection:
+                row_count = connection.execute(
+                    "SELECT COUNT(*) FROM trades"
+                ).fetchone()[0]
+            keys = module.query_trade_idempotency_keys()
+            archived_only = {
+                "time": "2026-08-17 10:02:01",
+                "action": "BUY",
+                "code": "000001",
+                "shares": 100,
+                "price": 12.0,
+                "amount": 1_200.0,
+                "reason": "仅归档建仓",
+                "position_lifecycle_id": "position-lifecycle-v1:archive",
+            }
+            self.assertTrue(module.archive_account_history({
+                "trade_log": [archived_only],
+            }))
+            lifecycle_ids = module.query_latest_position_lifecycle_ids([
+                "600000",
+                "000001",
+            ])
+            self.assertTrue(module.archive_account_history({
+                "trade_log": [first],
+            }))
+            corrected = {
+                **first,
+                "accounting_status": "rejected",
+                "accounting_rejected": True,
+                "accounting_rejection_reason": "manual_audit_correction",
+            }
+            self.assertTrue(module.archive_account_history({
+                "trade_log": [corrected],
+            }))
+            corrected_keys = module.query_trade_idempotency_keys()
+        finally:
+            module.DB_PATH = original_db_path
+
+        self.assertEqual(row_count, 1)
+        self.assertEqual(keys, {"auto-exit-v1:test"})
+        self.assertEqual(
+            lifecycle_ids,
+            {
+                "600000": "position-lifecycle-v1:test",
+                "000001": "position-lifecycle-v1:archive",
+            },
+        )
+        self.assertEqual(corrected_keys, set())
 
     def test_rejected_oversell_repairs_equity_and_sqlite_position_snapshot(self):
         buy = {

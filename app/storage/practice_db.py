@@ -158,6 +158,8 @@ def init_db():
         stamp_duty REAL DEFAULT 0,
         pnl        REAL,               -- SELL时才有的盈亏
         reason     TEXT DEFAULT '',
+        position_lifecycle_id TEXT NOT NULL DEFAULT '',
+        idempotency_key TEXT NOT NULL DEFAULT '',
         payload_json TEXT NOT NULL DEFAULT '', -- 完整成交证据，供严格前向评估
         created_at TEXT NOT NULL
     );
@@ -321,14 +323,20 @@ def init_db():
             SELECT RAISE(ABORT, 'account_history is append-only');
         END;
     """)
-    _ensure_trade_payload_column(conn)
+    _ensure_trade_evidence_columns(conn)
     _ensure_decision_evidence_columns(conn)
     _ensure_daily_equity_evidence_columns(conn)
     _ensure_post_exit_observation_columns(conn)
     _deduplicate_trades(conn)
+    _deduplicate_trade_idempotency_keys(conn)
     conn.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_unique_event
         ON trades(time, action, code, shares, price, amount, reason)
+    """)
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_idempotency_key
+        ON trades(idempotency_key)
+        WHERE idempotency_key <> ''
     """)
     conn.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_decisions_unique_event
@@ -339,8 +347,8 @@ def init_db():
     conn.close()
 
 
-def _ensure_trade_payload_column(conn: sqlite3.Connection):
-    """Add the lossless trade payload to upgraded databases without rewriting rows."""
+def _ensure_trade_evidence_columns(conn: sqlite3.Connection):
+    """Add lossless payload and execution identities without rewriting facts."""
     columns = {
         str(row[1])
         for row in conn.execute("PRAGMA table_info(trades)").fetchall()
@@ -348,6 +356,16 @@ def _ensure_trade_payload_column(conn: sqlite3.Connection):
     if "payload_json" not in columns:
         conn.execute(
             "ALTER TABLE trades ADD COLUMN payload_json TEXT NOT NULL DEFAULT ''"
+        )
+    if "position_lifecycle_id" not in columns:
+        conn.execute(
+            "ALTER TABLE trades ADD COLUMN "
+            "position_lifecycle_id TEXT NOT NULL DEFAULT ''"
+        )
+    if "idempotency_key" not in columns:
+        conn.execute(
+            "ALTER TABLE trades ADD COLUMN "
+            "idempotency_key TEXT NOT NULL DEFAULT ''"
         )
 
 
@@ -421,6 +439,21 @@ def _deduplicate_trades(conn: sqlite3.Connection):
             FROM trades
             GROUP BY time, action, code, shares, price, amount, reason
         )
+    """)
+
+
+def _deduplicate_trade_idempotency_keys(conn: sqlite3.Connection):
+    """Keep historical facts while reserving each non-empty guard key once."""
+    conn.execute("""
+        UPDATE trades
+        SET idempotency_key = ''
+        WHERE idempotency_key <> ''
+          AND id NOT IN (
+              SELECT MIN(id)
+              FROM trades
+              WHERE idempotency_key <> ''
+              GROUP BY idempotency_key
+          )
     """)
 
 
@@ -607,13 +640,19 @@ def migrate_from_json():
                 if not action:
                     continue
                 conn.execute("""
-                    INSERT OR IGNORE INTO trades (time, action, code, name, shares, price, amount, commission, transfer_fee, stamp_duty, pnl, reason, payload_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR IGNORE INTO trades (
+                        time, action, code, name, shares, price, amount,
+                        commission, transfer_fee, stamp_duty, pnl, reason,
+                        position_lifecycle_id, idempotency_key,
+                        payload_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     t.get("time", now), action, t.get("code", ""), t.get("name", ""),
                     t.get("shares", 0), t.get("price", 0), t.get("amount", 0),
                     t.get("commission", 0), t.get("transfer_fee", 0), t.get("stamp_duty", 0),
                     t.get("pnl"), t.get("reason", ""),
+                    t.get("position_lifecycle_id", ""),
+                    t.get("idempotency_key", ""),
                     json.dumps(t, ensure_ascii=False, sort_keys=True), t.get("time", now)
                 ))
                 migrated += 1
@@ -698,22 +737,36 @@ def record_trade(t: dict) -> bool:
         conn = _connect()
         payload_json = _canonical_payload(t)
         conn.execute("""
-            INSERT OR IGNORE INTO trades (time, action, code, name, shares, price, amount, commission, transfer_fee, stamp_duty, pnl, reason, payload_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO trades (
+                time, action, code, name, shares, price, amount,
+                commission, transfer_fee, stamp_duty, pnl, reason,
+                position_lifecycle_id, idempotency_key,
+                payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             t.get("time", ""), t.get("action", ""), t.get("code", ""), t.get("name", ""),
             t.get("shares", 0), t.get("price", 0), t.get("amount", 0),
             t.get("commission", 0), t.get("transfer_fee", 0), t.get("stamp_duty", 0),
-            t.get("pnl"), t.get("reason", ""), payload_json, t.get("time", "")
+            t.get("pnl"), t.get("reason", ""),
+            t.get("position_lifecycle_id", ""),
+            t.get("idempotency_key", ""),
+            payload_json, t.get("time", "")
         ))
         conn.execute("""
             UPDATE trades
-            SET payload_json = ?
+            SET payload_json = CASE
+                    WHEN payload_json = '' THEN ? ELSE payload_json END,
+                position_lifecycle_id = CASE
+                    WHEN position_lifecycle_id = '' THEN ?
+                    ELSE position_lifecycle_id END,
+                idempotency_key = CASE
+                    WHEN idempotency_key = '' THEN ? ELSE idempotency_key END
             WHERE time = ? AND action = ? AND code = ? AND shares = ?
               AND price = ? AND amount = ? AND reason = ?
-              AND payload_json = ''
         """, (
             payload_json,
+            t.get("position_lifecycle_id", ""),
+            t.get("idempotency_key", ""),
             t.get("time", ""), t.get("action", ""), t.get("code", ""),
             t.get("shares", 0), t.get("price", 0), t.get("amount", 0),
             t.get("reason", ""),
@@ -730,6 +783,148 @@ def record_trade(t: dict) -> bool:
                 pass
         print(f"[niuniu_db] 写入 trade 失败: {type(e).__name__}")
         return False
+
+
+def query_trade_idempotency_keys() -> set[str]:
+    """Return active durable execution keys used to reject duplicate fills."""
+    conn = None
+    try:
+        conn = _connect()
+        structured_rows = conn.execute(
+            "SELECT idempotency_key FROM trades WHERE idempotency_key <> ''"
+        ).fetchall()
+        history_rows = conn.execute("""
+            SELECT h.payload_json
+            FROM account_history AS h
+            WHERE h.history_kind = 'trade_log'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM account_history AS newer
+                  WHERE newer.history_kind = h.history_kind
+                    AND newer.logical_key = h.logical_key
+                    AND newer.id > h.id
+              )
+        """).fetchall()
+        conn.close()
+        structured_keys = {
+            str(row[0])
+            for row in structured_rows
+            if str(row[0] or "")
+        }
+        history_keys: set[str] = set()
+        inactive_history_keys: set[str] = set()
+        inactive_statuses = {"cancelled", "rejected", "reversed", "voided"}
+        for (payload_json,) in history_rows:
+            try:
+                payload = json.loads(payload_json)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, Mapping):
+                continue
+            key = str(payload.get("idempotency_key") or "")
+            if not key:
+                continue
+            status = str(payload.get("accounting_status") or "").strip().lower()
+            if (
+                payload.get("accounting_rejected") is True
+                or payload.get("voided") is True
+                or status in inactive_statuses
+            ):
+                inactive_history_keys.add(key)
+            else:
+                history_keys.add(key)
+        return history_keys | (structured_keys - inactive_history_keys)
+    except Exception as exc:
+        if conn is not None:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+        print(
+            "[niuniu_db] 查询成交幂等键失败: "
+            f"{type(exc).__name__}",
+        )
+        return set()
+
+
+def query_latest_position_lifecycle_ids(codes: list[str]) -> dict[str, str]:
+    """Return the latest durable position cycle for the requested securities."""
+    normalized_codes = sorted({
+        str(code or "").strip()
+        for code in codes
+        if str(code or "").strip()
+    })
+    if not normalized_codes:
+        return {}
+    conn = None
+    try:
+        conn = _connect()
+        placeholders = ",".join("?" for _ in normalized_codes)
+        structured_rows = conn.execute(
+            f"""
+            SELECT time, id, code, position_lifecycle_id
+            FROM trades
+            WHERE code IN ({placeholders})
+              AND position_lifecycle_id <> ''
+            """,
+            normalized_codes,
+        ).fetchall()
+        history_rows = conn.execute("""
+            SELECT h.event_time, h.id, h.payload_json
+            FROM account_history AS h
+            WHERE h.history_kind = 'trade_log'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM account_history AS newer
+                  WHERE newer.history_kind = h.history_kind
+                    AND newer.logical_key = h.logical_key
+                    AND newer.id > h.id
+              )
+        """).fetchall()
+        conn.close()
+        events = [
+            (
+                str(event_time or ""),
+                int(row_id),
+                str(code or ""),
+                str(lifecycle_id or ""),
+            )
+            for event_time, row_id, code, lifecycle_id in structured_rows
+            if str(code or "") and str(lifecycle_id or "")
+        ]
+        requested = set(normalized_codes)
+        for event_time, row_id, payload_json in history_rows:
+            try:
+                payload = json.loads(payload_json)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, Mapping):
+                continue
+            code = str(payload.get("code") or "")
+            lifecycle_id = str(payload.get("position_lifecycle_id") or "")
+            if code in requested and lifecycle_id:
+                events.append((
+                    str(event_time or payload.get("time") or ""),
+                    int(row_id),
+                    code,
+                    lifecycle_id,
+                ))
+        events.sort(key=lambda item: (item[0], item[1]))
+        return {
+            code: lifecycle_id
+            for _event_time, _row_id, code, lifecycle_id in events
+        }
+    except Exception as exc:
+        if conn is not None:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+        print(
+            "[niuniu_db] 查询持仓周期失败: "
+            f"{type(exc).__name__}",
+        )
+        return {}
 
 
 def _is_nearby_replacement_buy(
