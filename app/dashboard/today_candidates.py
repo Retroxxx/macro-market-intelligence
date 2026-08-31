@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from typing import Any, Callable
 
 
-TODAY_CANDIDATES_SCHEMA_VERSION = 3
+TODAY_CANDIDATES_SCHEMA_VERSION = 4
 TODAY_CANDIDATE_INTRADAY_SCHEMA_VERSION = 1
 TODAY_CANDIDATE_MAX_TRANSITION_POINTS = 96
 TODAY_CANDIDATE_INTRADAY_MAX_ITEMS = 48
@@ -329,7 +329,9 @@ def build_today_candidates_payload(
                 records[code] = current
 
     for record in records.values():
-        record.pop("_currently_qualified", None)
+        record["currently_qualified"] = bool(
+            record.pop("_currently_qualified", False)
+        )
     items = sorted(
         records.values(),
         key=lambda item: (
@@ -346,6 +348,9 @@ def build_today_candidates_payload(
         "generated_at": generated_at,
         "scan_count": len(dated_scans),
         "count": len(items),
+        "current_count": sum(
+            1 for item in items if item.get("currently_qualified") is True
+        ),
         "items": items,
         "strategy_meta": _strategy_meta(scan_values),
     }

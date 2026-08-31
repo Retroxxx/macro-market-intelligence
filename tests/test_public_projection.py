@@ -13,6 +13,7 @@ class PublicProjectionTests(unittest.TestCase):
                 "current_date": "2026-08-28",
                 "generated_at": "2026-08-28 10:30:00",
                 "scan_count": 3,
+                "current_count": 1,
                 "items": [{
                     "code": "600001",
                     "name": "测试",
@@ -21,6 +22,7 @@ class PublicProjectionTests(unittest.TestCase):
                     "first_qualified_at": "2026-08-28 09:45:00",
                     "last_qualified_at": "2026-08-28 10:30:00",
                     "qualified_count": 2,
+                    "currently_qualified": True,
                     "qualification_transitions": [{
                         "at": "2026-08-28 09:45:00",
                         "qualified": True,
@@ -44,7 +46,9 @@ class PublicProjectionTests(unittest.TestCase):
         self.assertEqual(section["current_date"], "2026-08-28")
         self.assertEqual(section["scan_count"], 3)
         self.assertEqual(section["count"], 1)
+        self.assertEqual(section["current_count"], 1)
         self.assertEqual(section["items"][0]["qualified_count"], 2)
+        self.assertTrue(section["items"][0]["currently_qualified"])
         self.assertEqual(
             section["items"][0]["qualification_transitions"],
             [{

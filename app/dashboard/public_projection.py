@@ -18,7 +18,7 @@ from app.dashboard.today_candidates import (
 )
 
 
-PUBLIC_SCHEMA_VERSION = 11
+PUBLIC_SCHEMA_VERSION = 12
 
 ACCOUNT_FIELDS = (
     "initial_cash",
@@ -265,6 +265,7 @@ def _today_candidate_rows(source: Any, *, limit: int = 1_200) -> list[dict[str, 
         "last_qualified_at",
         "best_qualified_at",
         "qualified_count",
+        "currently_qualified",
     )
     for item in source[:limit]:
         row = _copy_fields(item, fields)
@@ -371,6 +372,7 @@ def build_public_sections(
         "generated_at": _public_scalar(today_candidates.get("generated_at") or ""),
         "scan_count": max(0, _public_int(today_candidates.get("scan_count"))),
         "count": _public_int(today_candidates.get("count"), today_candidate_default_count),
+        "current_count": max(0, _public_int(today_candidates.get("current_count"))),
         "items": _today_candidate_rows(today_candidate_items),
         "strategy_meta": _candidate_strategy_meta(today_candidates.get("strategy_meta")),
     }

@@ -20,6 +20,7 @@ const activeStrategy = ref('all')
 const sortBy = ref('score')
 const strategyMeta = computed(() => practiceCandidateStrategyMeta(state.strategyMeta))
 const candidateCount = computed(() => Number(state.count) || state.items.length)
+const currentCandidateCount = computed(() => Math.max(0, Number(state.currentCount) || 0))
 const strategyOptions = computed(() => todayCandidateStrategyOptions(state.items, strategyMeta.value))
 const strategyCount = computed(() => Math.max(0, strategyOptions.value.length - 1))
 const filteredItems = computed(() => filterAndSortTodayCandidates(state.items, {
@@ -31,6 +32,10 @@ const dateLabel = computed(() => {
   return parts.length === 3 ? `${parts[0]}年${Number(parts[1])}月${Number(parts[2])}日` : '今日'
 })
 const generatedTime = computed(() => String(state.generatedAt || '').slice(11, 19) || '--')
+const compactStrategyOptionLabel = (label) => {
+  const parts = String(label || '').split(' · ')
+  return parts.at(-1) || label
+}
 
 async function refresh() {
   if (refreshing.value) return
@@ -56,11 +61,16 @@ onBeforeUnmount(deactivateTodayCandidates)
     <section class="today-candidates-toolbar theme-ranking-panel" aria-label="候选股概况与筛选">
       <div class="today-candidates-overview">
         <div class="today-candidates-context" aria-label="今日候选股概况">
-          <time :datetime="state.currentDate">{{ dateLabel }}</time>
-          <strong class="today-candidates-count">{{ filteredItems.length }}<template v-if="filteredItems.length !== candidateCount"> / {{ candidateCount }}</template>只达标</strong>
-          <span class="today-candidates-scan-count">{{ state.scanCount }}轮扫描</span>
-          <span class="today-candidates-strategy-count">{{ strategyCount }}类策略</span>
-          <span class="today-candidates-updated-at">更新 {{ generatedTime }}</span>
+          <div class="today-candidates-context-primary">
+            <time :datetime="state.currentDate">{{ dateLabel }}</time>
+            <strong class="today-candidates-count">当前 {{ currentCandidateCount }}只达标</strong>
+          </div>
+          <div class="today-candidates-context-secondary">
+            <span class="today-candidates-cumulative-count">今日累计 {{ candidateCount }}只曾达标</span>
+            <span class="today-candidates-scan-count">{{ state.scanCount }}轮扫描</span>
+            <span class="today-candidates-strategy-count">{{ strategyCount }}类策略</span>
+            <span class="today-candidates-updated-at">更新 {{ generatedTime }}</span>
+          </div>
         </div>
         <button type="button" class="today-candidates-refresh" :disabled="refreshing" @click="refresh">
           {{ refreshing ? '刷新中…' : '刷新' }}
@@ -76,7 +86,9 @@ onBeforeUnmount(deactivateTodayCandidates)
             :aria-pressed="activeStrategy === option.key"
             @click="activeStrategy = option.key"
           >
-            {{ option.label }} <span>{{ option.count }}</span>
+            <span class="today-candidates-strategy-option-label-full">{{ option.label }}</span>
+            <span class="today-candidates-strategy-option-label-compact">{{ compactStrategyOptionLabel(option.label) }}</span>
+            <span class="today-candidates-strategy-option-count">{{ option.count }}</span>
           </button>
         </div>
         <label class="today-candidates-sort">
@@ -105,7 +117,10 @@ onBeforeUnmount(deactivateTodayCandidates)
           :key="item.code"
           class="today-candidate-entry"
         >
-          <PracticeCandidateCard :item="item" :strategy-meta="strategyMeta" />
+          <PracticeCandidateCard
+            :item="item"
+            :strategy-meta="strategyMeta"
+          />
           <CandidateIntradayChart
             :item="item"
             :series="state.intradayByCode[item.code]"
@@ -165,7 +180,16 @@ onBeforeUnmount(deactivateTodayCandidates)
   min-width: 0;
 }
 
-.today-candidates-context > * {
+.today-candidates-context-primary,
+.today-candidates-context-secondary {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.today-candidates-context time,
+.today-candidates-context strong,
+.today-candidates-context span {
   color: var(--muted);
   font-style: normal;
   font-variant-numeric: tabular-nums;
@@ -173,7 +197,9 @@ onBeforeUnmount(deactivateTodayCandidates)
   white-space: nowrap;
 }
 
-.today-candidates-context > * + * {
+.today-candidates-context-primary > * + *,
+.today-candidates-context-secondary > * + *,
+.today-candidates-context-secondary {
   border-left: 1px solid var(--line);
   margin-left: 9px;
   padding-left: 9px;
@@ -251,11 +277,15 @@ onBeforeUnmount(deactivateTodayCandidates)
   padding: 4px 8px;
 }
 
-.today-candidates-strategies button span {
+.today-candidates-strategy-option-count {
   color: inherit;
   font-variant-numeric: tabular-nums;
   margin-left: 2px;
   opacity: .78;
+}
+
+.today-candidates-strategy-option-label-compact {
+  display: none;
 }
 
 .today-candidates-strategies button.active {
@@ -390,14 +420,28 @@ onBeforeUnmount(deactivateTodayCandidates)
   }
 
   .today-candidates-overview {
-    align-items: center;
+    align-items: stretch;
     gap: 7px;
     padding: 6px 7px 6px 9px;
   }
 
   .today-candidates-context {
     flex: 1 1 auto;
-    row-gap: 3px;
+    flex-direction: column;
+    justify-content: center;
+    row-gap: 2px;
+  }
+
+  .today-candidates-context-primary,
+  .today-candidates-context-secondary {
+    flex-wrap: nowrap;
+    width: 100%;
+  }
+
+  .today-candidates-context-secondary {
+    border-left: 0;
+    margin-left: 0;
+    padding-left: 0;
   }
 
   .today-candidates-strategy-count {
@@ -537,9 +581,39 @@ onBeforeUnmount(deactivateTodayCandidates)
     font-size: 10px;
   }
 
-  .today-candidates-context > * + * {
+  .today-candidates-context-primary > * + *,
+  .today-candidates-context-secondary > * + * {
     margin-left: 6px;
     padding-left: 6px;
+  }
+
+  .today-candidates-controls {
+    grid-template-areas:
+      'strategies'
+      'sort';
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .today-candidates-strategies {
+    padding-bottom: 1px;
+  }
+
+  .today-candidates-strategy-option-label-full {
+    display: none;
+  }
+
+  .today-candidates-strategy-option-label-compact {
+    display: inline;
+  }
+
+  .today-candidates-sort {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .today-candidates-sort-label {
+    display: inline;
+    font-size: 10px;
   }
 
   .today-candidates-updated-at {
@@ -547,7 +621,28 @@ onBeforeUnmount(deactivateTodayCandidates)
   }
 
   .today-candidates-sort select {
-    width: 90px;
+    width: 112px;
+  }
+
+  .today-candidate-entry :deep(.niuone-candidate-card .candidate-summary),
+  .today-candidate-entry :deep(.niuone-candidate-card .candidate-summary.has-industry) {
+    grid-template-areas:
+      'primary'
+      'industry';
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 5px;
+  }
+
+  .today-candidate-entry :deep(.niuone-candidate-card .candidate-industry) {
+    justify-content: flex-start;
+    justify-self: stretch;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 360px) {
+  .today-candidates-scan-count {
+    display: none;
   }
 }
 </style>

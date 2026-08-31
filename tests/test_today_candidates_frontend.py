@@ -22,6 +22,8 @@ class TodayCandidatesFrontendTests(unittest.TestCase):
         self.assertIn('class="today-candidates-page mainline-page"', source)
         self.assertIn('class="today-candidates-toolbar theme-ranking-panel"', source)
         self.assertIn('class="today-candidates-context"', source)
+        self.assertIn('当前 {{ currentCandidateCount }}只达标', source)
+        self.assertIn('今日累计 {{ candidateCount }}只曾达标', source)
         self.assertIn('class="today-candidates-controls"', source)
         self.assertIn('id="todayCandidatesTitle" class="visually-hidden"', source)
         self.assertIn(':global(html[data-theme="dark"] .today-candidates-toolbar)', source)
@@ -33,6 +35,11 @@ class TodayCandidatesFrontendTests(unittest.TestCase):
         self.assertNotIn('today-candidate-history', source)
         self.assertNotIn('class="today-candidates-summary mainline-summary-grid"', source)
         self.assertNotIn('radial-gradient', source)
+
+        data = DATA_PATH.read_text(encoding="utf-8")
+        self.assertIn("niuniu-dashboard-today-candidates-v2", data)
+        self.assertIn("currentCount: 0", data)
+        self.assertIn("payload?.current_count", data)
 
     def test_each_candidate_loads_a_theme_aware_intraday_chart_from_one_batch_endpoint(self) -> None:
         panel = PANEL_PATH.read_text(encoding="utf-8")
@@ -47,10 +54,12 @@ class TodayCandidatesFrontendTests(unittest.TestCase):
         self.assertIn("var(--red)", chart)
         self.assertIn("var(--green)", chart)
         self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)", chart)
-        for label in ("预期收益", "预期损失", "首次止盈", "含跳空与费用缓冲"):
+        for label in ("最佳评分", "策略综合评价", "预期收益", "预期损失", "首次止盈", "含跳空与费用缓冲"):
             self.assertIn(label, chart)
-        for obsolete_label in ("评分", "成交额", "全市分位", "距EMA20", "距BBI", "个股强度", "主线强度"):
+        for obsolete_label in ("成交额", "全市分位", "距EMA20", "距BBI", "个股强度", "主线强度"):
             self.assertNotIn(obsolete_label, chart)
+        self.assertIn("props.item.best_score ?? props.item.score", chart)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr))", chart)
         self.assertIn("todayCandidateExpectedOutcome", chart)
         self.assertIn("qualification_transitions", chart)
         self.assertIn("const qualificationGuides = computed", chart)
@@ -90,16 +99,22 @@ class TodayCandidatesFrontendTests(unittest.TestCase):
 
         self.assertIn("@media (max-width: 760px)", panel)
         self.assertIn("grid-template-areas: 'strategies sort'", panel)
+        self.assertIn("'strategies'\n      'sort'", panel)
         self.assertIn(".today-candidates-strategy-count", panel)
+        self.assertIn(".today-candidates-context-primary", panel)
+        self.assertIn(".today-candidates-context-secondary", panel)
+        self.assertIn("today-candidates-strategy-option-label-compact", panel)
         self.assertIn("flex-direction: row", panel)
         self.assertIn("overflow-x: auto", panel)
         self.assertIn("grid-template-areas: 'primary industry'", panel)
+        self.assertIn("'primary'\n      'industry'", panel)
         self.assertIn("grid-template-columns: minmax(0, 1fr) auto", panel)
         self.assertIn("justify-self: end", panel)
         self.assertIn("max-width: 52vw", panel)
+        self.assertIn("@media (max-width: 360px)", panel)
         self.assertIn("candidate-strategy-label-compact", panel)
         self.assertIn("candidate-context-label-compact", panel)
-        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", chart)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr))", chart)
         self.assertIn("grid-template-columns: minmax(90px, 1fr) 58px", chart)
 
     def test_filters_searches_and_sorts_today_candidates(self) -> None:

@@ -69,6 +69,7 @@ class TodayCandidatesTests(unittest.TestCase):
 
         self.assertEqual(payload["scan_count"], 2)
         self.assertEqual(payload["count"], 2)
+        self.assertEqual(payload["current_count"], 2)
         self.assertEqual([item["code"] for item in payload["items"]], ["600001", "000002"])
         first = payload["items"][0]
         self.assertEqual(first["best_score"], 9.1)
@@ -77,6 +78,7 @@ class TodayCandidatesTests(unittest.TestCase):
         self.assertEqual(first["last_qualified_at"], "2026-08-28 10:30:00")
         self.assertEqual(first["best_qualified_at"], "2026-08-28 10:30:00")
         self.assertEqual(first["qualified_count"], 2)
+        self.assertTrue(first["currently_qualified"])
         self.assertEqual(
             first["qualification_transitions"],
             [
@@ -127,6 +129,8 @@ class TodayCandidatesTests(unittest.TestCase):
         payload = build_today_candidates_payload(scans, current_date="2026-08-28")
 
         self.assertEqual(payload["items"][0]["qualified_count"], 3)
+        self.assertEqual(payload["current_count"], 1)
+        self.assertTrue(payload["items"][0]["currently_qualified"])
         self.assertEqual(
             payload["items"][0]["qualification_transitions"],
             [
@@ -152,6 +156,7 @@ class TodayCandidatesTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["scan_count"], 1)
+        self.assertEqual(payload["current_count"], 0)
         self.assertEqual(payload["items"], [])
 
     def test_legacy_archive_without_trade_items_uses_threshold_fallback(self) -> None:
@@ -178,6 +183,38 @@ class TodayCandidatesTests(unittest.TestCase):
         )
 
         self.assertEqual([item["code"] for item in payload["items"]], ["600004"])
+        self.assertEqual(payload["current_count"], 1)
+        self.assertTrue(payload["items"][0]["currently_qualified"])
+
+    def test_distinguishes_current_trade_pool_from_today_cumulative_count(self) -> None:
+        payload = build_today_candidates_payload(
+            [
+                {
+                    "generated_at": "2026-08-28 09:45:00",
+                    "trade_items": [
+                        {"code": "600001", "best_score": 8.4},
+                        {"code": "600002", "best_score": 8.2},
+                    ],
+                },
+                {
+                    "generated_at": "2026-08-28 10:30:00",
+                    "trade_items": [{"code": "600002", "best_score": 8.5}],
+                    "items": [
+                        {"code": "600001", "best_score": 7.7},
+                        {"code": "600002", "best_score": 8.5},
+                    ],
+                },
+            ],
+            current_date="2026-08-28",
+        )
+
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(payload["current_count"], 1)
+        current_by_code = {
+            item["code"]: item["currently_qualified"]
+            for item in payload["items"]
+        }
+        self.assertEqual(current_by_code, {"600001": False, "600002": True})
 
     def test_intraday_batch_is_bounded_concurrent_and_keeps_candidate_order(self) -> None:
         lock = threading.Lock()

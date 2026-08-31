@@ -85,7 +85,7 @@ Dashboard 使用 Vue 3 + Vite 和 FastAPI/Uvicorn，并保持单进程、单监�
 - `public_snapshots.py` 原子发布内容寻址对象、manifest 和 latest 指针；
 - `projection_service.py` 在后台固定频率读取服务端状态，浏览器轮询不会触发交易、行情或历史重算；
 - Dashboard 后台会在对应市场活跃时段主动预热指数、板块和热门股票共享缓存，失败后有界退避；休市时只复用最近成功快照，首次访问仍可立即返回快照并在后台刷新；
-- 实时候选与题材投影分别读取 `practice_candidates_latest.json` 和 `niuone_mainline_summary_latest.json`；“今日候选股”把当天最多 12 轮扫描中进入交易池的股票按代码去重，保留当日最佳评分以及首次、最近达标时间和达标轮数，并生成 `today_candidates_latest.json` 小型汇总。候选页的 `/api/today_candidates/intraday` 只在页面打开时批量加载这些股票的有界分时点，复用行情缓存并限制为 4 路并发和 10 秒总等待，单只股票失败不阻断其余结果。三者均排除全市场题材上下文和逐股归因状态，并按文件身份、大小与纳秒修改时间复用解析结果。完整扫描缓存继续供交易、分钟题材连续性和旧入口使用；小型快照缺失或落后时只读取一次完整缓存并自动补建；
+- 实时候选与题材投影分别读取 `practice_candidates_latest.json` 和 `niuone_mainline_summary_latest.json`；“今日候选股”把当天最多 12 轮扫描中进入交易池的股票按代码去重，保留当日最佳评分以及首次、最近达标时间和达标轮数，并额外返回最新一轮仍达标的逐股状态与数量，生成 `today_candidates_latest.json` 小型汇总。候选页分别显示“当前达标”和“今日累计曾达标”，`/api/today_candidates/intraday` 只在页面打开时批量加载这些股票的有界分时点，复用行情缓存并限制为 4 路并发和 10 秒总等待，单只股票失败不阻断其余结果。三者均排除全市场题材上下文和逐股归因状态，并按文件身份、大小与纳秒修改时间复用解析结果。完整扫描缓存继续供交易、分钟题材连续性和旧入口使用；小型快照缺失或落后时只读取一次完整缓存并自动补建；
 - `fastapi_app.py` 是唯一 HTTP 监听者，只组合中间件、Vue 构建、共享缓存响应和领域路由；
 - `routers/` 显式声明 system、messages、market、practice、admin 五组浏览器接口；
 - `security.py`、`visit_stats.py`、`response_cache.py` 接收显式状态和路径，分别实现访问控制、统计持久化和带失效代次的并发 JSON 缓存；

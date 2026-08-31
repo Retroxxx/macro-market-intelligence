@@ -26,6 +26,12 @@ const expectedReturnText = computed(() => Number.isFinite(expectedOutcome.value.
 const expectedLossText = computed(() => Number.isFinite(expectedOutcome.value.expectedLossPct)
   ? `-${formatPracticeNumber(expectedOutcome.value.expectedLossPct)}%`
   : '--')
+const scoreText = computed(() => {
+  const score = Number(props.item.best_score ?? props.item.score)
+  return Number.isFinite(score)
+    ? `${formatPracticeNumber(score)}/${props.item.score_total || 10}`
+    : '--'
+})
 const expectedReturnBasis = computed(() => `${formatPracticeNumber(expectedOutcome.value.targetR)}R 首次止盈`)
 const expectedLossBasis = computed(() => {
   const effectiveLoss = Number(props.item.effective_loss_distance_pct)
@@ -105,7 +111,12 @@ const ariaLabel = computed(() => {
 
 <template>
   <div class="candidate-market-strip">
-    <div class="candidate-key-facts" aria-label="候选股预期收益与损失">
+    <div class="candidate-key-facts" aria-label="候选股最佳评分、预期收益与损失">
+      <div class="candidate-key-fact candidate-score">
+        <span>最佳评分</span>
+        <strong>{{ scoreText }}</strong>
+        <small>策略综合评价</small>
+      </div>
       <div class="candidate-key-fact expected-return">
         <span>预期收益</span>
         <strong>{{ expectedReturnText }}</strong>
@@ -159,7 +170,7 @@ const ariaLabel = computed(() => {
   align-items: stretch;
   border-right: 1px solid var(--line);
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   min-width: 0;
   padding: 6px 4px;
 }
@@ -199,6 +210,7 @@ const ariaLabel = computed(() => {
 
 .candidate-key-fact.expected-return strong { color: var(--red); }
 .candidate-key-fact.expected-loss strong { color: var(--green); }
+.candidate-key-fact.candidate-score strong { color: var(--accent-text); }
 
 .candidate-intraday {
   align-items: center;
@@ -400,7 +412,7 @@ const ariaLabel = computed(() => {
 
 @media (max-width: 560px) {
   .candidate-key-facts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     padding: 5px 2px;
   }
 

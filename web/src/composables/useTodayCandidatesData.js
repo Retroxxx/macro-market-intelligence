@@ -3,7 +3,7 @@ import { subscribePublicProjection } from './usePublicProjection.js'
 
 const CACHE_TTL_MS = 30 * 1000
 const REQUEST_TIMEOUT_MS = 15 * 1000
-const CACHE_KEY = 'niuniu-dashboard-today-candidates-v1'
+const CACHE_KEY = 'niuniu-dashboard-today-candidates-v2'
 const SECTION_NAME = 'today_candidates'
 
 const state = reactive({
@@ -11,6 +11,7 @@ const state = reactive({
   loaded: false,
   items: [],
   count: 0,
+  currentCount: 0,
   currentDate: '',
   generatedAt: '',
   scanCount: 0,
@@ -43,6 +44,7 @@ function saveCache() {
     sessionStorage.setItem(CACHE_KEY, JSON.stringify({
       items: state.items,
       count: state.count,
+      currentCount: state.currentCount,
       currentDate: state.currentDate,
       generatedAt: state.generatedAt,
       scanCount: state.scanCount,
@@ -62,6 +64,7 @@ function restoreCache() {
     if (!cached.savedAt || Date.now() - Number(cached.savedAt) > CACHE_TTL_MS) return
     state.items = Array.isArray(cached.items) ? cached.items : []
     state.count = Number(cached.count || state.items.length)
+    state.currentCount = Number(cached.currentCount || 0)
     state.currentDate = String(cached.currentDate || '')
     state.generatedAt = String(cached.generatedAt || '')
     state.scanCount = Number(cached.scanCount || 0)
@@ -123,6 +126,7 @@ function applyPayload(payload) {
   const items = Array.isArray(payload?.items) ? payload.items : []
   state.items = items
   state.count = Number(payload?.count || items.length)
+  state.currentCount = Number(payload?.current_count || 0)
   state.currentDate = String(payload?.current_date || '')
   state.generatedAt = String(payload?.generated_at || '')
   state.scanCount = Number(payload?.scan_count || 0)
