@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import re
 import urllib.parse
 from dataclasses import dataclass, field
@@ -25,6 +26,9 @@ from .models import (
     Clock,
     _escape_markdown,
 )
+
+
+_FEISHU_MAX_PAYLOAD_BYTES = 28 * 1024
 
 
 def _reject_controls(value: str, field_name: str) -> str:
@@ -211,6 +215,70 @@ def _feishu_card_elements(notification: Notification) -> list[dict[str, Any]]:
     return elements if rendered_sections else []
 
 
+def _feishu_interactive_payload(
+    notification: Notification,
+    elements: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "msg_type": "interactive",
+        "card": {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "template": "blue",
+                "title": {
+                    "tag": "plain_text",
+                    "content": str(notification.title or "").strip(),
+                },
+            },
+            "elements": elements,
+        },
+    }
+
+
+def _feishu_payload_size(payload: Mapping[str, Any]) -> int:
+    return len(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+
+
+def _feishu_structured_payloads(
+    notification: Notification,
+    elements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Pack complete trade sections into bounded Feishu cards."""
+
+    section_groups: list[list[dict[str, Any]]] = []
+    current_group: list[dict[str, Any]] = []
+    for element in elements:
+        if element.get("tag") == "hr":
+            if current_group:
+                section_groups.append(current_group)
+                current_group = []
+            continue
+        current_group.append(element)
+    if current_group:
+        section_groups.append(current_group)
+
+    payloads: list[dict[str, Any]] = []
+    packed_elements: list[dict[str, Any]] = []
+    for group in section_groups:
+        candidate_elements = packed_elements + (
+            [{"tag": "hr"}] if packed_elements else []
+        ) + group
+        candidate_payload = _feishu_interactive_payload(notification, candidate_elements)
+        if packed_elements and _feishu_payload_size(candidate_payload) > _FEISHU_MAX_PAYLOAD_BYTES:
+            payloads.append(_feishu_interactive_payload(notification, packed_elements))
+            packed_elements = list(group)
+            continue
+        packed_elements = candidate_elements
+
+    if packed_elements:
+        payloads.append(_feishu_interactive_payload(notification, packed_elements))
+    if any(_feishu_payload_size(payload) > _FEISHU_MAX_PAYLOAD_BYTES for payload in payloads):
+        raise NotificationDeliveryError("Feishu card section exceeds the safe payload limit")
+    return payloads
+
+
 @dataclass(frozen=True)
 class FeishuChannel:
     webhook_url: str
@@ -226,41 +294,38 @@ class FeishuChannel:
         clock: Clock,
     ) -> None:
         rich_text = notification.markdown_text(include_title=False)
-        card_elements = _feishu_card_elements(notification) if rich_text else []
-        if rich_text:
-            payload: dict[str, Any] = {
-                "msg_type": "interactive",
-                "card": {
-                    "config": {"wide_screen_mode": True},
-                    "header": {
-                        "template": "blue",
-                        "title": {
-                            "tag": "plain_text",
-                            "content": str(notification.title or "").strip(),
-                        },
-                    },
-                    "elements": card_elements or [{"tag": "markdown", "content": rich_text}],
-                },
-            }
+        card_elements = _feishu_card_elements(notification)
+        if card_elements:
+            payloads = _feishu_structured_payloads(notification, card_elements)
+        elif rich_text:
+            payloads = [
+                _feishu_interactive_payload(
+                    notification,
+                    [{"tag": "markdown", "content": rich_text}],
+                )
+            ]
         else:
-            payload = {
+            payloads = [{
                 "msg_type": "text",
                 "content": {"text": notification.plain_text()},
-            }
+            }]
+        signing_fields: dict[str, str] = {}
         if self.signing_secret:
             timestamp = str(int(clock()))
             string_to_sign = f"{timestamp}\n{self.signing_secret}".encode("utf-8")
             digest = hmac.new(string_to_sign, digestmod=hashlib.sha256).digest()
-            payload.update({
+            signing_fields = {
                 "timestamp": timestamp,
                 "sign": base64.b64encode(digest).decode("ascii"),
-            })
-        response = _require_mapping_response(transport(self.webhook_url, payload, timeout))
-        code = response.get("code") if "code" in response else response.get("StatusCode")
-        if not _zero_code(code):
-            raise NotificationDeliveryError(
-                f"provider rejected request (code={_safe_provider_code(code)})"
-            )
+            }
+        for payload in payloads:
+            payload.update(signing_fields)
+            response = _require_mapping_response(transport(self.webhook_url, payload, timeout))
+            code = response.get("code") if "code" in response else response.get("StatusCode")
+            if not _zero_code(code):
+                raise NotificationDeliveryError(
+                    f"provider rejected request (code={_safe_provider_code(code)})"
+                )
 
 
 @dataclass(frozen=True)

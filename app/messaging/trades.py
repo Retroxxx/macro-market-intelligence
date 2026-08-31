@@ -11,6 +11,9 @@ from .models import Clock, DeliveryResult, JsonTransport, Notification
 from .transport import _sanitized_error
 
 
+_MAX_TRADE_REASON_CHARS = 1000
+
+
 def _clean_trade_text(value: Any, max_chars: int = 120) -> str:
     text = re.sub(r"[\x00-\x1f\x7f]+", " ", str(value or ""))
     text = re.sub(r"\s+", " ", text).strip()
@@ -209,7 +212,7 @@ def _trade_notification(trades: Iterable[Mapping[str, Any]]) -> Notification | N
             trade.get("exit_rule") if action == "SELL" else trade.get("buy_strategy"),
             60,
         )
-        reason = _clean_trade_text(trade.get("reason"), 100)
+        reason = _clean_trade_text(trade.get("reason"), _MAX_TRADE_REASON_CHARS)
         if strategy:
             _append_rich_field(
                 plain_lines,

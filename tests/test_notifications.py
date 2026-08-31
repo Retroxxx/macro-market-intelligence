@@ -634,6 +634,56 @@ class NotificationTests(unittest.TestCase):
         self.assertLessEqual(len(text.encode("utf-8")), notifications.MAX_MESSAGE_BYTES)
         text.encode("utf-8").decode("utf-8")
 
+    def test_feishu_card_keeps_complete_trade_reason_beyond_shared_rich_text_limit(self):
+        trade = sample_trades()[1]
+        reason = "卖出理由需要保留完整上下文，包含趋势、板块、止损和仓位依据。" * 20
+        trade["reason"] = reason
+        transport = RecordingTransport()
+
+        results = notifications.notify_trade_executions(
+            [trade],
+            single_channel_env("feishu"),
+            transport=transport,
+        )
+
+        self.assertTrue(results[0].ok)
+        payload = transport.calls[0]["payload"]
+        self.assertEqual(payload["msg_type"], "interactive")
+        details = payload["card"]["elements"][2]["text"]["content"]
+        self.assertIn(f"**理由**　{reason}", details)
+        self.assertNotIn("…", details)
+        self.assertNotIn("内容已截断", details)
+
+    def test_feishu_splits_large_trade_batches_without_cutting_sections(self):
+        trade = sample_trades()[1]
+        reason = "完整卖出依据" * 150
+        trade["reason"] = reason
+        transport = RecordingTransport()
+
+        results = notifications.notify_trade_executions(
+            [dict(trade) for _ in range(20)],
+            single_channel_env("feishu"),
+            transport=transport,
+        )
+
+        self.assertTrue(results[0].ok)
+        self.assertGreater(len(transport.calls), 1)
+        heading_count = 0
+        reason_count = 0
+        for call in transport.calls:
+            payload = call["payload"]
+            self.assertEqual(payload["msg_type"], "interactive")
+            self.assertLessEqual(
+                len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")),
+                28 * 1024,
+            )
+            for element in payload["card"]["elements"]:
+                content = element.get("text", {}).get("content", "")
+                heading_count += content.count("<font color='green'>卖出</font>")
+                reason_count += content.count(f"**理由**　{reason}")
+        self.assertEqual(heading_count, 20)
+        self.assertEqual(reason_count, 20)
+
     def test_rich_trade_content_escapes_provider_markup(self):
         trade = sample_trades()[0]
         trade["name"] = "<b>测试</b>"
