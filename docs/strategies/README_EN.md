@@ -25,8 +25,9 @@ Switching suites does not rewrite historical position attribution. The active su
 
 1. Set **Active independent strategy** to **Sector Tide** on the settings page. The corresponding value is `DASHBOARD_ACTIVE_STRATEGY=sector_tide`. This setting is applied at runtime and takes effect on the next scan without restarting the Dashboard.
 2. New candidates and model decisions reuse the Practice page's shared schedule. The scheduler inside the Dashboard process reads `DASHBOARD_PRACTICE_SCHEDULE_TIMES`; Sector Tide does not have a separate candidate-scan timer.
-3. To run immediately, click **Manually trigger candidate scan and trading strategy** on the practice page. One full cycle performs the market scan, candidate generation, model assessment, and execution-layer risk checks.
-4. A 09:25 scan may use the opening-auction result to form candidates, but it cannot simulate a fill during the 09:25–09:30 quiet period. Any executable action is queued for a fresh price, session, and risk check after 09:30.
+3. When scheduled, manual, or administrative refresh requests overlap, later requests join the active full-market scan and reuse its candidate result. Trading decisions remain serialized and idempotent by candidate generation time, so an active scan is neither recorded as a failure nor executed twice.
+4. To run immediately, click **Manually trigger candidate scan and trading strategy** on the practice page. One full cycle performs the market scan, candidate generation, model assessment, and execution-layer risk checks.
+5. A 09:25 scan may use the opening-auction result to form candidates, but it cannot simulate a fill during the 09:25–09:30 quiet period. Any executable action is queued for a fresh price, session, and risk check after 09:30.
 
 Scheduling ownership is split between two processes:
 

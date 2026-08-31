@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { formatPracticeAmount, formatPracticeNumber } from '../../utils/practiceDisplay.js'
 import PracticeMarketSummary from './PracticeMarketSummary.vue'
 import PracticePositions from './PracticePositions.vue'
@@ -14,6 +14,7 @@ const props = defineProps({
   error: { type: String, default: '' },
 })
 const emit = defineEmits(['manual-cycle', 'market-summary', 'resume'])
+const dismissedManualFailure = ref('')
 
 const pnl = computed(() => Number(props.practice.total_pnl || 0))
 const exitReview = computed(() => props.practice.post_exit_observation_summary || {})
@@ -47,6 +48,21 @@ const feedbackActionLabel = computed(() => {
   }[action] || action
 })
 const manualRunning = computed(() => props.manualCycle.running === true)
+const manualFailureKey = computed(() => [
+  props.manualCycle.job_id,
+  props.manualCycle.finished_at,
+  props.manualCycle.error_code,
+].map(value => String(value || '')).join(':'))
+const manualFailureVisible = computed(() => (
+  !manualRunning.value
+  && ['error', 'interrupted'].includes(String(props.manualCycle.stage || ''))
+  && Boolean(props.manualCycle.error)
+  && props.manualCycle.error_visible !== false
+  && dismissedManualFailure.value !== manualFailureKey.value
+))
+const manualNoticeVisible = computed(() => (
+  manualRunning.value && Boolean(props.manualCycle.notice)
+))
 const deploymentBlocked = computed(() => (
   props.dataReadiness?.blockers?.includes('runtime_storage_not_writable') === true
 ))
@@ -148,8 +164,20 @@ const manualButtonText = computed(() => {
       :summary="marketSummary"
       :generating="marketSummaryGenerating"
     />
-    <div v-if="manualCycle.error" class="practice-manual-cycle-error">
-      本轮执行失败<span v-if="manualCycle.error_code">（{{ manualCycle.error_code }}）</span>：{{ manualCycle.error }}
+    <div v-if="manualNoticeVisible" class="practice-manual-cycle-notice" role="status">
+      {{ manualCycle.notice }}
+    </div>
+    <div v-if="manualFailureVisible" class="practice-manual-cycle-error" role="alert">
+      <span>
+        本轮执行失败<span v-if="manualCycle.error_code">（{{ manualCycle.error_code }}）</span>：{{ manualCycle.error }}
+        <time v-if="manualCycle.finished_at"> · {{ String(manualCycle.finished_at).slice(11, 19) }}</time>
+      </span>
+      <button
+        type="button"
+        class="practice-manual-cycle-error-dismiss"
+        aria-label="关闭本轮失败提示"
+        @click="dismissedManualFailure = manualFailureKey"
+      >×</button>
     </div>
     <div v-if="practice.trading_paused" style="background:var(--yellow-soft);border:1px solid var(--yellow-border);border-radius:8px;padding:10px 14px;margin:10px 0;display:flex;justify-content:space-between;align-items:center">
       <span style="color:var(--yellow-text);font-size:13px">新开仓已暂停：{{ practice.pause_reason || '风控触发' }}（{{ String(practice.pause_since || '').slice(11, 16) }}起，卖出风控继续运行）</span>

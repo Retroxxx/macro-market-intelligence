@@ -476,6 +476,9 @@ INDUSTRY_FLOW_PLAYBACK_SPEED = _industry_flow_playback_speed_value(
 INDUSTRY_FLOW_SAMPLING_WINDOWS = _industry_flow_sampling_windows_value(os.environ)
 B1_CANDIDATE_REFRESH_LOCK = threading.Lock()
 B1_FULL_SCAN_LOCK = threading.Lock()
+B1_FULL_SCAN_CONDITION = threading.Condition(threading.RLock())
+B1_FULL_SCAN_ACTIVE: dict[str, Any] = {}
+B1_FULL_SCAN_LAST_RESULT: dict[str, Any] = {}
 B1_CANDIDATE_REFRESH_MIN_SECONDS = float(os.environ.get("DASHBOARD_B1_CANDIDATE_REFRESH_MIN_SECONDS", "0") or "0")
 B1_CANDIDATE_REFRESH_LAST_TS = 0.0
 MULTI_STRATEGY_CACHE_FILE = CRON_OUTPUT_DIR / "multi_strategy_latest.json"
@@ -495,6 +498,7 @@ PRACTICE_MANUAL_SCAN_REUSE_SECONDS = max(
     0,
     int(os.environ.get("DASHBOARD_MANUAL_SCAN_REUSE_SECONDS", "0") or "0"),
 )
+PRACTICE_MANUAL_ERROR_DISPLAY_SECONDS = 10 * 60
 PRACTICE_MANUAL_CYCLE_STATE: dict[str, Any] = {
     "running": False,
     "stage": "idle",
@@ -520,6 +524,10 @@ PRACTICE_MANUAL_CYCLE_PUBLIC_FIELDS = (
     "generated_at",
     "candidate_count",
     "manual_scan_reused",
+    "joined_existing_scan",
+    "active_scan_job_id",
+    "notice_code",
+    "notice",
     "failure_stage",
     "error_code",
     "error",
@@ -3226,6 +3234,7 @@ def _trigger_b1_scan_unlocked(
             cache = {**data, "items": items, "candidates": candidates, "count": len(items),
                      "trade_items": trade_items, "trade_count": len(trade_items),
                      "total_analyzed": data.get("total_analyzed", 0),
+                     "job_id": resolved_job_id,
                      "generated_at": data.get("generated_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                      "running": False, "error": "", "cooldown_remaining_seconds": 0,
                      **schedule_meta}
@@ -3355,42 +3364,111 @@ def trigger_b1_scan(
                 "initializing": bool(initialization_started),
                 "readiness": readiness,
             }
+    resolved_job_id = str(job_id or f"scan-{secrets.token_urlsafe(12)}")[:120]
     if not B1_FULL_SCAN_LOCK.acquire(blocking=False):
-        return {
-            "error": "已有选股扫描正在运行，请等待当前扫描完成",
-            "items": [],
-            "count": 0,
-            "generated_at": "",
-            "running": True,
-            "busy": True,
-        }
+        return _b1_scan_busy_payload(other_process=False)
     process_lease = FileLease(
         CRON_STATE_DIR / "b1_full_scan.lock",
         stale_after_seconds=B1_SCAN_TIMEOUT_SECONDS + 120,
     )
     if not process_lease.acquire():
         B1_FULL_SCAN_LOCK.release()
-        return {
-            "error": "其他服务实例正在运行选股扫描，请等待当前扫描完成",
-            "error_code": "scan_in_progress_other_process",
-            "items": [],
-            "count": 0,
-            "generated_at": "",
-            "running": True,
-            "busy": True,
-        }
+        return _b1_scan_busy_payload(other_process=True)
+    _begin_b1_full_scan(resolved_job_id)
+    result: dict[str, Any] | None = None
     try:
-        return _trigger_b1_scan_unlocked(
+        result = _trigger_b1_scan_unlocked(
             force,
             decision_mode,
             schedule_slot=schedule_slot,
             schedule_run_kind=schedule_run_kind,
-            job_id=job_id,
+            job_id=resolved_job_id,
             require_ready_cache=require_ready_cache,
         )
+        result.setdefault("job_id", resolved_job_id)
+        return result
     finally:
+        _finish_b1_full_scan(resolved_job_id, result)
         process_lease.release()
         B1_FULL_SCAN_LOCK.release()
+
+
+def _b1_active_scan_snapshot(*, include_progress: bool) -> dict[str, Any]:
+    with B1_FULL_SCAN_CONDITION:
+        active = dict(B1_FULL_SCAN_ACTIVE)
+    if active.get("job_id") or not include_progress:
+        return active
+    progress = read_json_cache(
+        Path(
+            os.environ.get("DASHBOARD_B1_PROGRESS_FILE")
+            or CRON_STATE_DIR / "b1_scan_progress.json"
+        ).expanduser(),
+        None,
+    ) or {}
+    return {
+        key: progress.get(key)
+        for key in ("job_id", "stage", "stage_label", "updated_at")
+        if progress.get(key) not in {None, ""}
+    }
+
+
+def _b1_scan_busy_payload(*, other_process: bool) -> dict[str, Any]:
+    active = _b1_active_scan_snapshot(include_progress=other_process)
+    return {
+        "status": "busy",
+        "error": "",
+        "error_code": "",
+        "stage": "waiting_for_scan",
+        "stage_label": "已有选股扫描正在运行，已加入当前任务",
+        "items": [],
+        "count": 0,
+        "generated_at": "",
+        "running": True,
+        "busy": True,
+        "joined": True,
+        "other_process": other_process,
+        "active_job_id": str(active.get("job_id") or ""),
+        "active_stage": str(active.get("stage") or ""),
+        "active_stage_label": str(active.get("stage_label") or ""),
+    }
+
+
+def _begin_b1_full_scan(job_id: str) -> None:
+    with B1_FULL_SCAN_CONDITION:
+        B1_FULL_SCAN_ACTIVE.clear()
+        B1_FULL_SCAN_ACTIVE.update({
+            "job_id": job_id,
+            "running": True,
+            "started_at": _b1_schedule_now_text(),
+        })
+        B1_FULL_SCAN_CONDITION.notify_all()
+
+
+def _finish_b1_full_scan(
+    job_id: str,
+    result: Mapping[str, Any] | None,
+) -> None:
+    terminal = dict(result) if isinstance(result, Mapping) else {
+        "error": "选股扫描未返回结果",
+        "error_code": "candidate_scan_result_missing",
+        "stage": "screening",
+        "items": [],
+        "count": 0,
+        "generated_at": "",
+        "running": False,
+    }
+    terminal.setdefault("job_id", job_id)
+    terminal["running"] = False
+    with B1_FULL_SCAN_CONDITION:
+        B1_FULL_SCAN_LAST_RESULT.clear()
+        B1_FULL_SCAN_LAST_RESULT.update({
+            "job_id": job_id,
+            "result": terminal,
+            "finished_at": _b1_schedule_now_text(),
+        })
+        if str(B1_FULL_SCAN_ACTIVE.get("job_id") or "") == job_id:
+            B1_FULL_SCAN_ACTIVE.clear()
+        B1_FULL_SCAN_CONDITION.notify_all()
 
 
 class PracticeCycleError(RuntimeError):
@@ -3398,6 +3476,69 @@ class PracticeCycleError(RuntimeError):
         super().__init__(message)
         self.code = str(code or "practice_cycle_failed")[:120]
         self.stage = str(stage or "error")[:80]
+
+
+def wait_for_b1_scan_result(
+    busy_state: Mapping[str, Any],
+    *,
+    timeout_seconds: float | None = None,
+) -> dict[str, Any]:
+    """Join one bounded scan without starting a duplicate scan or decision."""
+
+    target_job_id = str(busy_state.get("active_job_id") or "")
+    timeout = max(
+        1.0,
+        float(timeout_seconds or (B1_SCAN_TIMEOUT_SECONDS + 120)),
+    )
+    deadline = time.monotonic() + timeout
+    while True:
+        with B1_FULL_SCAN_CONDITION:
+            last_job_id = str(B1_FULL_SCAN_LAST_RESULT.get("job_id") or "")
+            last_result = B1_FULL_SCAN_LAST_RESULT.get("result")
+            if (
+                target_job_id
+                and last_job_id == target_job_id
+                and isinstance(last_result, Mapping)
+            ):
+                return dict(last_result)
+            active_job_id = str(B1_FULL_SCAN_ACTIVE.get("job_id") or "")
+
+        if not target_job_id:
+            target_job_id = active_job_id
+            if not target_job_id and busy_state.get("other_process"):
+                progress = read_json_cache(b1_scan_progress_file(), None) or {}
+                target_job_id = str(progress.get("job_id") or "")
+
+        if target_job_id and not active_job_id:
+            cached = read_json_cache(B1_CACHE_FILE, None) or {}
+            if str(cached.get("job_id") or "") == target_job_id:
+                return cached
+            if not (CRON_STATE_DIR / "b1_full_scan.lock").exists():
+                raise PracticeCycleError(
+                    "已加入的选股扫描结束，但没有产生可复用结果",
+                    code="joined_scan_result_unavailable",
+                    stage="waiting_for_scan",
+                )
+        elif (
+            not target_job_id
+            and not B1_FULL_SCAN_LOCK.locked()
+            and not (CRON_STATE_DIR / "b1_full_scan.lock").exists()
+        ):
+            raise PracticeCycleError(
+                "当前选股扫描已经结束，但无法确认可复用任务",
+                code="joined_scan_identity_unavailable",
+                stage="waiting_for_scan",
+            )
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise PracticeCycleError(
+                f"等待当前选股扫描超过{int(timeout)}秒",
+                code="joined_scan_timeout",
+                stage="waiting_for_scan",
+            )
+        with B1_FULL_SCAN_CONDITION:
+            B1_FULL_SCAN_CONDITION.wait(timeout=min(1.0, remaining))
 
 
 def practice_manual_cycle_state_file() -> Path:
@@ -3458,6 +3599,7 @@ def practice_manual_cycle_status() -> dict[str, Any]:
     with PRACTICE_MANUAL_CYCLE_STATE_LOCK:
         status = _public_practice_manual_cycle_state(PRACTICE_MANUAL_CYCLE_STATE)
     if status.get("running") and status.get("stage") in {
+        "waiting_for_scan",
         "screening",
         "code_pool",
         "quotes",
@@ -3469,7 +3611,11 @@ def practice_manual_cycle_status() -> dict[str, Any]:
         "persisting",
     }:
         progress = read_json_cache(b1_scan_progress_file(), None) or {}
-        if str(progress.get("job_id") or "") == str(status.get("job_id") or ""):
+        progress_job_id = str(progress.get("job_id") or "")
+        expected_job_id = str(
+            status.get("active_scan_job_id") or status.get("job_id") or ""
+        )
+        if progress_job_id == expected_job_id:
             for name in (
                 "stage",
                 "stage_label",
@@ -3482,11 +3628,31 @@ def practice_manual_cycle_status() -> dict[str, Any]:
                 "updated_at",
             ):
                 if name in progress:
-                    status[name] = progress[name]
+                    if name == "stage" and status.get("stage") == "waiting_for_scan":
+                        status["active_scan_stage"] = progress[name]
+                    else:
+                        status[name] = progress[name]
     completed = int(status.get("completed") or 0)
     total = int(status.get("total") or 0)
     status["progress_pct"] = round(completed / total * 100, 1) if total else 0.0
+    status["error_visible"] = _practice_manual_error_is_visible(status)
     return status
+
+
+def _practice_manual_error_is_visible(status: Mapping[str, Any]) -> bool:
+    if status.get("running") or not status.get("error"):
+        return False
+    if str(status.get("stage") or "") not in {"error", "interrupted"}:
+        return False
+    timestamp = str(status.get("finished_at") or status.get("started_at") or "")[:19]
+    if not timestamp:
+        return True
+    try:
+        finished = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return True
+    age_seconds = (datetime.now() - finished).total_seconds()
+    return -60 <= age_seconds <= PRACTICE_MANUAL_ERROR_DISPLAY_SECONDS
 
 
 def _set_practice_manual_cycle_state(**updates: Any) -> dict[str, Any]:
@@ -3666,6 +3832,19 @@ def _run_practice_manual_cycle(process_lease: FileLease | None = None) -> None:
                 decision_mode="none",
                 job_id=str(PRACTICE_MANUAL_CYCLE_STATE.get("job_id") or ""),
             )
+        if cache.get("busy"):
+            active_scan_job_id = str(cache.get("active_job_id") or "")
+            _set_practice_manual_cycle_state(
+                stage="waiting_for_scan",
+                stage_label="已有选股扫描正在运行，正在加入当前任务",
+                joined_existing_scan=True,
+                active_scan_job_id=active_scan_job_id,
+                notice_code="joined_existing_scan",
+                notice="已加入当前选股扫描，完成后将复用同一份候选结果",
+                error_code="",
+                error="",
+            )
+            cache = wait_for_b1_scan_result(cache)
         if cache.get("error"):
             raise PracticeCycleError(
                 str(cache.get("error")),
@@ -3696,6 +3875,17 @@ def _run_practice_manual_cycle(process_lease: FileLease | None = None) -> None:
             stage_label="本轮选股及买卖已完成",
             finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             decision_result=decision_result,
+            active_scan_job_id="",
+            notice_code=(
+                "joined_existing_scan"
+                if PRACTICE_MANUAL_CYCLE_STATE.get("joined_existing_scan")
+                else ""
+            ),
+            notice=(
+                "已复用当前选股扫描，并完成本轮买卖策略"
+                if PRACTICE_MANUAL_CYCLE_STATE.get("joined_existing_scan")
+                else ""
+            ),
             error_code="",
             error="",
         )
@@ -3710,6 +3900,7 @@ def _run_practice_manual_cycle(process_lease: FileLease | None = None) -> None:
             stage_label="本轮执行失败",
             finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             failure_stage=failure_stage,
+            active_scan_job_id="",
             error_code=error_code,
             error=f"{type(exc).__name__}: {exc}",
         )
@@ -3722,7 +3913,13 @@ def _run_practice_manual_cycle(process_lease: FileLease | None = None) -> None:
 
 def start_practice_manual_cycle() -> dict[str, Any]:
     if not PRACTICE_MANUAL_CYCLE_LOCK.acquire(blocking=False):
-        return {**practice_manual_cycle_status(), "accepted": False}
+        return {
+            **practice_manual_cycle_status(),
+            "accepted": False,
+            "busy": True,
+            "notice_code": "joined_existing_manual_cycle",
+            "notice": "已有手动任务正在运行，已加入当前任务",
+        }
     initialization_timeout = _bounded_int_value(
         os.environ.get(
             "DASHBOARD_MANUAL_DATA_INITIALIZATION_TIMEOUT_SECONDS",
@@ -3754,7 +3951,10 @@ def start_practice_manual_cycle() -> dict[str, Any]:
             "accepted": False,
             "running": True,
             "busy": True,
-            "error_code": "manual_cycle_in_progress_other_process",
+            "error_code": "",
+            "error": "",
+            "notice_code": "joined_existing_manual_cycle",
+            "notice": "其他服务实例正在执行本轮任务，已加入当前任务",
             "stage_label": "其他服务实例正在执行选股及买卖策略",
         }
     started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -3774,7 +3974,11 @@ def start_practice_manual_cycle() -> dict[str, Any]:
         cache_hits=0,
         network_fallbacks=0,
         manual_scan_reused=False,
+        joined_existing_scan=False,
+        active_scan_job_id="",
         decision_result=None,
+        notice_code="",
+        notice="",
         failure_stage="",
         error_code="",
         error="",
@@ -4039,6 +4243,27 @@ def run_scheduled_b1_scan(slot_key: str) -> None:
             schedule_slot=slot_key,
             schedule_run_kind=run_kind,
         )
+        if cache.get("busy"):
+            try:
+                cache = wait_for_b1_scan_result(cache)
+                cache = {
+                    **cache,
+                    "schedule_slot": slot_key,
+                    "schedule_run_kind": run_kind,
+                    "schedule_triggered_at": datetime.now().strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    ),
+                }
+            except PracticeCycleError as exc:
+                cache = {
+                    "error": str(exc),
+                    "error_code": exc.code,
+                    "stage": exc.stage,
+                    "items": [],
+                    "count": 0,
+                    "generated_at": "",
+                    "running": False,
+                }
         with API_RESPONSE_LOCK:
             API_RESPONSE_CACHE.pop(PRACTICE_CANDIDATES_CACHE_KEY, None)
         start_independent_niuone_mainline_scan(slot_key)

@@ -1740,6 +1740,71 @@ console.log(JSON.stringify({
         self.assertEqual(calls[-1][2]['reason'], 'practice_decision_failed')
         self.assertIn('model timeout', calls[-1][2]['error'])
 
+    def test_scheduled_b1_joins_running_scan_before_decision(self):
+        calls = []
+        originals = {
+            'b1_cache_generated_for_slot': dashboard.b1_cache_generated_for_slot,
+            '_b1_schedule_slot_lag_seconds': dashboard._b1_schedule_slot_lag_seconds,
+            '_mark_b1_schedule_slot': dashboard._mark_b1_schedule_slot,
+            'refresh_practice_market_summary_for_decision': dashboard.refresh_practice_market_summary_for_decision,
+            'trigger_b1_scan': dashboard.trigger_b1_scan,
+            'wait_for_b1_scan_result': dashboard.wait_for_b1_scan_result,
+            'run_practice_decision_logged': dashboard.run_practice_decision_logged,
+            'start_independent_niuone_mainline_scan': dashboard.start_independent_niuone_mainline_scan,
+        }
+        try:
+            dashboard.b1_cache_generated_for_slot = lambda _slot: False
+            dashboard._b1_schedule_slot_lag_seconds = lambda _slot: 0
+            dashboard._mark_b1_schedule_slot = lambda _slot, status, **fields: calls.append(
+                ('mark', status, fields)
+            )
+            dashboard.refresh_practice_market_summary_for_decision = lambda _trigger: {
+                'generated_at': '2026-07-10 10:00:01',
+            }
+            dashboard.trigger_b1_scan = lambda **_kwargs: {
+                'status': 'busy',
+                'busy': True,
+                'running': True,
+                'error': '',
+                'active_job_id': 'manual-scan',
+            }
+            dashboard.wait_for_b1_scan_result = lambda busy: (
+                calls.append(('join', busy['active_job_id']))
+                or {
+                    'job_id': 'manual-scan',
+                    'items': [],
+                    'count': 0,
+                    'generated_at': '2026-07-10 10:00:05',
+                    'error': '',
+                }
+            )
+            dashboard.start_independent_niuone_mainline_scan = lambda slot='': (
+                calls.append(('mainline', slot)) or True
+            )
+
+            def fake_decision(payload, **_kwargs):
+                calls.append((
+                    'decision',
+                    payload['schedule_slot'],
+                    payload['schedule_run_kind'],
+                ))
+                return {
+                    'decision': {'actions': []},
+                    'executed': [],
+                    'durable_evidence_persisted': True,
+                }
+
+            dashboard.run_practice_decision_logged = fake_decision
+
+            dashboard.run_scheduled_b1_scan('2026-07-10 10:00')
+        finally:
+            for name, value in originals.items():
+                setattr(dashboard, name, value)
+
+        self.assertIn(('join', 'manual-scan'), calls)
+        self.assertIn(('decision', '2026-07-10 10:00', 'scheduled'), calls)
+        self.assertEqual(calls[-1][0:2], ('mark', 'ok'))
+
     def test_scheduled_b1_records_decision_persistence_failure_as_error(self):
         calls = []
         originals = {
@@ -2181,10 +2246,9 @@ console.log(JSON.stringify({
 
         self.assertFalse(result['accepted'])
         self.assertTrue(result['busy'])
-        self.assertEqual(
-            result['error_code'],
-            'manual_cycle_in_progress_other_process',
-        )
+        self.assertEqual(result['error_code'], '')
+        self.assertEqual(result['notice_code'], 'joined_existing_manual_cycle')
+        self.assertIn('已加入当前任务', result['notice'])
         self.assertFalse(test_lock.locked())
 
     def test_scan_timeout_reports_last_published_stage(self):
@@ -2390,6 +2454,95 @@ console.log(JSON.stringify({
             dashboard.PRACTICE_MANUAL_CYCLE_LOCK = original_lock
             dashboard.PRACTICE_MANUAL_CYCLE_STATE = original_state
 
+    def test_manual_practice_cycle_joins_running_scan_and_reuses_its_result(self):
+        calls = []
+        originals = {
+            'wait_for_market_data': dashboard._wait_for_manual_cycle_market_data,
+            'recent_candidates': dashboard.recent_practice_candidates_for_manual_cycle,
+            'trigger_b1_scan': dashboard.trigger_b1_scan,
+            'wait_for_b1_scan_result': dashboard.wait_for_b1_scan_result,
+            'start_mainline_scan': dashboard.start_independent_niuone_mainline_scan,
+            'run_decision': dashboard.run_practice_decision_logged,
+            'manual_lock': dashboard.PRACTICE_MANUAL_CYCLE_LOCK,
+            'manual_state': dashboard.PRACTICE_MANUAL_CYCLE_STATE,
+        }
+        joined_cache = {
+            'job_id': 'scheduled-scan',
+            'items': [{'code': '600001'}],
+            'count': 1,
+            'generated_at': '2026-08-31 10:00:00',
+            'niuone_context': {},
+        }
+        try:
+            dashboard._wait_for_manual_cycle_market_data = lambda: None
+            dashboard.recent_practice_candidates_for_manual_cycle = lambda: None
+            dashboard.trigger_b1_scan = lambda **_kwargs: {
+                'status': 'busy',
+                'busy': True,
+                'running': True,
+                'error': '',
+                'active_job_id': 'scheduled-scan',
+            }
+            dashboard.wait_for_b1_scan_result = lambda busy: (
+                calls.append(('join', busy['active_job_id'])) or joined_cache
+            )
+            dashboard.start_independent_niuone_mainline_scan = lambda: calls.append(
+                ('mainline',)
+            )
+            dashboard.run_practice_decision_logged = lambda payload, **kwargs: (
+                calls.append(('decision', payload['generated_at'], kwargs))
+                or {'skipped': True, 'reason': 'already_decided_for_this_b1'}
+            )
+            dashboard.PRACTICE_MANUAL_CYCLE_LOCK = threading.Lock()
+            dashboard.PRACTICE_MANUAL_CYCLE_LOCK.acquire()
+            dashboard.PRACTICE_MANUAL_CYCLE_STATE = {
+                'job_id': 'manual-test',
+                'running': True,
+                'stage': 'starting',
+                'error': '',
+            }
+
+            dashboard._run_practice_manual_cycle()
+            status = dashboard.practice_manual_cycle_status()
+        finally:
+            if dashboard.PRACTICE_MANUAL_CYCLE_LOCK.locked():
+                dashboard.PRACTICE_MANUAL_CYCLE_LOCK.release()
+            dashboard._wait_for_manual_cycle_market_data = originals['wait_for_market_data']
+            dashboard.recent_practice_candidates_for_manual_cycle = originals[
+                'recent_candidates'
+            ]
+            dashboard.trigger_b1_scan = originals['trigger_b1_scan']
+            dashboard.wait_for_b1_scan_result = originals['wait_for_b1_scan_result']
+            dashboard.start_independent_niuone_mainline_scan = originals[
+                'start_mainline_scan'
+            ]
+            dashboard.run_practice_decision_logged = originals['run_decision']
+            dashboard.PRACTICE_MANUAL_CYCLE_LOCK = originals['manual_lock']
+            dashboard.PRACTICE_MANUAL_CYCLE_STATE = originals['manual_state']
+
+        self.assertFalse(status['running'])
+        self.assertEqual(status['stage'], 'completed')
+        self.assertTrue(status['joined_existing_scan'])
+        self.assertEqual(status['error'], '')
+        self.assertEqual(status['notice_code'], 'joined_existing_scan')
+        self.assertEqual(calls[0], ('join', 'scheduled-scan'))
+        self.assertEqual(calls[1][0], 'decision')
+
+    def test_manual_practice_cycle_old_terminal_error_is_hidden(self):
+        old_status = {
+            'running': False,
+            'stage': 'error',
+            'finished_at': '2000-01-01 00:00:00',
+            'error': 'PracticeCycleError: 已有选股扫描正在运行',
+        }
+        recent_status = {
+            **old_status,
+            'finished_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+
+        self.assertFalse(dashboard._practice_manual_error_is_visible(old_status))
+        self.assertTrue(dashboard._practice_manual_error_is_visible(recent_status))
+
     def test_b1_scan_failure_summary_keeps_stage_and_final_error(self):
         stderr = "\n".join([
             "Step 1: Loading A-share code pool...",
@@ -2441,12 +2594,20 @@ console.log(JSON.stringify({
             )
             self.assertTrue(duplicate['busy'])
             self.assertTrue(duplicate['running'])
-            self.assertIn('已有选股扫描正在运行', duplicate['error'])
+            self.assertEqual(duplicate['status'], 'busy')
+            self.assertEqual(duplicate['error'], '')
+            self.assertTrue(duplicate['joined'])
+            self.assertTrue(duplicate['active_job_id'])
 
             allow_scan_finish.set()
             worker.join(2)
             self.assertFalse(worker.is_alive())
-            self.assertEqual(results, [{'count': 1, 'force': True, 'decision_mode': 'none'}])
+            joined = dashboard.wait_for_b1_scan_result(duplicate, timeout_seconds=1)
+            self.assertEqual(joined['count'], 1)
+            self.assertEqual(joined['job_id'], duplicate['active_job_id'])
+            self.assertEqual(results[0]['count'], 1)
+            self.assertEqual(results[0]['force'], True)
+            self.assertEqual(results[0]['decision_mode'], 'none')
         finally:
             allow_scan_finish.set()
             if worker is not None:
@@ -7225,6 +7386,11 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('class="practice-data-readiness"', PRACTICE_COMPONENTS)
         self.assertIn('初始化完成后运行选股与交易策略', PRACTICE_COMPONENTS)
         self.assertIn('页面已更新，但后台仍在运行旧版本', PRACTICE_COMPONENTS)
+        self.assertIn('const manualFailureVisible = computed(() => (', PRACTICE_COMPONENTS)
+        self.assertIn('props.manualCycle.error_visible !== false', PRACTICE_COMPONENTS)
+        self.assertIn('class="practice-manual-cycle-notice"', PRACTICE_COMPONENTS)
+        self.assertIn('class="practice-manual-cycle-error-dismiss"', PRACTICE_COMPONENTS)
+        self.assertIn('.practice-manual-cycle-notice {', DASHBOARD_FRONTEND)
 
     def test_practice_data_readiness_hides_only_when_fully_ready(self):
         overview = (
