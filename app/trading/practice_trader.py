@@ -900,6 +900,100 @@ def _reconcile_exit_feedback_policy_from_db(state: dict[str, Any]) -> None:
         }
 
 
+def _current_day_cash_replay(
+    state: Mapping[str, Any],
+    *,
+    today: str,
+) -> tuple[float, float] | None:
+    """Replay today's fills from a verified pre-trade cash boundary.
+
+    The replay is intentionally bounded to the current day.  It is only safe
+    when an intraday point before the first fill confirms that cash carried
+    forward unchanged from the latest prior-day equity point.
+    """
+    trades = [
+        trade
+        for trade in state.get("trade_log") or []
+        if isinstance(trade, Mapping)
+        and trade_counts_for_account(trade)
+        and str(trade.get("time") or "")[:10] == today
+    ]
+    if not trades:
+        return None
+    if any(str(trade.get("action") or "").upper() not in {"BUY", "SELL"} for trade in trades):
+        return None
+
+    prior_points = [
+        point
+        for key in ("daily_equity_history", "equity_history")
+        for point in state.get(key) or []
+        if isinstance(point, Mapping)
+        and str(point.get("time") or "")[:10] < today
+        and math.isfinite(_safe_float(point.get("cash"), float("nan")))
+        and math.isfinite(_safe_float(point.get("equity"), float("nan")))
+    ]
+    if not prior_points:
+        return None
+    prior = max(prior_points, key=lambda point: str(point.get("time") or ""))
+    prior_cash = _safe_float(prior.get("cash"), float("nan"))
+    prior_equity = _safe_float(prior.get("equity"), float("nan"))
+    if not math.isfinite(prior_cash) or not math.isfinite(prior_equity) or prior_equity <= 0:
+        return None
+
+    first_trade_time = min(str(trade.get("time") or "") for trade in trades)
+    pretrade_points = [
+        point
+        for point in state.get("equity_history") or []
+        if isinstance(point, Mapping)
+        and str(point.get("time") or "")[:10] == today
+        and str(point.get("time") or "") < first_trade_time
+        and math.isfinite(_safe_float(point.get("cash"), float("nan")))
+    ]
+    if not pretrade_points:
+        return None
+    pretrade = max(pretrade_points, key=lambda point: str(point.get("time") or ""))
+    if abs(_safe_float(pretrade.get("cash"), float("nan")) - prior_cash) > 0.01:
+        return None
+
+    expected_cash = prior_cash
+    for trade in sorted(trades, key=lambda item: str(item.get("time") or "")):
+        action = str(trade.get("action") or "").upper()
+        if action == "BUY":
+            has_complete_cash_fields = (
+                trade.get("total_cost") is not None
+                or (trade.get("amount") is not None and trade.get("fee") is not None)
+            )
+        else:
+            has_complete_cash_fields = (
+                trade.get("net_proceeds") is not None
+                or (trade.get("amount") is not None and trade.get("fee") is not None)
+            )
+        if not has_complete_cash_fields:
+            return None
+        cash_delta = _trade_cash_delta(trade)
+        if not math.isfinite(cash_delta):
+            return None
+        expected_cash += cash_delta
+    return round(expected_cash, 2), prior_equity
+
+
+def reconcile_current_day_cash_from_ledger(
+    state: dict[str, Any],
+    *,
+    today: str | None = None,
+) -> bool:
+    """Repair only a proven current-day cash drift; preserve older history."""
+    replay = _current_day_cash_replay(state, today=today or today_key())
+    if replay is None:
+        return False
+    expected_cash, _prior_equity = replay
+    current_cash = _safe_float(state.get("cash"), float("nan"))
+    if math.isfinite(current_cash) and abs(current_cash - expected_cash) <= 0.01:
+        return False
+    state["cash"] = expected_cash
+    return True
+
+
 def load_state() -> dict[str, Any]:
     if not STATE_FILE.exists():
         state = default_state()
@@ -917,6 +1011,7 @@ def load_state() -> dict[str, Any]:
     base.setdefault("pending_decisions", [])
     base.setdefault("equity_history", [])
     base.setdefault("daily_equity_history", [])
+    reconcile_current_day_cash_from_ledger(base)
     _reconcile_exit_feedback_policy_from_db(base)
     return base
 
@@ -1398,6 +1493,7 @@ def _repair_pending_equity_after_accounting_rejection(
 def save_state(state: dict[str, Any]) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with state_file_write_lock():
+        reconcile_current_day_cash_from_ledger(state)
         pending_equity_sync_time = str(state.pop(_PENDING_EQUITY_DB_SYNC_TIME, "") or "")
         rejected_trade_count = 0
         state["updated_at"] = now_ts()
@@ -1409,6 +1505,7 @@ def save_state(state: dict[str, Any]) -> None:
         if STATE_FILE.exists():
             current = json.loads(STATE_FILE.read_text(encoding="utf-8"))
             current.pop(_PENDING_EQUITY_DB_SYNC_TIME, None)
+            reconcile_current_day_cash_from_ledger(current)
 
             def merge_list(key: str, identity_fields: tuple[str, ...], prefer_state: bool = False) -> None:
                 merged = []
@@ -1468,6 +1565,11 @@ def save_state(state: dict[str, Any]) -> None:
                     # cash/positions from disk; quote refresh can safely run again.
                     state["cash"] = current.get("cash", state.get("cash"))
                     state["positions"] = current.get("positions", state.get("positions", {}))
+            elif not state_has_unseen_trades:
+                # With an identical durable ledger there is no legitimate cash
+                # movement.  Keep the on-disk balance so a stale quote/history
+                # writer cannot roll back proceeds from an already-saved fill.
+                state["cash"] = current.get("cash", state.get("cash"))
 
             merge_list("decision_log", ("time", "b1_generated_at", "decision"))
             merge_list("trade_log", trade_identity_fields)
@@ -2169,6 +2271,7 @@ def enrich_portfolio(state: dict[str, Any]) -> dict[str, Any]:
     total_mv = 0.0
     rows = []
     today = today_key()
+    today_buy_costs = _today_buy_costs_by_code(state, today=today)
     for code, pos in positions.items():
         # Use last_price from portfolio state first to avoid network hangs
         price = pos.get("last_price") or pos.get("avg_cost") or 0
@@ -2182,7 +2285,20 @@ def enrich_portfolio(state: dict[str, Any]) -> dict[str, Any]:
         mv = price_float * qty
         cost = float(pos.get("avg_cost") or 0) * qty
         pnl = mv - cost
-        today_pnl, today_pnl_pct = position_today_pnl(pos, price_float, qty, prev_close_float)
+        today_pnl, today_pnl_pct = position_today_pnl(
+            pos,
+            price_float,
+            qty,
+            prev_close_float,
+            today=today,
+            today_cost=_position_today_buy_cost(
+                code,
+                pos,
+                qty,
+                today_buy_costs,
+                today=today,
+            ),
+        )
         change_pct = pos.get("change_pct")
         if change_pct is None and prev_close_float > 0:
             change_pct = (price_float / prev_close_float - 1) * 100
@@ -2340,6 +2456,11 @@ def enrich_portfolio(state: dict[str, Any]) -> dict[str, Any]:
         or not str(today_sold_quote_refresh.get("quote_time") or "").startswith(today)
     ):
         today_sold_quote_refresh = {}
+    daily_pnl, daily_pnl_pct = account_today_pnl(
+        state,
+        current_equity=total_equity,
+        today=today,
+    )
     return {
         "generated_at": now_ts(),
         "source_updated_at": str(state.get("updated_at") or ""),
@@ -2350,6 +2471,8 @@ def enrich_portfolio(state: dict[str, Any]) -> dict[str, Any]:
         "total_equity": round(total_equity, 2),
         "total_pnl": round(total_equity - float(state.get("initial_cash") or INITIAL_CASH), 2),
         "total_pnl_pct": round((total_equity / float(state.get("initial_cash") or INITIAL_CASH) - 1) * 100, 2),
+        "daily_pnl": round(daily_pnl, 2) if daily_pnl is not None else None,
+        "daily_pnl_pct": round(daily_pnl_pct, 3) if daily_pnl_pct is not None else None,
         "sector_tide_open_risk_pct": round(sector_tide_open_risk_pct, 4),
         "niuone_open_risk_pct": round(niuone_open_risk_pct, 4),
         "positions": rows,
@@ -2393,12 +2516,83 @@ def available_to_sell(pos: dict[str, Any], today: str | None = None) -> int:
     return min(qty, total)
 
 
-def position_today_pnl(pos: dict[str, Any], price: float, qty: int, prev_close: float) -> tuple[float | None, float | None]:
+def _today_buy_costs_by_code(
+    state: Mapping[str, Any],
+    *,
+    today: str,
+) -> dict[str, dict[str, Any]]:
+    """Collect exact same-day buy costs from the durable trade ledger."""
+    totals: dict[str, dict[str, Any]] = {}
+    for trade in state.get("trade_log") or []:
+        if not isinstance(trade, Mapping) or not trade_counts_for_account(trade):
+            continue
+        if (
+            str(trade.get("action") or "").upper() != "BUY"
+            or str(trade.get("time") or "")[:10] != today
+        ):
+            continue
+        code = normalize_code(str(trade.get("code") or ""))
+        if not code:
+            continue
+        row = totals.setdefault(code, {"shares": 0, "cost": 0.0, "complete": True})
+        try:
+            shares = int(float(trade.get("shares") or 0))
+        except (TypeError, ValueError):
+            shares = 0
+        raw_total_cost = trade.get("total_cost")
+        if raw_total_cost is not None:
+            total_cost = _safe_float(raw_total_cost, float("nan"))
+        else:
+            amount = _safe_float(trade.get("amount"), float("nan"))
+            fee = _safe_float(trade.get("fee"), float("nan"))
+            total_cost = amount + fee
+        if shares <= 0 or not math.isfinite(total_cost) or total_cost <= 0:
+            row["complete"] = False
+            continue
+        row["shares"] = int(row["shares"]) + shares
+        row["cost"] = float(row["cost"]) + total_cost
+    return totals
+
+
+def _position_today_buy_cost(
+    code: str,
+    pos: Mapping[str, Any],
+    qty: int,
+    buy_costs: Mapping[str, Mapping[str, Any]],
+    *,
+    today: str,
+) -> float | None:
+    lots = pos.get("buy_date_lots") or {}
+    try:
+        today_qty = min(qty, max(0, int(lots.get(today, 0) or 0)))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if today_qty <= 0:
+        return None
+    row = buy_costs.get(normalize_code(code))
+    if not isinstance(row, Mapping) or row.get("complete") is not True:
+        return None
+    if int(row.get("shares") or 0) != today_qty:
+        return None
+    cost = _safe_float(row.get("cost"), float("nan"))
+    return cost if math.isfinite(cost) and cost > 0 else None
+
+
+def position_today_pnl(
+    pos: dict[str, Any],
+    price: float,
+    qty: int,
+    prev_close: float,
+    *,
+    today: str | None = None,
+    today_cost: float | None = None,
+) -> tuple[float | None, float | None]:
     if qty <= 0:
         return None, None
     avg_cost = float(pos.get("avg_cost") or 0)
     lots = pos.get("buy_date_lots") or {}
-    today_qty = min(qty, int(lots.get(today_key(), 0) or 0))
+    today = today or today_key()
+    today_qty = min(qty, int(lots.get(today, 0) or 0))
     historical_qty = max(0, qty - today_qty)
     pnl = 0.0
     base = 0.0
@@ -2410,14 +2604,96 @@ def position_today_pnl(pos: dict[str, Any], price: float, qty: int, prev_close: 
         base += prev_close * historical_qty
 
     if today_qty > 0:
-        if avg_cost <= 0:
+        exact_today_cost = _safe_float(today_cost, float("nan"))
+        if not math.isfinite(exact_today_cost) or exact_today_cost <= 0:
+            # The aggregate average cost is exact only when the whole position
+            # was opened today.  For mixed lots it would blend historical cost
+            # into today's return, so leave the value unavailable instead.
+            if historical_qty > 0 or avg_cost <= 0:
+                return None, None
+            exact_today_cost = avg_cost * today_qty
+        if exact_today_cost <= 0:
             return None, None
-        pnl += (price - avg_cost) * today_qty
-        base += avg_cost * today_qty
+        pnl += price * today_qty - exact_today_cost
+        base += exact_today_cost
 
     if base <= 0:
         return None, None
     return pnl, pnl / base * 100
+
+
+def account_today_pnl(
+    state: Mapping[str, Any],
+    *,
+    current_equity: float | None = None,
+    today: str | None = None,
+) -> tuple[float | None, float | None]:
+    """Return today's account P&L from positions and same-day fills."""
+    today = today or today_key()
+    positions = state.get("positions") or {}
+    if current_equity is None:
+        current_equity = _safe_float(state.get("cash"), 0.0) + portfolio_market_value(positions)
+    buy_costs = _today_buy_costs_by_code(state, today=today)
+    daily_pnl = 0.0
+    complete = True
+
+    for trade in state.get("trade_log") or []:
+        if not isinstance(trade, Mapping) or not trade_counts_for_account(trade):
+            continue
+        if (
+            str(trade.get("action") or "").upper() != "SELL"
+            or str(trade.get("time") or "")[:10] != today
+        ):
+            continue
+        trade_day_pnl = _safe_float(trade.get("day_pnl"), float("nan"))
+        if not math.isfinite(trade_day_pnl):
+            complete = False
+        else:
+            daily_pnl += trade_day_pnl
+
+    for code, pos in positions.items():
+        if not isinstance(pos, Mapping):
+            continue
+        qty = position_qty(pos)
+        if qty <= 0:
+            continue
+        price = _safe_float(
+            pos.get("last_price") or pos.get("close") or pos.get("avg_cost"),
+            0.0,
+        )
+        prev_close = _safe_float(pos.get("prev_close"), 0.0)
+        position_pnl, _position_pnl_pct = position_today_pnl(
+            dict(pos),
+            price,
+            qty,
+            prev_close,
+            today=today,
+            today_cost=_position_today_buy_cost(
+                str(code),
+                pos,
+                qty,
+                buy_costs,
+                today=today,
+            ),
+        )
+        if position_pnl is None or not math.isfinite(position_pnl):
+            complete = False
+        else:
+            daily_pnl += position_pnl
+
+    if complete:
+        opening_equity = float(current_equity) - daily_pnl
+        pnl_pct = daily_pnl / opening_equity * 100 if opening_equity > 0 else 0.0
+        return daily_pnl, pnl_pct
+
+    replay = _current_day_cash_replay(state, today=today)
+    if replay is None:
+        return None, None
+    expected_cash, opening_equity = replay
+    expected_equity = expected_cash + portfolio_market_value(positions)
+    daily_pnl = expected_equity - opening_equity
+    pnl_pct = daily_pnl / opening_equity * 100 if opening_equity > 0 else 0.0
+    return daily_pnl, pnl_pct
 
 
 def calc_trade_fees(amount: float, side: str) -> dict[str, float]:
@@ -4687,54 +4963,13 @@ def check_daily_loss_budget(state: dict[str, Any]) -> tuple[bool, float]:
     today = today_key()
     positions = state.get("positions") or {}
     current_equity = float(state.get("cash") or 0) + portfolio_market_value(positions)
-
-    prior_points: list[dict[str, Any]] = []
-    for key in ("daily_equity_history", "equity_history"):
-        for point in state.get(key) or []:
-            if not isinstance(point, dict) or str(point.get("time") or "")[:10] >= today:
-                continue
-            equity = _safe_float(point.get("equity"), 0.0)
-            if equity > 0 and math.isfinite(equity):
-                prior_points.append(point)
-    if prior_points:
-        previous_equity = _safe_float(
-            max(prior_points, key=lambda point: str(point.get("time") or "")).get("equity"),
-            0.0,
-        )
-        pnl_pct = (current_equity / previous_equity - 1) * 100 if previous_equity > 0 else 0.0
-        return pnl_pct <= DAILY_LOSS_BUDGET_PCT, pnl_pct
-
-    daily_pnl = 0.0
-    complete = True
-    for trade in state.get("trade_log") or []:
-        if not isinstance(trade, dict) or not str(trade.get("time") or "").startswith(today):
-            continue
-        if not trade_counts_for_account(trade):
-            continue
-        if str(trade.get("action") or "").upper() != "SELL":
-            continue
-        trade_day_pnl = _safe_float(trade.get("day_pnl"), float("nan"))
-        if not math.isfinite(trade_day_pnl):
-            complete = False
-        else:
-            daily_pnl += trade_day_pnl
-    for pos in positions.values():
-        if not isinstance(pos, dict):
-            continue
-        qty = position_qty(pos)
-        if qty <= 0:
-            continue
-        price = _safe_float(pos.get("last_price") or pos.get("close") or pos.get("avg_cost"), 0.0)
-        prev_close = _safe_float(pos.get("prev_close"), 0.0)
-        position_pnl, _position_pnl_pct = position_today_pnl(pos, price, qty, prev_close)
-        if position_pnl is None or not math.isfinite(position_pnl):
-            complete = False
-        else:
-            daily_pnl += position_pnl
-    if not complete:
+    _daily_pnl, pnl_pct = account_today_pnl(
+        state,
+        current_equity=current_equity,
+        today=today,
+    )
+    if pnl_pct is None:
         return False, 0.0
-    opening_equity = current_equity - daily_pnl
-    pnl_pct = daily_pnl / opening_equity * 100 if opening_equity > 0 else 0.0
     return pnl_pct <= DAILY_LOSS_BUDGET_PCT, pnl_pct
 
 
@@ -7960,6 +8195,17 @@ def check_auto_exits(
         cost_basis = qty * avg_cost
         realized_pnl = net_proceeds - cost_basis
         realized_pnl_pct = (realized_pnl / cost_basis * 100) if cost_basis > 0 else 0.0
+        day_reference_price = _safe_float(pos.get("prev_close"), 0.0)
+        day_pnl = (
+            net_proceeds - qty * day_reference_price
+            if day_reference_price > 0
+            else None
+        )
+        day_pnl_pct = (
+            day_pnl / (qty * day_reference_price) * 100
+            if day_pnl is not None and qty > 0
+            else None
+        )
         
         pos["qty"] = position_qty(pos) - qty
         pos.pop("shares", None)
@@ -8014,6 +8260,9 @@ def check_auto_exits(
             "net_proceeds": round(net_proceeds, 2),
             "pnl": round(realized_pnl, 2),
             "pnl_pct": round(realized_pnl_pct, 2),
+            "day_reference_price": day_reference_price if day_reference_price > 0 else None,
+            "day_pnl": round(day_pnl, 2) if day_pnl is not None else None,
+            "day_pnl_pct": round(day_pnl_pct, 2) if day_pnl_pct is not None else None,
             "order_position_pct": order_position_pct,
             "position_before_trade_pct": position_before_trade_pct,
             "position_after_trade_pct": position_after_trade_pct,
@@ -12069,6 +12318,7 @@ def execute_actions(
                 "pnl": round(realized_pnl, 2),
                 "pnl_pct": round(realized_pnl_pct, 2),
                 "price_source": price_source,
+                "day_reference_price": day_reference_price if day_reference_price > 0 else None,
                 "day_pnl": round(day_pnl, 2) if day_pnl is not None else None,
                 "day_pnl_pct": round(day_pnl_pct, 2)
                 if day_pnl_pct is not None else None,

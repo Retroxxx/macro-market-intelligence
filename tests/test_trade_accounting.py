@@ -129,6 +129,38 @@ class TradeAccountingTests(unittest.TestCase):
         self.assertFalse(trade_counts_for_account(rejected))
         self.assertEqual(trader._trade_cash_delta(rejected), 0.0)
 
+    def test_save_state_does_not_roll_back_cash_with_identical_trade_ledger(self):
+        sell = {
+            "time": "2026-08-17 09:37:01",
+            "action": "SELL",
+            "code": "600000",
+            "shares": 1000,
+            "price": 10.9,
+            "amount": 10_900.0,
+            "fee": 0.0,
+            "net_proceeds": 10_900.0,
+            "reason": "自动离场",
+        }
+        current = self._base_state(
+            cash=100_900.0,
+            positions={},
+            trade_log=[sell],
+        )
+        trader.STATE_FILE.write_text(
+            json.dumps(current, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        stale = self._base_state(
+            cash=90_000.0,
+            positions={},
+            trade_log=[copy.deepcopy(sell)],
+        )
+
+        trader.save_state(stale)
+
+        saved = trader.load_state()
+        self.assertEqual(saved["cash"], 100_900.0)
+
     def test_save_state_commits_json_before_archiving_history(self):
         trade = {
             "time": "2026-08-17 10:00:00",

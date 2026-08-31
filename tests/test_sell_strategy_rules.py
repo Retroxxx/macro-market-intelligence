@@ -328,6 +328,163 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertEqual(row["today_pnl"], 2340.0)
         self.assertEqual(row["today_pnl_pct"], 0.9)
 
+    def test_mixed_position_today_pnl_uses_exact_same_day_trade_cost(self):
+        original_today_key = trader.today_key
+        try:
+            trader.today_key = lambda: "2026-06-24"
+            state = {
+                "initial_cash": 100_000.0,
+                "cash": 83_999.4,
+                "positions": {
+                    "600000": {
+                        "code": "600000",
+                        "name": "测试股",
+                        "qty": 1500,
+                        "avg_cost": 11.0671,
+                        "last_price": 12.5,
+                        "prev_close": 11.0,
+                        "buy_date_lots": {
+                            "2026-06-23": 1000,
+                            "2026-06-24": 500,
+                        },
+                    }
+                },
+                "trade_log": [{
+                    "time": "2026-06-24 10:00:00",
+                    "action": "BUY",
+                    "code": "600000",
+                    "shares": 500,
+                    "price": 12.0,
+                    "amount": 6000.0,
+                    "fee": 0.6,
+                    "total_cost": 6000.6,
+                }],
+                "decision_log": [],
+                "equity_history": [],
+            }
+
+            payload = trader.enrich_portfolio(state)
+        finally:
+            trader.today_key = original_today_key
+
+        row = payload["positions"][0]
+        self.assertEqual(row["today_pnl"], 1749.4)
+        self.assertEqual(row["today_pnl_pct"], 10.29)
+        self.assertEqual(payload["daily_pnl"], 1749.4)
+        self.assertEqual(payload["daily_pnl_pct"], 1.732)
+
+    def test_account_today_pnl_does_not_inherit_stale_prior_equity_when_idle(self):
+        original_today_key = trader.today_key
+        try:
+            trader.today_key = lambda: "2026-06-24"
+            payload = trader.enrich_portfolio({
+                "initial_cash": 100_000.0,
+                "cash": 102_000.0,
+                "positions": {},
+                "trade_log": [],
+                "decision_log": [],
+                "equity_history": [{
+                    "time": "2026-06-23 14:59:00",
+                    "equity": 100_000.0,
+                }],
+                "daily_equity_history": [{
+                    "time": "2026-06-23 14:59:00",
+                    "equity": 100_000.0,
+                }],
+            })
+        finally:
+            trader.today_key = original_today_key
+
+        self.assertEqual(payload["daily_pnl"], 0.0)
+        self.assertEqual(payload["daily_pnl_pct"], 0.0)
+
+    def test_current_day_cash_replay_recovers_missing_auto_sell_proceeds(self):
+        state = {
+            "initial_cash": 70_000.0,
+            "cash": 59_499.0,
+            "positions": {},
+            "trade_log": [
+                {
+                    "time": "2026-06-24 10:00:00",
+                    "action": "SELL",
+                    "code": "600000",
+                    "shares": 1000,
+                    "amount": 10_500.0,
+                    "fee": 1.0,
+                    "net_proceeds": 10_499.0,
+                },
+                {
+                    "time": "2026-06-24 10:30:00",
+                    "action": "SELL",
+                    "code": "600001",
+                    "shares": 1000,
+                    "amount": 9500.0,
+                    "fee": 1.0,
+                    "net_proceeds": 9499.0,
+                },
+            ],
+            "decision_log": [],
+            "daily_equity_history": [{
+                "time": "2026-06-23 15:00:00",
+                "equity": 70_000.0,
+                "cash": 50_000.0,
+                "market_value": 20_000.0,
+            }],
+            "equity_history": [{
+                "time": "2026-06-24 09:31:00",
+                "equity": 70_000.0,
+                "cash": 50_000.0,
+                "market_value": 20_000.0,
+            }],
+        }
+
+        changed = trader.reconcile_current_day_cash_from_ledger(
+            state,
+            today="2026-06-24",
+        )
+        daily_pnl, daily_pnl_pct = trader.account_today_pnl(
+            state,
+            today="2026-06-24",
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(state["cash"], 69_998.0)
+        self.assertEqual(daily_pnl, -2.0)
+        self.assertAlmostEqual(daily_pnl_pct, -2 / 70_000 * 100)
+
+    def test_current_day_cash_replay_requires_verified_pretrade_cash(self):
+        state = {
+            "cash": 60_000.0,
+            "positions": {},
+            "trade_log": [{
+                "time": "2026-06-24 10:00:00",
+                "action": "SELL",
+                "code": "600000",
+                "shares": 1000,
+                "amount": 10_000.0,
+                "fee": 1.0,
+                "net_proceeds": 9999.0,
+            }],
+            "daily_equity_history": [{
+                "time": "2026-06-23 15:00:00",
+                "equity": 70_000.0,
+                "cash": 50_000.0,
+            }],
+            "equity_history": [{
+                "time": "2026-06-24 09:31:00",
+                "equity": 71_000.0,
+                "cash": 51_000.0,
+            }],
+        }
+
+        changed = trader.reconcile_current_day_cash_from_ledger(
+            state,
+            today="2026-06-24",
+        )
+
+        self.assertFalse(changed)
+        self.assertEqual(state["cash"], 60_000.0)
+
     def test_execute_actions_rechecks_trading_time_before_order(self):
         original_execution_time = trader.is_a_share_execution_time
         try:
@@ -3464,6 +3621,7 @@ class SellStrategyRuleTests(unittest.TestCase):
                         "qty": 1000,
                         "avg_cost": 10.0,
                         "last_price": 9.98,
+                        "prev_close": 10.0,
                         "buy_strategy": "b3_accelerate",
                         "buy_date_lots": {"2026-06-23": 1000},
                     }
@@ -3480,6 +3638,11 @@ class SellStrategyRuleTests(unittest.TestCase):
         at_open = trader.check_auto_exits(state, datetime(2026, 6, 24, 9, 37))
         self.assertEqual(len(at_open), 1)
         self.assertEqual(at_open[0]["exit_signal"], "b3_next_day_no_progress")
+        self.assertEqual(at_open[0]["day_reference_price"], 10.0)
+        self.assertEqual(
+            at_open[0]["day_pnl"],
+            round(at_open[0]["net_proceeds"] - at_open[0]["shares"] * 10.0, 2),
+        )
         self.assertIn("09:37", at_open[0]["reason"])
 
         state = make_b3_state()

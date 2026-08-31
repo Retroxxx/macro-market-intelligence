@@ -23,6 +23,8 @@ ACCOUNT_FIELDS = (
     "total_equity",
     "total_pnl",
     "total_pnl_pct",
+    "daily_pnl",
+    "daily_pnl_pct",
     "sector_tide_open_risk_pct",
 )
 POSITION_FIELDS = (
