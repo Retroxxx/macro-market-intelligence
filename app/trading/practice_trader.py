@@ -994,6 +994,229 @@ def reconcile_current_day_cash_from_ledger(
     return True
 
 
+def reconcile_current_day_equity_history_from_ledger(
+    state: dict[str, Any],
+    *,
+    today: str | None = None,
+) -> bool:
+    """Repair today's derived equity points without rewriting durable fills.
+
+    A same-minute equity timestamp can represent either the pre-trade heartbeat
+    or a post-trade snapshot because ``record_equity`` stores natural-minute
+    buckets.  Verified points whose cash already matches one of those states are
+    kept as anchors.  For a corrupted point, choose the feasible ledger state
+    that yields the smoothest path between anchors, then recompute only cash,
+    equity and total P&L percentage from its retained market value.
+
+    The repair fails closed unless the current-day cash ledger has a verified
+    prior-day boundary and every affected point satisfies
+    ``equity == cash + market_value`` before repair.  This prevents an incomplete
+    market-value snapshot from being treated as an accounting-only defect.
+    """
+    today = today or today_key()
+    replay = _current_day_cash_replay(state, today=today)
+    history = state.get("equity_history")
+    if replay is None or not isinstance(history, list):
+        return False
+
+    trades = sorted(
+        (
+            trade
+            for trade in state.get("trade_log") or []
+            if isinstance(trade, Mapping)
+            and trade_counts_for_account(trade)
+            and str(trade.get("time") or "")[:10] == today
+        ),
+        key=lambda trade: str(trade.get("time") or ""),
+    )
+    trade_times = [parse_ts(str(trade.get("time") or "")) for trade in trades]
+    if not trades or any(value is None for value in trade_times):
+        return False
+    resolved_trade_times = [value for value in trade_times if value is not None]
+    cash_deltas = [_trade_cash_delta(trade) for trade in trades]
+    if any(not math.isfinite(value) for value in cash_deltas):
+        return False
+
+    expected_cash, prior_equity = replay
+    prior_cash = round(expected_cash - sum(cash_deltas), 2)
+    cash_prefixes = [prior_cash]
+    for cash_delta in cash_deltas:
+        cash_prefixes.append(round(cash_prefixes[-1] + cash_delta, 2))
+    if abs(cash_prefixes[-1] - expected_cash) > 0.02:
+        return False
+
+    points: list[tuple[int, dict[str, Any], datetime]] = []
+    for index, raw_point in enumerate(history):
+        if not isinstance(raw_point, dict):
+            continue
+        time_text = str(raw_point.get("time") or "")
+        if time_text[:10] != today:
+            continue
+        point_time = parse_ts(time_text)
+        equity = _safe_float(raw_point.get("equity"), float("nan"))
+        cash = _safe_float(raw_point.get("cash"), float("nan"))
+        market_value = _safe_float(raw_point.get("market_value"), float("nan"))
+        if (
+            point_time is None
+            or not all(math.isfinite(value) for value in (equity, cash, market_value))
+            or abs(equity - cash - market_value) > 0.02
+        ):
+            return False
+        points.append((index, raw_point, point_time))
+    if not points:
+        return False
+    points.sort(key=lambda item: str(item[1].get("time") or ""))
+
+    # Each row contains (applied trade count, cash, reconstructed equity).
+    choices: list[list[tuple[int, float, float]]] = []
+    exact_trade_counts: list[int] = []
+    for _index, point, point_time in points:
+        if point_time.second:
+            lower = upper = sum(
+                trade_time <= point_time for trade_time in resolved_trade_times
+            )
+        else:
+            minute_start = point_time.replace(second=0, microsecond=0)
+            minute_end = minute_start + timedelta(minutes=1)
+            lower = sum(
+                trade_time < minute_start for trade_time in resolved_trade_times
+            )
+            upper = sum(
+                trade_time < minute_end for trade_time in resolved_trade_times
+            )
+        exact_count = sum(
+            trade_time <= point_time for trade_time in resolved_trade_times
+        )
+        exact_trade_counts.append(exact_count)
+        market_value = _safe_float(point.get("market_value"), 0.0)
+        row = [
+            (
+                trade_count,
+                cash_prefixes[trade_count],
+                cash_prefixes[trade_count] + market_value,
+            )
+            for trade_count in range(lower, upper + 1)
+        ]
+        recorded_cash = _safe_float(point.get("cash"), float("nan"))
+        anchored = [
+            candidate
+            for candidate in row
+            if abs(candidate[1] - recorded_cash) <= 0.02
+        ]
+        choices.append(anchored or row)
+
+    # Dynamic programming is only needed for corrupted trade-minute points.
+    # All verified cash points have a single anchored candidate.
+    scale = max(abs(prior_equity), 1.0)
+    costs: list[dict[int, float]] = []
+    parents: list[dict[int, int | None]] = []
+    for point_index, row in enumerate(choices):
+        row_costs: dict[int, float] = {}
+        row_parents: dict[int, int | None] = {}
+        for trade_count, _cash, equity in row:
+            tie_break = abs(trade_count - exact_trade_counts[point_index]) * 1e-15
+            if point_index == 0:
+                row_costs[trade_count] = tie_break
+                row_parents[trade_count] = None
+                continue
+            best: tuple[float, int] | None = None
+            previous_equity_by_count = {
+                candidate_count: candidate_equity
+                for candidate_count, _candidate_cash, candidate_equity
+                in choices[point_index - 1]
+            }
+            for previous_count, previous_cost in costs[-1].items():
+                step = (
+                    equity - previous_equity_by_count[previous_count]
+                ) / scale
+                candidate = (previous_cost + step * step + tie_break, previous_count)
+                if best is None or candidate < best:
+                    best = candidate
+            if best is None:
+                return False
+            row_costs[trade_count] = best[0]
+            row_parents[trade_count] = best[1]
+        if not row_costs:
+            return False
+        costs.append(row_costs)
+        parents.append(row_parents)
+
+    selected_count = min(costs[-1], key=lambda key: (costs[-1][key], key))
+    selected_counts: list[int] = []
+    for point_index in range(len(points) - 1, -1, -1):
+        selected_counts.append(selected_count)
+        previous_count = parents[point_index][selected_count]
+        if previous_count is None:
+            break
+        selected_count = previous_count
+    selected_counts.reverse()
+    if len(selected_counts) != len(points):
+        return False
+
+    initial_cash = _safe_float(state.get("initial_cash"), INITIAL_CASH)
+    changed = False
+    revised_points: list[dict[str, Any]] = []
+    for (history_index, point, _point_time), trade_count in zip(
+        points,
+        selected_counts,
+    ):
+        resolved_cash = cash_prefixes[trade_count]
+        market_value = _safe_float(point.get("market_value"), 0.0)
+        resolved_equity = round(resolved_cash + market_value, 2)
+        resolved_pnl_pct = round(
+            (resolved_equity / initial_cash - 1) * 100,
+            2,
+        ) if initial_cash > 0 else 0.0
+        needs_revision = (
+            abs(_safe_float(point.get("cash"), 0.0) - resolved_cash) > 0.01
+            or abs(_safe_float(point.get("equity"), 0.0) - resolved_equity) > 0.01
+            or abs(
+                _safe_float(point.get("pnl_pct"), resolved_pnl_pct)
+                - resolved_pnl_pct
+            ) > 0.005
+        )
+        revised = dict(point)
+        if needs_revision:
+            revised.update({
+                "cash": round(resolved_cash, 2),
+                "equity": resolved_equity,
+                "pnl_pct": resolved_pnl_pct,
+                "cash_reconciled_from_trade_ledger": True,
+            })
+            history[history_index] = revised
+            changed = True
+        revised_points.append(revised)
+
+    final_point = max(
+        revised_points,
+        key=lambda point: str(point.get("time") or ""),
+    )
+    daily_history = state.get("daily_equity_history")
+    if isinstance(daily_history, list) and any(
+        isinstance(point, Mapping)
+        and str(point.get("time") or "")[:10] == today
+        for point in daily_history
+    ):
+        revised_daily = [
+            point
+            for point in daily_history
+            if not (
+                isinstance(point, Mapping)
+                and str(point.get("time") or "")[:10] == today
+            )
+        ]
+        revised_daily.append(dict(final_point))
+        revised_daily.sort(
+            key=lambda point: str(point.get("time") or "")
+            if isinstance(point, Mapping)
+            else "",
+        )
+        if revised_daily != daily_history:
+            state["daily_equity_history"] = revised_daily[-EQUITY_HISTORY_LIMIT:]
+            changed = True
+    return changed
+
+
 def load_state() -> dict[str, Any]:
     if not STATE_FILE.exists():
         state = default_state()
@@ -1012,6 +1235,7 @@ def load_state() -> dict[str, Any]:
     base.setdefault("equity_history", [])
     base.setdefault("daily_equity_history", [])
     reconcile_current_day_cash_from_ledger(base)
+    reconcile_current_day_equity_history_from_ledger(base)
     _reconcile_exit_feedback_policy_from_db(base)
     return base
 
@@ -1494,6 +1718,7 @@ def save_state(state: dict[str, Any]) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with state_file_write_lock():
         reconcile_current_day_cash_from_ledger(state)
+        reconcile_current_day_equity_history_from_ledger(state)
         pending_equity_sync_time = str(state.pop(_PENDING_EQUITY_DB_SYNC_TIME, "") or "")
         rejected_trade_count = 0
         state["updated_at"] = now_ts()
@@ -1506,6 +1731,7 @@ def save_state(state: dict[str, Any]) -> None:
             current = json.loads(STATE_FILE.read_text(encoding="utf-8"))
             current.pop(_PENDING_EQUITY_DB_SYNC_TIME, None)
             reconcile_current_day_cash_from_ledger(current)
+            reconcile_current_day_equity_history_from_ledger(current)
 
             def merge_list(key: str, identity_fields: tuple[str, ...], prefer_state: bool = False) -> None:
                 merged = []
@@ -1580,6 +1806,7 @@ def save_state(state: dict[str, Any]) -> None:
             prefer_state_equity = not current_has_unseen_trades or state_has_unseen_trades
             merge_list("equity_history", ("time",), prefer_state=prefer_state_equity)
             merge_list("daily_equity_history", ("time",), prefer_state=prefer_state_equity)
+            reconcile_current_day_equity_history_from_ledger(state)
 
             # Position snapshots are mutable and can be stale even when the
             # append-only trade merge succeeded. Re-apply the retained ledger

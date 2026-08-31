@@ -161,6 +161,158 @@ class TradeAccountingTests(unittest.TestCase):
         saved = trader.load_state()
         self.assertEqual(saved["cash"], 100_900.0)
 
+    def test_current_day_equity_curve_replays_cash_at_trade_minute_boundaries(self):
+        prior_point = {
+            "time": "2026-08-16 15:00:00",
+            "equity": 100_000.0,
+            "cash": 50_000.0,
+            "market_value": 50_000.0,
+            "pnl_pct": 0.0,
+        }
+        first_sell = {
+            "time": "2026-08-17 09:31:15",
+            "action": "SELL",
+            "code": "600000",
+            "shares": 1000,
+            "price": 10.0,
+            "amount": 10_000.0,
+            "fee": 0.0,
+            "net_proceeds": 10_000.0,
+            "reason": "第一笔自动离场",
+        }
+        second_sell = {
+            "time": "2026-08-17 09:33:15",
+            "action": "SELL",
+            "code": "000001",
+            "shares": 1000,
+            "price": 10.0,
+            "amount": 10_000.0,
+            "fee": 0.0,
+            "net_proceeds": 10_000.0,
+            "reason": "第二笔自动离场",
+        }
+        today_points = [
+            {
+                "time": "2026-08-17 09:30:00",
+                "equity": 100_000.0,
+                "cash": 50_000.0,
+                "market_value": 50_000.0,
+                "pnl_pct": 0.0,
+            },
+            {
+                "time": "2026-08-17 09:31:00",
+                "equity": 100_000.0,
+                "cash": 50_000.0,
+                "market_value": 50_000.0,
+                "pnl_pct": 0.0,
+            },
+            {
+                "time": "2026-08-17 09:32:00",
+                "equity": 80_000.0,
+                "cash": 40_000.0,
+                "market_value": 40_000.0,
+                "pnl_pct": -20.0,
+            },
+            {
+                "time": "2026-08-17 09:33:00",
+                "equity": 60_000.0,
+                "cash": 30_000.0,
+                "market_value": 30_000.0,
+                "pnl_pct": -40.0,
+            },
+            {
+                "time": "2026-08-17 09:34:00",
+                "equity": 100_000.0,
+                "cash": 70_000.0,
+                "market_value": 30_000.0,
+                "pnl_pct": 0.0,
+            },
+        ]
+        state = self._base_state(
+            cash=70_000.0,
+            trade_log=[first_sell, second_sell],
+            equity_history=[prior_point, *copy.deepcopy(today_points)],
+            daily_equity_history=[prior_point, copy.deepcopy(today_points[-1])],
+        )
+        original_trades = copy.deepcopy(state["trade_log"])
+
+        changed = trader.reconcile_current_day_equity_history_from_ledger(
+            state,
+            today="2026-08-17",
+        )
+
+        self.assertTrue(changed)
+        repaired = {
+            point["time"]: point
+            for point in state["equity_history"]
+            if point["time"].startswith("2026-08-17")
+        }
+        self.assertEqual(repaired["2026-08-17 09:31:00"]["cash"], 50_000.0)
+        self.assertEqual(repaired["2026-08-17 09:32:00"]["cash"], 60_000.0)
+        self.assertEqual(repaired["2026-08-17 09:32:00"]["equity"], 100_000.0)
+        self.assertEqual(repaired["2026-08-17 09:33:00"]["cash"], 70_000.0)
+        self.assertEqual(repaired["2026-08-17 09:33:00"]["equity"], 100_000.0)
+        self.assertTrue(
+            repaired["2026-08-17 09:32:00"][
+                "cash_reconciled_from_trade_ledger"
+            ]
+        )
+        self.assertEqual(state["daily_equity_history"][-1], repaired["2026-08-17 09:34:00"])
+        self.assertEqual(state["trade_log"], original_trades)
+        self.assertFalse(trader.reconcile_current_day_equity_history_from_ledger(
+            state,
+            today="2026-08-17",
+        ))
+
+    def test_current_day_equity_curve_repair_fails_closed_on_invalid_snapshot(self):
+        prior_point = {
+            "time": "2026-08-16 15:00:00",
+            "equity": 100_000.0,
+            "cash": 50_000.0,
+            "market_value": 50_000.0,
+            "pnl_pct": 0.0,
+        }
+        invalid_point = {
+            "time": "2026-08-17 09:33:00",
+            "equity": 80_001.0,
+            "cash": 40_000.0,
+            "market_value": 40_000.0,
+            "pnl_pct": -20.0,
+        }
+        state = self._base_state(
+            cash=60_000.0,
+            trade_log=[{
+                "time": "2026-08-17 09:32:15",
+                "action": "SELL",
+                "code": "600000",
+                "shares": 1000,
+                "price": 10.0,
+                "amount": 10_000.0,
+                "fee": 0.0,
+                "net_proceeds": 10_000.0,
+                "reason": "自动离场",
+            }],
+            equity_history=[
+                prior_point,
+                {
+                    "time": "2026-08-17 09:30:00",
+                    "equity": 100_000.0,
+                    "cash": 50_000.0,
+                    "market_value": 50_000.0,
+                    "pnl_pct": 0.0,
+                },
+                invalid_point,
+            ],
+            daily_equity_history=[prior_point, invalid_point],
+        )
+        original = copy.deepcopy(state)
+
+        self.assertFalse(trader.reconcile_current_day_equity_history_from_ledger(
+            state,
+            today="2026-08-17",
+        ))
+        self.assertEqual(state, original)
+
     def test_save_state_commits_json_before_archiving_history(self):
         trade = {
             "time": "2026-08-17 10:00:00",
