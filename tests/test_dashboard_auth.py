@@ -891,6 +891,7 @@ class DashboardAuthTests(unittest.TestCase):
     def test_dashboard_categories_have_independent_page_routes(self):
         expected_paths = {
             '/',
+            '/candidates',
             '/practice',
             '/niuone-mainline',
             '/indices',
@@ -926,6 +927,7 @@ class DashboardAuthTests(unittest.TestCase):
             self.assertIn(f"'{path}'", router_source)
         self.assertIn('createWebHistory()', router_source)
         self.assertIn("overview: '/'", tab_source)
+        self.assertIn("candidates: '/candidates'", tab_source)
         self.assertIn("practice: '/practice'", tab_source)
 
     def test_dashboard_bootstrap_owns_visit_count_and_visitor_cookie(self):
@@ -5425,13 +5427,14 @@ console.log(JSON.stringify([
             ROOT / 'web' / 'src' / 'components' / 'NiuOneMainlinePanel.vue'
         ).read_text(encoding='utf-8')
 
-        for route in ('/practice', '/niuone-mainline', '/indices', '/industry-flow', '/dragon-tiger', '/market-monitor', '/realtime-news'):
+        for route in ('/candidates', '/practice', '/niuone-mainline', '/indices', '/industry-flow', '/dragon-tiger', '/market-monitor', '/realtime-news'):
             self.assertIn(f"'{route}'", router_source)
-        self.assertIn("const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger']", tabs_source)
+        self.assertIn("const CATEGORY_ORDER = ['overview', 'practice', 'candidates', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger']", tabs_source)
         self.assertNotIn("'/us-ratings'", router_source)
         self.assertNotIn('us_ratings', tabs_source)
         self.assertNotIn('categoryAvailable', tabs_source)
         self.assertIn("overview: '总览'", tabs_source)
+        self.assertIn("candidates: '候选股'", tabs_source)
         self.assertIn("niuone_mainline: '题材强度'", tabs_source)
         self.assertIn("industry_flow: '/industry-flow'", tabs_source)
         self.assertIn("const LEGACY_CATEGORY_ALIASES = { b1_screen: 'practice' }", tabs_source)
@@ -5439,6 +5442,7 @@ console.log(JSON.stringify([
         self.assertIn("const SORT_FIELDS = new Set(['name', 'sector', 'change_pct', 'net_amount_yuan'])", dragon_source)
         self.assertIn("record?.seat_category === 'institution'", dragon_source)
         self.assertIn('<OverviewPanel />', dashboard_page)
+        self.assertIn('<TodayCandidatesPanel />', dashboard_page)
         self.assertIn('<PracticePanel />', dashboard_page)
         self.assertIn('<NiuOneMainlinePanel />', dashboard_page)
         self.assertNotIn('NIUONE THEME STRENGTH', mainline_page)
@@ -6473,6 +6477,88 @@ process.stdout.write(JSON.stringify({{
                 os.environ.pop(dashboard.ACTIVE_STRATEGY_ENV, None)
             else:
                 os.environ[dashboard.ACTIVE_STRATEGY_ENV] = saved_active
+
+    def test_today_candidates_cache_rebuilds_from_current_day_scan_history(self):
+        original_cron_output_dir = dashboard.CRON_OUTPUT_DIR
+        original_practice_cache = dashboard.PRACTICE_CANDIDATES_CACHE_FILE
+        original_multi_cache = dashboard.MULTI_STRATEGY_CACHE_FILE
+        original_b1_cache = dashboard.B1_CACHE_FILE
+        current_date = dashboard.current_cn_date_key()
+        output_dir = self.tmp_path / 'today-candidates-output'
+        history_dir = output_dir / 'multi_strategy_history' / current_date
+        history_dir.mkdir(parents=True)
+        dashboard.CRON_OUTPUT_DIR = output_dir
+        dashboard.PRACTICE_CANDIDATES_CACHE_FILE = output_dir / 'practice_candidates_latest.json'
+        dashboard.MULTI_STRATEGY_CACHE_FILE = output_dir / 'multi_strategy_latest.json'
+        dashboard.B1_CACHE_FILE = output_dir / 'b1_screen_latest.json'
+        try:
+            first_time = f'{current_date} 09:45:00'
+            second_time = f'{current_date} 10:30:00'
+            (history_dir / f'{current_date}_09-45-00.json').write_text(
+                json.dumps({
+                    'generated_at': first_time,
+                    'trade_items': [{'code': '600001', 'best_score': 8.4}],
+                }),
+                encoding='utf-8',
+            )
+
+            first = dashboard.load_today_candidates_cache()
+            self.assertEqual(first['count'], 1)
+            self.assertEqual(first['items'][0]['qualified_count'], 1)
+            self.assertNotIn('source_versions', first)
+
+            (history_dir / f'{current_date}_10-30-00.json').write_text(
+                json.dumps({
+                    'generated_at': second_time,
+                    'trade_items': [{'code': '600001', 'best_score': 9.1}],
+                }),
+                encoding='utf-8',
+            )
+            rebuilt = dashboard.load_today_candidates_cache()
+
+            self.assertEqual(rebuilt['scan_count'], 2)
+            self.assertEqual(rebuilt['items'][0]['best_score'], 9.1)
+            self.assertEqual(rebuilt['items'][0]['qualified_count'], 2)
+            self.assertTrue((output_dir / 'today_candidates_latest.json').exists())
+        finally:
+            dashboard.CRON_OUTPUT_DIR = original_cron_output_dir
+            dashboard.PRACTICE_CANDIDATES_CACHE_FILE = original_practice_cache
+            dashboard.MULTI_STRATEGY_CACHE_FILE = original_multi_cache
+            dashboard.B1_CACHE_FILE = original_b1_cache
+
+    def test_today_candidate_intraday_uses_the_bounded_candidate_read_model(self):
+        original_loader = dashboard.load_today_candidates_cache
+        original_get_trader = dashboard.get_trader_module
+        calls = []
+
+        class Trader:
+            @staticmethod
+            def fetch_intraday_minutes(code, previous_close):
+                calls.append((code, previous_close))
+                return {
+                    'updated_at': '2026-08-28 10:00:00',
+                    'prev_close': previous_close,
+                    'last_price': 10.2,
+                    'last_pct': 2.0,
+                    'points': [
+                        {'time': '09:30', 'minute': 0, 'price': 10.0, 'pct': 0},
+                        {'time': '10:00', 'minute': 30, 'price': 10.2, 'pct': 2},
+                    ],
+                }
+
+        dashboard.load_today_candidates_cache = lambda: {
+            'items': [{'code': '000001', 'price': 10.2, 'change_pct': 2.0}],
+        }
+        dashboard.get_trader_module = lambda: Trader
+        try:
+            payload = dashboard.load_today_candidate_intraday()
+        finally:
+            dashboard.load_today_candidates_cache = original_loader
+            dashboard.get_trader_module = original_get_trader
+
+        self.assertEqual(payload['requested_count'], 1)
+        self.assertEqual(payload['items'][0]['code'], '000001')
+        self.assertAlmostEqual(calls[0][1], 10.0, places=6)
 
     def test_niuone_mainline_view_uses_small_summary_snapshot(self):
         original_minute = dashboard.NIUONE_MAINLINE_MINUTE_CACHE_FILE

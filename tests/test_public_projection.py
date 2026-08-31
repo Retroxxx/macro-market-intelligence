@@ -6,6 +6,57 @@ from app.dashboard.public_projection import PUBLIC_SCHEMA_VERSION, build_public_
 
 
 class PublicProjectionTests(unittest.TestCase):
+    def test_today_candidates_section_is_bounded_and_allow_listed(self) -> None:
+        sections = build_public_sections(
+            {},
+            today_candidates={
+                "current_date": "2026-08-28",
+                "generated_at": "2026-08-28 10:30:00",
+                "scan_count": 3,
+                "items": [{
+                    "code": "600001",
+                    "name": "测试",
+                    "best_strategy": "niu_leader",
+                    "best_score": 9.1,
+                    "first_qualified_at": "2026-08-28 09:45:00",
+                    "last_qualified_at": "2026-08-28 10:30:00",
+                    "qualified_count": 2,
+                    "qualification_transitions": [{
+                        "at": "2026-08-28 09:45:00",
+                        "qualified": True,
+                        "score": 8.4,
+                        "strategy": "niu_leader",
+                        "private_note": "secret",
+                    }],
+                    "private_context": "/private/runtime/secret.json",
+                }],
+                "strategy_meta": {
+                    "niu_leader": {
+                        "label": "牛牛战法 · 领涨",
+                        "color": "#8b5cf6",
+                        "private_rule": "secret",
+                    }
+                },
+            },
+        )
+
+        section = sections["today_candidates"]
+        self.assertEqual(section["current_date"], "2026-08-28")
+        self.assertEqual(section["scan_count"], 3)
+        self.assertEqual(section["count"], 1)
+        self.assertEqual(section["items"][0]["qualified_count"], 2)
+        self.assertEqual(
+            section["items"][0]["qualification_transitions"],
+            [{
+                "at": "2026-08-28 09:45:00",
+                "qualified": True,
+                "score": 8.4,
+                "strategy": "niu_leader",
+            }],
+        )
+        self.assertNotIn("private_context", section["items"][0])
+        self.assertNotIn("private_rule", section["strategy_meta"]["niu_leader"])
+
     def test_projection_uses_allow_lists_and_removes_private_paths(self) -> None:
         sections = build_public_sections(
             {

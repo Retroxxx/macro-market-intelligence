@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 const dashboardPaths = [
   '/',
+  '/candidates',
   '/practice',
   '/niuone-mainline',
   '/indices',

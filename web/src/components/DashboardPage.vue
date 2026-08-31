@@ -11,6 +11,7 @@ const NiuOneMainlinePanel = defineAsyncComponent(() => import('./NiuOneMainlineP
 const OverviewPanel = defineAsyncComponent(() => import('./OverviewPanel.vue'))
 const PracticePanel = defineAsyncComponent(() => import('./PracticePanel.vue'))
 const RealtimeNewsPanel = defineAsyncComponent(() => import('./RealtimeNewsPanel.vue'))
+const TodayCandidatesPanel = defineAsyncComponent(() => import('./TodayCandidatesPanel.vue'))
 
 document.title = '牛牛1号'
 const { activeCategory } = useDashboardTabs()
@@ -40,10 +41,13 @@ const { activeCategory } = useDashboardTabs()
     <section v-else-if="activeCategory === 'practice'" class="feed">
       <PracticePanel />
     </section>
+    <section v-else-if="activeCategory === 'candidates'" class="feed">
+      <TodayCandidatesPanel />
+    </section>
     <section v-else-if="activeCategory === 'niuone_mainline'" class="feed">
       <NiuOneMainlinePanel />
     </section>
-    <section v-show="!['overview', 'dragon_tiger', 'indices', 'industry_flow', 'market_monitor', 'realtime_news', 'practice', 'niuone_mainline'].includes(activeCategory)" class="feed">
+    <section v-show="!['overview', 'dragon_tiger', 'indices', 'industry_flow', 'market_monitor', 'realtime_news', 'practice', 'candidates', 'niuone_mainline'].includes(activeCategory)" class="feed">
       <div class="loading">加载中…</div>
     </section>
   </main>

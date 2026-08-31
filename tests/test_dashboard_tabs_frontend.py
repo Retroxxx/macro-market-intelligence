@@ -44,7 +44,8 @@ await tabs.initializeDashboardTabs();
 const counts = Object.fromEntries(
   tabs.items.value.map(item => [item.key, item.count])
 );
-console.log(JSON.stringify({{fetchCalls, initialMarketCount, counts}}));
+const order = tabs.items.value.map(item => item.key);
+console.log(JSON.stringify({{fetchCalls, initialMarketCount, counts, order}}));
 """
         result = subprocess.run(
             ["node", "--input-type=module", "-e", scenario],
@@ -60,8 +61,19 @@ console.log(JSON.stringify({{fetchCalls, initialMarketCount, counts}}));
             {
                 "fetchCalls": ["/api/dashboard/bootstrap"],
                 "initialMarketCount": "",
+                "order": [
+                    "overview",
+                    "practice",
+                    "candidates",
+                    "niuone_mainline",
+                    "indices",
+                    "market_monitor",
+                    "realtime_news",
+                    "dragon_tiger",
+                ],
                 "counts": {
                     "overview": "",
+                    "candidates": "",
                     "practice": "",
                     "niuone_mainline": "",
                     "indices": "",

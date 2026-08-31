@@ -84,7 +84,7 @@ class FastApiDashboardTests(unittest.TestCase):
 
     def test_vue_dashboard_and_admin_share_the_fastapi_port(self):
         for path in (
-            "/", "/practice", "/niuone-mainline", "/admin",
+            "/", "/candidates", "/practice", "/niuone-mainline", "/admin",
             "/admin/settings/notifications", "/admin/backtest/niuone",
         ):
             with self.subTest(path=path):
@@ -312,6 +312,8 @@ class FastApiDashboardTests(unittest.TestCase):
                 ),
                 ("/api/practice_candidates", "practice_candidates"),
                 ("/api/b1_screen", "practice_candidates"),
+                ("/api/today_candidates", "today_candidates"),
+                ("/api/today_candidates/intraday", "today_candidate_intraday"),
                 ("/api/niuone/mainline", "niuone_mainline"),
                 ("/api/niuniu_practice?fast=1", "niuniu_practice_fast:v2"),
                 ("/api/niuniu_practice", "niuniu_practice"),
@@ -360,6 +362,8 @@ class FastApiDashboardTests(unittest.TestCase):
             "iwencai_dragon_tiger:2026-07-16:2:10:0:0:0",
             "practice_candidates",
             "practice_candidates",
+            "today_candidates",
+            "today_candidate_intraday",
             "niuone_mainline",
             "niuniu_practice_fast:v2",
             "niuniu_practice",
@@ -1008,7 +1012,11 @@ class FastApiDashboardTests(unittest.TestCase):
         self.assertEqual(market_summary.call_count, 2)
         trader.resume_trading.assert_called_once_with()
         optimize.assert_called_once_with()
-        invalidate.assert_any_call(self.legacy.PRACTICE_CANDIDATES_CACHE_KEY)
+        invalidate.assert_any_call(
+            self.legacy.PRACTICE_CANDIDATES_CACHE_KEY,
+            self.legacy.TODAY_CANDIDATES_CACHE_KEY,
+            self.legacy.TODAY_CANDIDATE_INTRADAY_CACHE_KEY,
+        )
         invalidate.assert_any_call("niuniu_practice", self.legacy.PRACTICE_FAST_CACHE_KEY)
 
     def test_niuone_mainline_manual_refresh_requires_admin(self):

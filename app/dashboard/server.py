@@ -51,6 +51,11 @@ from core.shared_model_config import (
 from dashboard import practice_payload as practice_payload_impl
 from dashboard import practice_market_summary as practice_market_summary_impl
 from dashboard.niuone_mainline import build_niuone_mainline_view
+from dashboard.today_candidates import (
+    TODAY_CANDIDATES_SCHEMA_VERSION,
+    build_today_candidate_intraday_payload,
+    build_today_candidates_payload,
+)
 from dashboard import response_cache as response_cache_impl
 from dashboard import security as security_impl
 from dashboard import visit_stats as visit_stats_impl
@@ -256,6 +261,7 @@ IWENCAI_DRAGON_TIGER_SNAPSHOT_FILE = Path(
 ).expanduser()
 B1_CACHE_FILE = CRON_OUTPUT_DIR / "b1_screen_latest.json"
 PRACTICE_CANDIDATES_CACHE_FILE = CRON_OUTPUT_DIR / "practice_candidates_latest.json"
+TODAY_CANDIDATES_CACHE_FILE = CRON_OUTPUT_DIR / "today_candidates_latest.json"
 NIUONE_MAINLINE_CACHE_FILE = CRON_OUTPUT_DIR / "niuone_mainline_latest.json"
 NIUONE_MAINLINE_MINUTE_CACHE_FILE = CRON_OUTPUT_DIR / "niuone_mainline_minute_latest.json"
 NIUONE_MAINLINE_SUMMARY_CACHE_FILE = CRON_OUTPUT_DIR / "niuone_mainline_summary_latest.json"
@@ -560,6 +566,7 @@ CN_TZ = timezone(timedelta(hours=8), "Asia/Shanghai")
 # so 1000 viewers do not trigger 1000 identical DB/行情/akshare computations.
 API_RESPONSE_CACHE: dict[str, dict[str, Any]] = {}
 API_RESPONSE_LOCK = threading.RLock()
+TODAY_CANDIDATES_LOCK = threading.Lock()
 API_CACHE_KEY_LOCKS: dict[str, threading.Lock] = {}
 API_CACHE_KEY_GENERATIONS: dict[str, int] = {}
 API_CACHE_MAX_ENTRIES = int(os.environ.get("DASHBOARD_API_CACHE_MAX_ENTRIES", "256") or "256")
@@ -617,6 +624,8 @@ NEWSNOW_CONFIG_NAMES = (
     "NEWSNOW_MAX_CONCURRENCY",
 )
 PRACTICE_CANDIDATES_CACHE_KEY = "practice_candidates"
+TODAY_CANDIDATES_CACHE_KEY = "today_candidates"
+TODAY_CANDIDATE_INTRADAY_CACHE_KEY = "today_candidate_intraday"
 NIUONE_MAINLINE_CACHE_KEY = "niuone_mainline"
 PRACTICE_CANDIDATES_API_PATHS = frozenset({"/api/practice_candidates", "/api/b1_screen"})
 PRACTICE_CANDIDATES_REFRESH_API_PATHS = frozenset({"/api/practice_candidates/refresh", "/api/b1_screen/trigger"})
@@ -631,6 +640,12 @@ API_TTLS = {
         or os.environ.get("DASHBOARD_B1_SCREEN_TTL_SECONDS")
         or "15"
     ),
+    "today_candidates": int(
+        os.environ.get("DASHBOARD_PRACTICE_CANDIDATES_TTL_SECONDS")
+        or os.environ.get("DASHBOARD_B1_SCREEN_TTL_SECONDS")
+        or "15"
+    ),
+    "today_candidate_intraday": 45,
     "niuone_mainline": int(os.environ.get("DASHBOARD_NIUONE_MAINLINE_TTL_SECONDS", "15") or "15"),
     "niuniu_practice": int(os.environ.get("DASHBOARD_PRACTICE_TTL_SECONDS", "15") or "15"),
     "practice_benchmarks": 30,
@@ -2294,6 +2309,8 @@ def refresh_b1_candidate_cache_from_current_pool() -> dict[str, Any]:
         )
         with API_RESPONSE_LOCK:
             API_RESPONSE_CACHE.pop(PRACTICE_CANDIDATES_CACHE_KEY, None)
+            API_RESPONSE_CACHE.pop(TODAY_CANDIDATES_CACHE_KEY, None)
+            API_RESPONSE_CACHE.pop(TODAY_CANDIDATE_INTRADAY_CACHE_KEY, None)
         B1_CANDIDATE_REFRESH_LAST_TS = time.time()
         return output["candidate_refresh"]
     finally:
@@ -2601,6 +2618,111 @@ def load_practice_candidates_cache() -> dict[str, Any]:
     if errors:
         base["error"] = "; ".join(errors)
     return base
+
+
+def _today_candidate_source_files(current_date: str) -> list[tuple[str, Path]]:
+    history_dir = CRON_OUTPUT_DIR / "multi_strategy_history" / current_date
+    history_files: list[Path] = []
+    if history_dir.is_dir() and not history_dir.is_symlink():
+        for path in history_dir.iterdir():
+            if path.is_symlink() or not path.is_file() or path.suffix != ".json":
+                continue
+            try:
+                timestamp = datetime.strptime(path.stem, "%Y-%m-%d_%H-%M-%S")
+            except ValueError:
+                continue
+            if timestamp.strftime("%Y-%m-%d") == current_date:
+                history_files.append(path)
+    history_files.sort(key=lambda path: path.name)
+
+    sources = [(f"history:{path.name}", path) for path in history_files[-12:]]
+    compact_path = _derived_read_model_path(
+        PRACTICE_CANDIDATES_CACHE_FILE,
+        _derived_read_model_path(MULTI_STRATEGY_CACHE_FILE, B1_CACHE_FILE),
+    )
+    if compact_path.is_file() and not compact_path.is_symlink():
+        sources.append(("latest", compact_path))
+    return sources
+
+
+def _today_candidate_source_versions(
+    sources: Iterable[tuple[str, Path]],
+) -> list[dict[str, Any]]:
+    versions: list[dict[str, Any]] = []
+    for source_id, path in sources:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        versions.append({
+            "source": source_id,
+            "size": int(stat.st_size),
+            "mtime_ns": int(stat.st_mtime_ns),
+        })
+    return versions
+
+
+def load_today_candidates_cache() -> dict[str, Any]:
+    """Return stocks that reached the trade-ready pool in any scan today."""
+    current_date = current_cn_date_key()
+    summary_path = CRON_OUTPUT_DIR / TODAY_CANDIDATES_CACHE_FILE.name
+    with TODAY_CANDIDATES_LOCK:
+        sources = _today_candidate_source_files(current_date)
+        source_versions = _today_candidate_source_versions(sources)
+        cached = read_versioned_json_cache(summary_path)
+        if (
+            isinstance(cached, dict)
+            and cached.get("schema_version") == TODAY_CANDIDATES_SCHEMA_VERSION
+            and cached.get("current_date") == current_date
+            and cached.get("source_versions") == source_versions
+        ):
+            return {
+                key: value
+                for key, value in cached.items()
+                if key != "source_versions"
+            }
+
+        scans: list[dict[str, Any]] = []
+        for _source_id, path in sources:
+            parsed = read_json_cache(path, None)
+            if isinstance(parsed, dict):
+                scans.append(parsed)
+        payload = build_today_candidates_payload(
+            scans,
+            current_date=current_date,
+        )
+        try:
+            write_json_cache(
+                summary_path,
+                {**payload, "source_versions": source_versions},
+            )
+        except OSError:
+            pass
+        return payload
+
+
+def load_today_candidate_intraday() -> dict[str, Any]:
+    """Return bounded minute lines for the stocks in today's candidate read model."""
+    candidates = load_today_candidates_cache().get("items")
+    if not isinstance(candidates, list):
+        candidates = []
+    generated_at = current_cn_datetime().strftime("%Y-%m-%d %H:%M:%S")
+    if not candidates:
+        return build_today_candidate_intraday_payload(
+            [],
+            fetcher=lambda _code, _previous_close: {},
+            generated_at=generated_at,
+        )
+    try:
+        fetcher = get_trader_module().fetch_intraday_minutes
+    except Exception:
+        def fetcher(_code: str, _previous_close: float | None) -> dict[str, Any]:
+            raise RuntimeError("intraday provider unavailable")
+    return build_today_candidate_intraday_payload(
+        candidates,
+        fetcher=fetcher,
+        generated_at=generated_at,
+    )
 
 
 def load_niuone_mainline_cache_payload() -> dict[str, Any]:
@@ -3905,7 +4027,13 @@ def _run_practice_manual_cycle(process_lease: FileLease | None = None) -> None:
             error=f"{type(exc).__name__}: {exc}",
         )
     finally:
-        invalidate_api_cache(PRACTICE_CANDIDATES_CACHE_KEY, "niuniu_practice", PRACTICE_FAST_CACHE_KEY)
+        invalidate_api_cache(
+            PRACTICE_CANDIDATES_CACHE_KEY,
+            TODAY_CANDIDATES_CACHE_KEY,
+            TODAY_CANDIDATE_INTRADAY_CACHE_KEY,
+            "niuniu_practice",
+            PRACTICE_FAST_CACHE_KEY,
+        )
         if process_lease is not None:
             process_lease.release()
         PRACTICE_MANUAL_CYCLE_LOCK.release()
@@ -4266,6 +4394,8 @@ def run_scheduled_b1_scan(slot_key: str) -> None:
                 }
         with API_RESPONSE_LOCK:
             API_RESPONSE_CACHE.pop(PRACTICE_CANDIDATES_CACHE_KEY, None)
+            API_RESPONSE_CACHE.pop(TODAY_CANDIDATES_CACHE_KEY, None)
+            API_RESPONSE_CACHE.pop(TODAY_CANDIDATE_INTRADAY_CACHE_KEY, None)
         start_independent_niuone_mainline_scan(slot_key)
         if cache.get("error"):
             _mark_b1_schedule_slot(

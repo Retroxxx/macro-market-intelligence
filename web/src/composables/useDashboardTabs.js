@@ -1,8 +1,9 @@
 import { computed, reactive, ref } from 'vue'
 
-const CATEGORY_ORDER = ['overview', 'practice', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger']
+const CATEGORY_ORDER = ['overview', 'practice', 'candidates', 'niuone_mainline', 'indices', 'market_monitor', 'realtime_news', 'dragon_tiger']
 const CATEGORY_LABELS = {
   overview: '总览',
+  candidates: '候选股',
   practice: '模拟交易',
   niuone_mainline: '题材强度',
   indices: '指数行情',
@@ -12,6 +13,7 @@ const CATEGORY_LABELS = {
 }
 const CATEGORY_PATHS = {
   overview: '/',
+  candidates: '/candidates',
   practice: '/practice',
   niuone_mainline: '/niuone-mainline',
   indices: '/indices',
