@@ -574,6 +574,9 @@ DECISION_STREAM_MODE = _SHARED_MODEL.stream_mode
 DECISION_REASONING_EFFORT = _SHARED_MODEL.reasoning_effort
 DECISION_CONTEXT_LENGTH = token_count_value(_SHARED_MODEL.context_length, 128000)
 DECISION_MAX_TOKENS = token_count_value(_SHARED_MODEL.max_tokens, 4096)
+DECISION_RETRY_MAX_TOKENS = 65_536
+DECISION_JSON_SAME_LIMIT_RETRIES = 1
+DECISION_JSON_MAX_PARSE_ATTEMPTS = 6
 DECISION_REQUEST_TIMEOUT = env_int("DASHBOARD_DECISION_TIMEOUT", 180)
 PROVIDER_DISPLAY_NAME = "Crossdesk.ccwu.cc"
 CROSSDESK_PROVIDER_NAME = "Crossdesk.ccwu.cc"
@@ -9201,6 +9204,36 @@ def parse_chat_completion_content(raw: str) -> tuple[str, str]:
     return parsed.content, parsed.detail
 
 
+def increased_model_output_limit(current_max: Any) -> int:
+    """Double a positive output limit up to the decision retry ceiling.
+
+    A caller that explicitly starts above the automatic ceiling keeps its
+    larger value so a retry can never reduce the configured output budget.
+    """
+    try:
+        current = int(current_max or 0)
+    except (TypeError, ValueError):
+        return 0
+    if current <= 0 or current >= DECISION_RETRY_MAX_TOKENS:
+        return current
+    return min(
+        DECISION_RETRY_MAX_TOKENS,
+        max(current + 2_000, current * 2),
+    )
+
+
+def decision_json_response_format(model_name: str) -> dict[str, str] | None:
+    """Use native JSON mode only for model IDs known to support it."""
+    normalized = str(model_name or "").strip().lower()
+    if normalized in {
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash-vision-exp",
+    }:
+        return {"type": "json_object"}
+    return None
+
+
 def request_chat_content(
     base_url: str,
     api_key: str,
@@ -9218,7 +9251,9 @@ def request_chat_content(
     import time as _time
     last_err: Exception | None = None
     request_payload = {**payload, "model": model_name}
-    for attempt in range(max_retries):
+    transport_attempt = 0
+    transport_attempt_limit = max(1, max_retries)
+    while transport_attempt < transport_attempt_limit:
         try:
             model_request = build_model_request(
                 base_url,
@@ -9239,20 +9274,29 @@ def request_chat_content(
                 stream_mode=stream_mode or DECISION_STREAM_MODE,
                 opener=urllib.request.urlopen,
             )
-            content, detail = parsed.content, parsed.detail
-            if not (content or "").strip():
-                if "finish_reason=length" in detail:
-                    current_max = int(request_payload.get("max_tokens") or 0)
-                    if current_max > 0:
-                        request_payload["max_tokens"] = min(12000, max(current_max + 2000, current_max * 2))
-                raise RuntimeError(f"model={model_name} returned empty content ({detail or 'no response metadata'})")
-            return content
         except urllib.error.HTTPError as exc:
             last_err = format_http_error(exc, model_name)
         except Exception as exc:
             last_err = exc
-        if attempt < max_retries - 1:
-            _time.sleep(2 ** attempt)
+        else:
+            content, detail = parsed.content, parsed.detail
+            if (content or "").strip():
+                return content
+            empty_error = RuntimeError(
+                f"model={model_name} returned empty content "
+                f"({detail or 'no response metadata'})"
+            )
+            if "finish_reason=length" in detail:
+                current_max = int(request_payload.get("max_tokens") or 0)
+                increased_max = increased_model_output_limit(current_max)
+                if increased_max > current_max:
+                    request_payload["max_tokens"] = increased_max
+                    continue
+                raise empty_error
+            last_err = empty_error
+        transport_attempt += 1
+        if transport_attempt < transport_attempt_limit:
+            _time.sleep(2 ** (transport_attempt - 1))
     raise last_err or RuntimeError(f"model={model_name} request failed")
 
 
@@ -9262,13 +9306,14 @@ def request_chat_json_object(
     payload: dict,
     model_name: str,
     *,
-    max_parse_attempts: int = 3,
+    max_parse_attempts: int = DECISION_JSON_MAX_PARSE_ATTEMPTS,
     timeout: int = 60,
     stream_mode: str | None = None,
 ) -> dict[str, Any]:
     """Request a JSON object, retrying truncated/malformed non-empty responses."""
     request_payload = dict(payload)
     last_error: Exception | None = None
+    same_limit_retries = 0
     for attempt in range(max(1, max_parse_attempts)):
         request_kwargs: dict[str, Any] = {}
         if stream_mode is not None:
@@ -9292,8 +9337,14 @@ def request_chat_json_object(
             if attempt >= max_parse_attempts - 1:
                 break
             current_max = int(request_payload.get("max_tokens") or 0)
-            if current_max > 0:
-                request_payload["max_tokens"] = min(12000, max(current_max + 2000, current_max * 2))
+            increased_max = increased_model_output_limit(current_max)
+            if increased_max > current_max:
+                request_payload["max_tokens"] = increased_max
+                continue
+            if same_limit_retries < DECISION_JSON_SAME_LIMIT_RETRIES:
+                same_limit_retries += 1
+                continue
+            break
     raise last_error or RuntimeError(f"model={model_name} did not return a JSON object")
 
 
@@ -10227,6 +10278,9 @@ def call_model_decision(
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": DECISION_MAX_TOKENS,
     }
+    response_format = decision_json_response_format(MODEL)
+    if response_format:
+        payload["response_format"] = response_format
     if DECISION_REASONING_EFFORT:
         payload["reasoning_effort"] = DECISION_REASONING_EFFORT
 
@@ -10235,7 +10289,7 @@ def call_model_decision(
         api_key,
         payload,
         MODEL,
-        max_parse_attempts=3,
+        max_parse_attempts=DECISION_JSON_MAX_PARSE_ATTEMPTS,
         timeout=DECISION_REQUEST_TIMEOUT,
     )
     result["model"] = MODEL

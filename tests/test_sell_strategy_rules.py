@@ -3005,6 +3005,111 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertEqual(result["summary"], "重试成功")
         self.assertEqual([payload["max_tokens"] for payload in payloads], [4096, 8192])
 
+    def test_request_chat_content_retries_empty_length_response_to_65536(self):
+        original_request = trader.request_model_complete
+        requested_limits = []
+        try:
+            def fake_request(model_request, api_key, **kwargs):
+                requested_limits.append(model_request.payload["max_tokens"])
+                if model_request.payload["max_tokens"] < trader.DECISION_RETRY_MAX_TOKENS:
+                    return types.SimpleNamespace(
+                        content="",
+                        detail="finish_reason=length",
+                    )
+                return types.SimpleNamespace(
+                    content='{"summary":"重试成功","actions":[]}',
+                    detail="finish_reason=stop",
+                )
+
+            trader.request_model_complete = fake_request
+            result = trader.request_chat_content(
+                "https://decision.example/v1",
+                "key",
+                {"model": "deepseek-v4-flash", "messages": [], "max_tokens": 4096},
+                "deepseek-v4-flash",
+                max_retries=1,
+            )
+        finally:
+            trader.request_model_complete = original_request
+
+        self.assertIn('"summary":"重试成功"', result)
+        self.assertEqual(requested_limits, [4096, 8192, 16384, 32768, 65536])
+
+    def test_request_chat_json_object_increases_truncated_budget_to_65536(self):
+        original_request = trader.request_chat_content
+        payloads = []
+        responses = iter([
+            '{"summary":"截断 4096"',
+            '{"summary":"截断 8192"',
+            '{"summary":"截断 16384"',
+            '{"summary":"截断 32768"',
+            '{"summary":"重试成功","actions":[]}',
+        ])
+        try:
+            def fake_request(base_url, api_key, payload, model_name, max_retries=3, timeout=60):
+                payloads.append(dict(payload))
+                return next(responses)
+
+            trader.request_chat_content = fake_request
+            result = trader.request_chat_json_object(
+                "https://decision.example/v1",
+                "key",
+                {"model": "deepseek-v4-pro", "messages": [], "max_tokens": 4096},
+                "deepseek-v4-pro",
+                max_parse_attempts=5,
+                timeout=180,
+            )
+        finally:
+            trader.request_chat_content = original_request
+
+        self.assertEqual(result["summary"], "重试成功")
+        self.assertEqual(
+            [payload["max_tokens"] for payload in payloads],
+            [4096, 8192, 16384, 32768, 65536],
+        )
+        self.assertEqual(trader.increased_model_output_limit(70_000), 70_000)
+
+    def test_request_chat_json_object_retries_same_limit_only_once_at_ceiling(self):
+        original_request = trader.request_chat_content
+        payloads = []
+        try:
+            def fake_request(base_url, api_key, payload, model_name, max_retries=3, timeout=60):
+                payloads.append(dict(payload))
+                return '{"summary":"仍然截断"'
+
+            trader.request_chat_content = fake_request
+            with self.assertRaises(ValueError):
+                trader.request_chat_json_object(
+                    "https://decision.example/v1",
+                    "key",
+                    {
+                        "model": "deepseek-v4-pro",
+                        "messages": [],
+                        "max_tokens": trader.DECISION_RETRY_MAX_TOKENS,
+                    },
+                    "deepseek-v4-pro",
+                    max_parse_attempts=6,
+                    timeout=180,
+                )
+        finally:
+            trader.request_chat_content = original_request
+
+        self.assertEqual(
+            [payload["max_tokens"] for payload in payloads],
+            [trader.DECISION_RETRY_MAX_TOKENS] * 2,
+        )
+
+    def test_deepseek_decision_uses_native_json_response_format(self):
+        self.assertEqual(
+            trader.decision_json_response_format("deepseek-v4-flash"),
+            {"type": "json_object"},
+        )
+        self.assertEqual(
+            trader.decision_json_response_format("deepseek-v4-pro"),
+            {"type": "json_object"},
+        )
+        self.assertIsNone(trader.decision_json_response_format("custom-model"))
+
     def test_strategy_performance_splits_entry_and_exit_dimensions(self):
         state = {
             "trade_log": [
@@ -3203,6 +3308,7 @@ class SellStrategyRuleTests(unittest.TestCase):
         self.assertNotIn("预检超时不得进入决策", prompt)
         self.assertNotIn("precheck_TimeoutError", prompt)
         self.assertNotIn("temperature", captured["payload"])
+        self.assertEqual(captured["payload"]["response_format"], {"type": "json_object"})
         self.assertIn("当前激活策略：预设文字策略", prompt)
         self.assertIn("系统底线风控", prompt)
         self.assertNotIn("-4%硬止损", prompt)
