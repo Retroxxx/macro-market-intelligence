@@ -2,7 +2,7 @@ services:
   macro:
     image: ${LOCAL_MACRO_IMAGE:-niuone-macro:2026.09.01-r1}
     build:
-      context: ..
+      context: .
       dockerfile: deploy/macro.Dockerfile
       args:
         LOCAL_MACRO_VERSION: "${LOCAL_MACRO_VERSION:-0.1.0}"
