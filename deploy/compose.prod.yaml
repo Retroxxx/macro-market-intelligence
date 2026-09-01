@@ -1,0 +1,41 @@
+services:
+  macro:
+    image: ${LOCAL_MACRO_IMAGE:-niuone-macro:2026.09.01-r1}
+    build:
+      context: ..
+      dockerfile: deploy/macro.Dockerfile
+      args:
+        LOCAL_MACRO_VERSION: "${LOCAL_MACRO_VERSION:-0.1.0}"
+    init: true
+    restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "5m"
+        max-file: "3"
+        compress: "true"
+    environment:
+      LOCAL_MACRO_ENABLED: "${LOCAL_MACRO_ENABLED:-1}"
+      LOCAL_MACRO_API_PORT: "${LOCAL_MACRO_API_PORT:-8790}"
+      LOCAL_MACRO_CONTEXT_REFRESH_SECONDS: "${LOCAL_MACRO_CONTEXT_REFRESH_SECONDS:-60}"
+      LOCAL_MACRO_TIMEOUT_SECONDS: "${LOCAL_MACRO_TIMEOUT_SECONDS:-5}"
+      LOCAL_MACRO_NIUONE_BASE_URL: "${LOCAL_MACRO_NIUONE_BASE_URL:-http://dashboard:8787}"
+      LOCAL_MACRO_DATA_DIR: /data/local-ext
+      LOCAL_MACRO_UPSTREAM_COMMIT: "${LOCAL_MACRO_UPSTREAM_COMMIT:-unknown}"
+      LOCAL_MACRO_BUILD_TIME: "${LOCAL_MACRO_BUILD_TIME:-unknown}"
+    volumes:
+      - local-macro-data:/data/local-ext
+    depends_on:
+      dashboard:
+        condition: service_healthy
+    ports:
+      - "${LOCAL_MACRO_BIND_ADDRESS:-127.0.0.1}:${LOCAL_MACRO_HOST_PORT:-8790}:8790"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8790/api/local/v1/health', timeout=3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  local-macro-data:

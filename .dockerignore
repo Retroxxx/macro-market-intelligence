@@ -16,3 +16,9 @@
 !web/src/**
 !scripts/
 !scripts/docker-entrypoint.sh
+!local_ext/
+!local_ext/**
+!local_web/
+!local_web/**
+!deploy/
+!deploy/macro.Dockerfile
