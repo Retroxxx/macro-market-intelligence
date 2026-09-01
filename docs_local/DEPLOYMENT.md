@@ -14,6 +14,16 @@ python3 -m uvicorn local_ext.api.app:app --host 127.0.0.1 --port 8790
 
 本地 sidecar 需要一个已运行的官方 Dashboard，或用测试中的 mock adapter。不要在正式运行目录做实验。
 
+## Local load test
+
+压测脚本默认只绑定 loopback，并启动临时 mock upstream，不会访问生产服务器，也不会写入项目运行数据：
+
+```bash
+python tests_local/load_local_api.py --concurrency 1 8 32 --requests 200 --ttl-check
+```
+
+它会分别测试冷缓存和热缓存，输出吞吐量、p50/p95/p99 延迟、sidecar RSS 变化和 upstream 请求次数。冷缓存应产生 4 次 upstream 请求，热缓存不应增加请求；`--ttl-check` 会验证 15 秒 TTL 到期后的重新读取。
+
 ## Staging / Docker smoke
 
 ```bash
