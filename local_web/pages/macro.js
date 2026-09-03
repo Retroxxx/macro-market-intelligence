@@ -1,5 +1,5 @@
 import { getContext } from '../services/api.js'
-import { renderHealth, renderRegime, renderSectors, renderStyles } from '../components/render.js'
+import { renderHealth, renderInternals, renderRegime, renderSectors, renderStyles } from '../components/render.js'
 
 export async function loadMacroPage() {
   const status = document.querySelector('#status')
@@ -8,6 +8,7 @@ export async function loadMacroPage() {
     renderRegime(value)
     renderStyles(value.style)
     renderHealth(value)
+    renderInternals(value)
     renderSectors(value.sector_rotation, value.timestamp)
     status.textContent = `Updated ${value.timestamp || '—'} · ${value.data_quality?.degraded ? 'degraded / fail-safe' : 'official sources available'}`
     status.className = `status ${value.data_quality?.degraded ? 'warning' : 'ok'}`

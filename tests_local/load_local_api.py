@@ -230,9 +230,12 @@ def run_one(workers: int, request_count: int, ttl_check: bool) -> dict:
                 if ttl_hits != cold_hits + 4:
                     raise AssertionError(f"TTL reload expected 4 upstream calls, got {ttl_hits - cold_hits}")
                 result["ttl_reload_upstream_calls"] = ttl_hits - cold_hits
-            peak = max(value for value in (baseline_rss, cold["rss_bytes_after"], warm["rss_bytes_after"]) if value is not None)
+            peak = max(
+                (value for value in (baseline_rss, cold["rss_bytes_after"], warm["rss_bytes_after"]) if value is not None),
+                default=None,
+            )
             result["peak_rss_bytes"] = peak
-            result["rss_delta_bytes"] = peak - baseline_rss if baseline_rss is not None else None
+            result["rss_delta_bytes"] = peak - baseline_rss if peak is not None and baseline_rss is not None else None
             return result
     finally:
         if process is not None and process.poll() is None:

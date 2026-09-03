@@ -19,6 +19,12 @@ services:
       LOCAL_MACRO_API_PORT: "${LOCAL_MACRO_API_PORT:-8790}"
       LOCAL_MACRO_CONTEXT_REFRESH_SECONDS: "${LOCAL_MACRO_CONTEXT_REFRESH_SECONDS:-60}"
       LOCAL_MACRO_TIMEOUT_SECONDS: "${LOCAL_MACRO_TIMEOUT_SECONDS:-5}"
+      LOCAL_MACRO_A_STOCK_ENABLED: "${LOCAL_MACRO_A_STOCK_ENABLED:-0}"
+      LOCAL_MACRO_A_STOCK_BASE_URL: "${LOCAL_MACRO_A_STOCK_BASE_URL:-https://push2.eastmoney.com}"
+      LOCAL_MACRO_A_STOCK_POOL_BASE_URL: "${LOCAL_MACRO_A_STOCK_POOL_BASE_URL:-https://push2ex.eastmoney.com}"
+      LOCAL_MACRO_A_STOCK_RETRIES: "${LOCAL_MACRO_A_STOCK_RETRIES:-1}"
+      LOCAL_MACRO_A_STOCK_MIN_INTERVAL_SECONDS: "${LOCAL_MACRO_A_STOCK_MIN_INTERVAL_SECONDS:-1}"
+      LOCAL_MACRO_NIUONE_PUBLIC_URL: "${LOCAL_MACRO_NIUONE_PUBLIC_URL:-}"
       LOCAL_MACRO_NIUONE_BASE_URL: "${LOCAL_MACRO_NIUONE_BASE_URL:-http://dashboard:8787}"
       LOCAL_MACRO_DATA_DIR: /data/local-ext
       LOCAL_MACRO_UPSTREAM_COMMIT: "${LOCAL_MACRO_UPSTREAM_COMMIT:-unknown}"
@@ -29,9 +35,9 @@ services:
       dashboard:
         condition: service_healthy
     ports:
-      - "${LOCAL_MACRO_BIND_ADDRESS:-127.0.0.1}:${LOCAL_MACRO_HOST_PORT:-8790}:8790"
+      - "${LOCAL_MACRO_BIND_ADDRESS:-127.0.0.1}:${LOCAL_MACRO_HOST_PORT:-8790}:${LOCAL_MACRO_API_PORT:-8790}"
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8790/api/local/v1/health', timeout=3).close()"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:' + __import__('os').environ.get('LOCAL_MACRO_API_PORT', '8790') + '/api/local/v1/health', timeout=3).close()\""]
       interval: 30s
       timeout: 5s
       retries: 3

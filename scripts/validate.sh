@@ -10,13 +10,18 @@ if [[ -z "${PYTHON_BIN:-}" ]]; then
   elif [[ -x "$ROOT/.local-data/.venv/bin/python" ]]; then
     PYTHON_BIN="$ROOT/.local-data/.venv/bin/python"
   else
-    PYTHON_BIN="python3"
+    for candidate in python3 python; do
+      if command -v "$candidate" >/dev/null 2>&1 && "$candidate" --version >/dev/null 2>&1; then
+        PYTHON_BIN="$candidate"
+        break
+      fi
+    done
   fi
 fi
 
-PYTHON_BIN_REQUESTED="$PYTHON_BIN"
-if ! PYTHON_BIN="$(command -v "$PYTHON_BIN_REQUESTED")"; then
-  echo "Python interpreter is unavailable: $PYTHON_BIN_REQUESTED" >&2
+PYTHON_BIN_REQUESTED="${PYTHON_BIN:-}"
+if [[ -z "$PYTHON_BIN_REQUESTED" ]] || ! PYTHON_BIN="$(command -v "$PYTHON_BIN_REQUESTED")" || ! "$PYTHON_BIN" --version >/dev/null 2>&1; then
+  echo "Python interpreter is unavailable: ${PYTHON_BIN_REQUESTED:-<unset>}" >&2
   exit 1
 fi
 PYTHON_BIN_DIR="$(cd "$(dirname "$PYTHON_BIN")" && pwd)"
@@ -29,7 +34,7 @@ echo "== Python syntax checks =="
 "$PYTHON_BIN" - <<'PY'
 from pathlib import Path
 
-for base in ("app", "scripts", "tests"):
+for base in ("app", "local_ext", "scripts", "tests"):
     for path in sorted(Path(base).rglob("*.py")):
         if "__pycache__" in path.parts:
             continue

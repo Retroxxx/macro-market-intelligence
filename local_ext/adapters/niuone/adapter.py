@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -19,17 +20,32 @@ class NiuOneAdapter:
         "money_flow": "/api/money_flow",
     }
 
-    def __init__(self, base_url: str, timeout_seconds: float = 5.0) -> None:
+    def __init__(self, base_url: str, timeout_seconds: float = 5.0, retries: int = 1) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.retries = max(0, min(2, retries))
 
     def _get(self, path: str) -> dict[str, Any]:
         request = Request(f"{self.base_url}{path}", headers={"Accept": "application/json"})
-        with urlopen(request, timeout=self.timeout_seconds) as response:
-            payload = json.load(response)
-        if not isinstance(payload, dict):
-            raise ValueError("upstream_payload_not_object")
-        return payload
+        for attempt in range(self.retries + 1):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    payload = json.load(response)
+                if not isinstance(payload, dict):
+                    raise ValueError("upstream_payload_not_object")
+                error = payload.get("error") or payload.get("error_code") or payload.get("errorCode")
+                if error:
+                    raise ValueError(f"upstream_error:{error}")
+                return payload
+            except HTTPError as exc:
+                retryable = exc.code in {429, 500, 502, 503, 504}
+                if not retryable or attempt >= self.retries:
+                    raise
+            except (URLError, TimeoutError, OSError):
+                if attempt >= self.retries:
+                    raise
+            time.sleep(0.1 * (attempt + 1))
+        raise RuntimeError("upstream_retry_exhausted")
 
     def snapshot(self) -> NiuOneSnapshot:
         values: dict[str, dict[str, Any]] = {}
@@ -42,8 +58,21 @@ class NiuOneAdapter:
                 try:
                     values[name] = future.result()
                 except (HTTPError, URLError, TimeoutError, ValueError, OSError) as exc:
-                    errors[name] = type(exc).__name__
+                    errors[name] = str(exc) or type(exc).__name__
                     values[name] = {}
+        endpoint_health = {
+            name: {
+                "status": "DEGRADED" if bool(payload.get("stale_cache")) else "VALID",
+                "generated_at": payload.get("generated_at", ""),
+                "stale_cache": bool(payload.get("stale_cache")),
+            }
+            for name, payload in values.items()
+        }
+        for name in errors:
+            endpoint_health[name] = {"status": "FAILED", "error": errors[name]}
+        official_status = "FAILED" if errors else "DEGRADED" if any(
+            item["status"] == "DEGRADED" for item in endpoint_health.values()
+        ) else "VALID"
         money_flow = values.get("money_flow", {})
         return NiuOneSnapshot(
             indices=self._rows(values.get("indices", {}), "items"),
@@ -54,6 +83,13 @@ class NiuOneAdapter:
             ),
             money_flow=money_flow,
             errors=errors,
+            provider_health={
+                "niuone": {
+                    "enabled": True,
+                    "status": official_status,
+                    "endpoints": endpoint_health,
+                }
+            },
         )
 
     @staticmethod

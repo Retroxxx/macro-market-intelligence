@@ -46,7 +46,6 @@ WORKDIR /app
 
 COPY requirements.txt ./requirements.txt
 RUN python3 -m pip install --disable-pip-version-check --no-cache-dir \
-    --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
     --requirement requirements.txt
 
 COPY app/ ./app/

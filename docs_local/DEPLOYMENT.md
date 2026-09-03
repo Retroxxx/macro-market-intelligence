@@ -9,8 +9,13 @@
 ```bash
 cp local.env.example .local-data/local.env
 # 按需修改 LOCAL_MACRO_NIUONE_BASE_URL
-python3 -m uvicorn local_ext.api.app:app --host 127.0.0.1 --port 8790
+set -a
+. .local-data/local.env
+set +a
+python3 -m uvicorn local_ext.api.app:app --host 127.0.0.1 --port "${LOCAL_MACRO_API_PORT:-8790}"
 ```
+
+`.local-data/local.env` 不会被 Uvicorn 自动读取；启动前必须显式导出其中的变量。将 `LOCAL_MACRO_ENABLED=0` 时，sidecar 只提供 UNKNOWN fallback，不访问官方或 supplemental provider，也不写入 context。
 
 本地 sidecar 需要一个已运行的官方 Dashboard，或用测试中的 mock adapter。不要在正式运行目录做实验。
 
