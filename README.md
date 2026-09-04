@@ -13,7 +13,7 @@
 
 NiuOne（牛牛1号）是一套本地优先的市场研究与模拟交易系统，主要面向 A 股，也覆盖隔夜美股信息。它将行情、消息、策略和模拟账户集中到一个 Web 看板中，并可接入大模型辅助整理信息和生成交易判断。
 
-后台任务可以按计划采集竞价、盘中和盘后行情，以及资金流向、板块表现和海外市场信息。启用模型服务后，系统会按照用户设定的策略规则完成消息检索、行情分析和模拟买卖决策。账户状态、交易记录和决策依据都保存在本地，模拟成交可通过飞书、钉钉、企业微信或 Telegram 推送。
+后台任务可以按计划采集竞价、盘中和盘后行情，以及资金流向、板块表现和海外市场信息。NewsNow 与问财负责信息检索；启用模型服务后，兼容的模型主要用于证据判断、摘要、分析和决策。文字策略创建时调用模型生成规则，运行时执行本地冻结规则。账户状态、交易记录和决策依据都保存在本地，模拟成交可通过飞书、钉钉、企业微信或 Telegram 推送。
 
 NiuOne 可以运行在个人电脑或服务器上，配置和研究数据由用户自行管理。系统只操作模拟账户，不连接券商交易接口，也不会触及真实资金。
 
@@ -111,8 +111,8 @@ NiuOne 可以运行在个人电脑或服务器上，配置和研究数据由用�
 
 - **市场看板**：集中展示题材强度、指数、板块、市场情绪、行业资金流、重要财经快讯、龙虎榜和历史消息。
 - **题材与策略研究**：并排呈现今日强度和跨日结构排名，结合全市场行情、题材归因和东财即时排名观察主线。项目内置基础、Z 哥、李大霄、板块潮汐和牛牛战法，也支持用自然语言配置候选、买入、卖出、仓位与时间规则。
-- **信息聚合与模型分析**：通过 NewsNow 聚合财联社与金十实时快讯，并整理 A 股竞价、午盘、盘后报告，以及隔夜美股和问财龙虎榜。兼容的大模型服务可用于消息检索、摘要和结构化分析。
-- **模拟交易**：覆盖候选筛选、买卖决策、持仓盈亏、收益曲线和交易日志，不连接券商，也不使用真实资金。
+- **信息聚合与模型分析**：通过 NewsNow 聚合财联社与金十实时快讯，并整理 A 股竞价、午盘、盘后报告，以及隔夜美股和问财龙虎榜。兼容的 OpenAI-compatible 接口用于证据判断、摘要和结构化分析；这表示接口兼容，不代表原生支持 Claude 或 Gemini API。NewsNow 是内部 sidecar；没有 sidecar 时使用公共服务降级并优先显示已保存缓存。问财默认关闭，仅服务特定的龙虎榜和近期新闻能力，失败不会使主快照失效。
+- **策略与执行边界**：模拟交易覆盖候选筛选、买卖决策、持仓盈亏、收益曲线和交易日志；同一时间只有一个互斥的独立策略套件生效，切换策略只影响新的 BUY，已有持仓继续使用其存储的退出规则。自动退出是调度器的离散检查，不是逐 tick 监控或券商条件单。模拟执行仍受 100 股整手、T+1、现金/持仓/风险/涨停门槛和 fail-closed 约束；模型不能绕过这些规则，未知数据按 HOLD 处理。
 - **自动化与通知**：支持定时采集、报告生成、数据入库和后台监控；模拟成交可推送到飞书、钉钉、企业微信和 Telegram。
 - **本地数据管理**：配置、数据库、日志和任务输出默认保存在独立运行目录。设置页支持连接测试和版本检查，但不会自动安装更新。
 
@@ -132,7 +132,42 @@ NiuOne 可以运行在个人电脑或服务器上，配置和研究数据由用�
 
 Dashboard 由 Vue 3 + Vite 和 FastAPI/Uvicorn 构建。行情请求、交易决策和记录计算均在服务端完成，前端通过同源增量快照获取数据。架构、缓存和部署说明见 [Dashboard 增量展示与部署](docs/DASHBOARD_V2.md)。
 
-## 系统要求
+## 隔离式宏观市场情报扩展
+
+这是与官方 NiuOne 产品路径隔离的可选本地 sidecar，不改变官方 `app/`、数据库、策略或模拟交易行为。它通过稳定的 Adapter 读取官方公开 HTTP API，并将结果转换为本地的确定性宏观上下文；官方 NiuOne 仍是核心数据源和事实边界。
+
+### 部署与访问
+
+扩展使用 `macro` Compose overlay，数据写入独立的 `local-macro-data` volume，不与 `niuone-data` 或 `newsnow-data` 混用。默认只监听宿主机 `127.0.0.1:8790`，没有内置认证；不要直接将该端口暴露到公网，完整的构建、固定镜像 tag、备份和回滚流程见 [本地宏观扩展部署手册](docs_local/DEPLOYMENT.md)。例如 staging smoke 可使用：
+
+```bash
+docker compose -f compose.yaml -f deploy/compose.prod.yaml \\
+  -p niuone-smoke --env-file local.env \\
+  up -d --build macro dashboard scheduler
+```
+
+### 本地宏观 API
+
+本地 API 提供以下只读接口：
+
+- `/api/local/v1/health`
+- `/api/local/v1/context`
+- `/api/local/v1/regime`
+- `/api/local/v1/styles`
+- `/api/local/v1/sectors`
+
+也提供独立的本地宏观页面。上游不可用、数据过期或证据不足时，扩展会保留数据质量信息并安全降级为 `UNKNOWN`，而不是伪造数值或交易结论。
+
+### a-stock-data 补充适配器
+
+`a-stock-data` 是可选、只读的补充 provider，不是官方 NiuOne 的替代品。本项目固定使用 upstream `3.7.2`（`3a599d09dfa5f15c6e171e96febdb693664455e6`），本轮只接入能力审计中列出的八项 P0：行业排名/广度、行业资金流 1D/5D/10D、涨停池、炸板池、跌停池和昨日涨停池。不会复制整个仓库，不执行 `SKILL.md`，也不扩展官方策略、模拟交易或任何真实交易能力。
+
+### 数据质量、缓存与安全边界
+
+融合采用字段级策略：NiuOne 通常为 primary，a-stock-data 仅在明确的 fallback 或独有字段中参与；fallback、来源冲突和 lineage 会被保留。`VALID_EMPTY`、`SOURCE_ERROR`、`SCHEMA_ERROR`、`STALE_DATA` 和 `DISABLED` 不混为一谈；缺失数值为 `null`，不是 0。请求使用有界重试、默认至少 1 秒间隔和按能力设置的 TTL。浏览器只读取本地 context，不直接请求外部 provider；sidecar 不写官方数据库、不执行浏览器请求、不执行 `SKILL.md`、不提供自动交易。
+
+配置示例见 [local.env.example](local.env.example)，补充 provider 默认关闭（`LOCAL_MACRO_A_STOCK_ENABLED=0`）；EastMoney endpoint、timeout 和 retry 参数均应在受控环境中显式配置。架构边界、融合规则和来源矩阵见 [架构审计](docs_local/ARCHITECTURE_AUDIT.md)、[数据融合契约](docs_local/DATA_FUSION.md) 和 [a-stock-data 能力审计](docs_local/A_STOCK_DATA_CAPABILITY_AUDIT.md)。
+
 
 | 依赖 | 要求 | 用途 |
 |---|---|---|
@@ -196,6 +231,7 @@ http://127.0.0.1:8787/
 5. 生成 `.local-data/dashboard.env`；
 6. 初始化运行目录并启动 FastAPI dashboard。
 
+`./run.sh` / `run.bat` 的前台模式只启动 Dashboard。定时报告、耐久自动退出、15:15 权益快照和 15:20 strict-forward 评估需要单独运行 Cron Scheduler；容器化部署会由 Compose 分别编排 Dashboard 和 scheduler。
 ### 常用启动参数
 
 | 参数 | 说明 |
@@ -227,7 +263,7 @@ NIUONE_LOCAL_DATA_DIR=/path/to/private-data ./run.sh
 
 ## 容器化部署
 
-项目提供单一牛牛1号镜像和 Compose 编排。Compose 会启动 dashboard、定时调度器以及官方 NewsNow 实例。牛牛1号配置、数据库、日志和任务输出保存在 `niuone-data` volume，NewsNow 数据单独保存在 `newsnow-data` volume。
+项目提供单一牛牛1号镜像和 Compose 编排。Compose 会启动 dashboard、Cron Scheduler 以及官方 NewsNow 实例。牛牛1号配置、数据库、日志和任务输出保存在 `niuone-data` volume，NewsNow 数据单独保存在 `newsnow-data` volume。可选的本地宏观 sidecar 通过 [隔离扩展 overlay](docs_local/DEPLOYMENT.md) 单独加入，不属于官方核心镜像路径。
 
 从源码构建并启动：
 
@@ -455,7 +491,7 @@ Windows：
 run.bat --service
 ```
 
-macOS 使用 LaunchAgent，Linux 使用用户级 systemd，Windows 使用任务计划程序。该模式会托管 dashboard、定时调度器和关注源监控三个进程；未启用的关注源功能会保持休眠。
+macOS 使用 LaunchAgent，Linux 使用用户级 systemd，Windows 使用任务计划程序。该模式只托管 Dashboard 和 Cron Scheduler 两个 native 长期运行服务；关注源功能不是第三个常驻进程，未启用的功能不会被强行启动。
 
 需要指定端口或禁止自动打开浏览器时，可组合参数：
 
@@ -463,12 +499,14 @@ macOS 使用 LaunchAgent，Linux 使用用户级 systemd，Windows 使用任务�
 ./run.sh --service --port 8877 --no-browser
 ```
 
-源码部署升级前先备份 `.local-data/`，然后在没有未提交代码冲突的前提下同步默认分支并重新运行启动器：
+源码开发实例升级前先备份 `.local-data/`，然后在没有未提交代码冲突的前提下同步默认分支并重新运行启动器：
 
 ```bash
 git pull --ff-only
 ./run.sh --service --no-browser
 ```
+
+这套命令仅适用于受控的源码开发实例，不是生产服务器的标准升级流程。生产部署应使用经过验证的固定镜像 tag、独立环境文件和备份/回滚步骤，禁止在服务器上直接以 `git pull && docker compose up` 代替发布流程。
 
 尚未安装长期运行服务的前台部署，可把第二条命令改为 `./run.sh --no-browser`。macOS、Linux 或 Windows 已安装长期运行服务时，普通启动命令会自动识别并重启托管进程，避免只更新前端而旧后端继续运行。启动器会保留 `.local-data/`：虚拟环境缺失或 `requirements.txt` 变化时安装 Python 依赖，前端源码、样式或锁文件变化时重新构建 Vue。设置页的版本检查只负责提示，不会替用户执行升级。容器部署应修改 `NIUONE_IMAGE` 为明确的新版本标签后再执行 `docker compose pull` 和 `docker compose up -d --no-build`。
 
@@ -495,7 +533,12 @@ git pull --ff-only
 │   └── strategies/         # 策略注册、评分、筛选、归因、退出与 Prompt
 ├── config/                 # 运行策略与安全约定
 ├── docs/                   # 部署、运行和研究文档
+├── docs_local/             # 隔离 Macro 扩展的架构、部署与数据融合文档
+├── local_ext/              # 隔离 Macro provider、canonical model 与 fusion
+├── local_web/              # 独立 Macro 页面
+├── deploy/                 # Compose overlay 与 Macro runtime Dockerfile
 ├── scripts/                # 验证、部署和独立任务脚本
+├── local.env.example       # Macro 与本地 sidecar 配置示例
 ├── tests/                  # 自动化测试
 ├── tools/                  # 本地维护工具
 ├── web/                    # Vue 3、Vite 配置、组件与依赖锁
@@ -516,7 +559,7 @@ curl -s -o /dev/null -w 'READY HTTP:%{http_code} TOTAL:%{time_total}\n' http://1
 curl -s -o /dev/null -w 'SNAPSHOT HTTP:%{http_code} TOTAL:%{time_total}\n' http://127.0.0.1:8787/api/v2/public/latest
 ```
 
-`healthz` 和公开快照应返回 `HTTP:200`。首次部署会立即初始化牛牛策略所需的全市场日 K；这段时间 `readyz` 返回 `HTTP:503` 是正常状态，就绪后会变为 `HTTP:200`。实战页会显示完成数、覆盖率和部署提醒。
+`healthz` 是 liveness 检查，正常运行应返回 `HTTP:200`；`readyz` 是 readiness 检查，首次初始化期间返回 `HTTP:503` 属于正常状态，完成后才变为 `HTTP:200`，不应将 `readyz` 当作触发重启的 liveness 探针。`healthz`、本地 `scripts/validate.sh` 和前端构建只验证进程/代码边界，不代表外部行情、新闻、模型 provider 或 Cron Scheduler 已正常；这些组件需要分别做受控 smoke 和运行状态检查。
 
 开发验证：
 

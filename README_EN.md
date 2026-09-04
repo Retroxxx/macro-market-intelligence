@@ -13,7 +13,7 @@
 
 NiuOne is a local-first market research and simulated trading system. Its main focus is China's A-share market, with additional coverage of overnight U.S. markets. Market data, news, strategies, and simulated portfolios come together in a single web dashboard, with optional LLM support for research and trading decisions.
 
-Scheduled jobs collect pre-open auction data, intraday and post-market activity, capital flows, sector performance, and overseas market information. When a model service is enabled, NiuOne can retrieve news, analyze the market, and make simulated buy and sell decisions within user-defined strategy rules. Portfolio state, trade records, and decision rationale remain local, while execution alerts can be sent through Feishu, DingTalk, WeCom, or Telegram.
+Scheduled jobs collect pre-open auction data, intraday and post-market activity, capital flows, sector performance, and overseas market information. NewsNow and iWencai provide retrieval; when a model service is enabled, compatible models are used mainly for evidence judgment, summaries, analysis, and decisions. Text strategies invoke the model when rules are created and execute locally frozen rules afterward. Portfolio state, trade records, and decision rationale remain local, while execution alerts can be sent through Feishu, DingTalk, WeCom, or Telegram.
 
 NiuOne runs on a personal computer or server, and its configuration and research data stay under the user's control. It works only with simulated accounts: there is no brokerage connection and no real-money execution.
 
@@ -111,8 +111,8 @@ Click an animation to open the corresponding live page.
 
 - **Market dashboard**: View theme strength, indices, sectors, market breadth, industry capital flows, important market flashes, Dragon-Tiger data, and historical news in one place.
 - **Theme and strategy research**: Compare today's theme strength with cross-session structural rankings, using full-market quotes, theme attribution, and Eastmoney rankings as context. NiuOne includes Base, Z-ge, Li Daxiao, Sector Tide, and NiuOne strategies, and also accepts natural-language rules for candidates, entries, exits, position sizing, and timing.
-- **Information and model-assisted analysis**: Aggregate live CLS and Jin10 flashes through NewsNow, alongside A-share auction, midday, and close reports, overnight U.S. markets, and iWencai Dragon-Tiger data. Compatible model services can support retrieval, summarization, and structured analysis.
-- **Simulated trading**: Track candidates, decisions, positions, P&L, equity curves, and trade logs without connecting to a brokerage or using real funds.
+- **Information and model-assisted analysis**: Aggregate live CLS and Jin10 flashes through NewsNow, alongside A-share auction, midday, and close reports, overnight U.S. markets, and iWencai Dragon-Tiger data. OpenAI-compatible model interfaces support evidence judgment, summaries, and structured analysis; this describes interface compatibility, not native Claude or Gemini API support. NewsNow is an internal sidecar with a public-service fallback and saved-cache behavior when unavailable. iWencai is off by default and limited to selected Dragon-Tiger and recent-news capabilities; its failure does not invalidate the main snapshot.
+- **Strategy and execution boundaries**: Simulated trading covers candidate screening, buy/sell decisions, P&L, equity curves, and trade logs. Only one mutually exclusive strategy suite is active at a time; switching affects new BUY decisions only, while existing positions retain their stored exit rules. Auto-exits are discrete scheduler checks, not tick-by-tick monitoring or broker conditional orders. Execution remains bounded by 100-share lots, T+1, cash/position/risk/limit-up gates, and fail-closed behavior; models cannot bypass these rules, and unknown data becomes HOLD.
 - **Automation and notifications**: Schedule data collection, report generation, database ingestion, and monitoring. Simulated execution alerts can be sent to Feishu, DingTalk, WeCom, and Telegram.
 - **Local data management**: Configuration, databases, logs, and task output stay in a separate runtime directory. The settings page supports connection tests and update checks, but never installs updates automatically.
 
@@ -132,7 +132,42 @@ See the [Strategy Research Guide](docs/strategies/README_EN.md) for methodology 
 
 The dashboard is built with Vue 3 + Vite and FastAPI/Uvicorn. Market requests, trading decisions, and record calculations run on the server, while the frontend receives same-origin incremental snapshots. See [Dashboard Incremental Delivery and Deployment](docs/DASHBOARD_V2_EN.md) for architecture, caching, and deployment details.
 
-## System Requirements
+## Isolated Macro Market Intelligence Extension
+
+This optional local sidecar is isolated from the official NiuOne product path. It does not change the official `app/`, database, strategy, or simulated-trading behavior. It reads official public HTTP APIs through stable adapters and produces deterministic local macro context; official NiuOne remains the core data source and authority boundary.
+
+### Deployment and Access
+
+The extension uses the `macro` Compose overlay and writes to a separate `local-macro-data` volume, not `niuone-data` or `newsnow-data`. It listens on `127.0.0.1:8790` on the host by default and has no built-in authentication; do not expose this port publicly without a controlled access layer. See the [Local Macro Extension Deployment Guide](docs_local/DEPLOYMENT.md) for pinned image tags, backups, rollbacks, and the complete staging command:
+
+```bash
+docker compose -f compose.yaml -f deploy/compose.prod.yaml \\
+  -p niuone-smoke --env-file local.env \\
+  up -d --build macro dashboard scheduler
+```
+
+### Local Macro API
+
+The read-only local API exposes:
+
+- `/api/local/v1/health`
+- `/api/local/v1/context`
+- `/api/local/v1/regime`
+- `/api/local/v1/styles`
+- `/api/local/v1/sectors`
+
+A standalone local macro page is also provided. When upstream data is unavailable, stale, or insufficient, the sidecar preserves data-quality information and fails safe to `UNKNOWN` rather than inventing values or trading conclusions.
+
+### a-stock-data Supplemental Adapter
+
+`a-stock-data` is an optional, read-only supplemental provider, not a replacement for official NiuOne. This project pins upstream `3.7.2` (`3a599d09dfa5f15c6e171e96febdb693664455e6`) and currently integrates only the eight P0 capabilities in the audit: industry ranking/breadth, industry flows for 1D/5D/10D, and the limit-up, failed-limit, limit-down, and yesterday-limit-up pools. The project does not copy the entire repository, execute `SKILL.md`, or expand official strategy, simulated-trading, or real-trading capabilities.
+
+### Data Quality, Caching, and Security Boundaries
+
+Fusion is field-level: NiuOne is generally primary, while a-stock-data is used only for explicit fallbacks or unique fields; fallbacks, source conflicts, and lineage are retained. `VALID_EMPTY`, `SOURCE_ERROR`, `SCHEMA_ERROR`, `STALE_DATA`, and `DISABLED` remain distinct; missing numeric facts are `null`, never zero. Requests use bounded retries, a default minimum one-second interval, and capability-specific TTLs. The browser reads only local context and never calls external providers directly; the sidecar writes no official database, performs no browser requests, does not execute `SKILL.md`, and provides no automated trading.
+
+See [local.env.example](local.env.example) for configuration. The supplemental provider is disabled by default (`LOCAL_MACRO_A_STOCK_ENABLED=0`); configure the EastMoney endpoints, timeout, and retry settings explicitly in a controlled environment. For architecture, fusion rules, and the source matrix, see the [Architecture Audit](docs_local/ARCHITECTURE_AUDIT.md), [Data Fusion Contract](docs_local/DATA_FUSION.md), and [a-stock-data Capability Audit](docs_local/A_STOCK_DATA_CAPABILITY_AUDIT.md).
+
 
 | Dependency | Requirement | Purpose |
 |---|---|---|
@@ -196,6 +231,8 @@ On the first run, NiuOne automatically:
 5. Generates `.local-data/dashboard.env`;
 6. Initializes the runtime directory and starts the FastAPI dashboard.
 
+Foreground `./run.sh` / `run.bat` starts the Dashboard only. Scheduled reports, durable auto-exits, the 15:15 equity snapshot, and the 15:20 strict-forward evaluation require the Cron Scheduler separately; container deployments orchestrate the Dashboard and scheduler as separate services.
+
 ### Common Startup Options
 
 | Option | Description |
@@ -227,7 +264,7 @@ NIUONE_LOCAL_DATA_DIR=/path/to/private-data ./run.sh
 
 ## Container Deployment
 
-The project provides one NiuOne image and a Compose setup. Compose starts the dashboard, scheduled-task runner, X followed-source daemon, and an official NewsNow instance. NiuOne configuration, databases, logs, and task output use the `niuone-data` volume, while NewsNow keeps its own data in `newsnow-data`.
+The project provides one NiuOne image and a Compose setup. Compose starts the dashboard, Cron Scheduler, and an official NewsNow instance. NiuOne configuration, databases, logs, and task output use the `niuone-data` volume, while NewsNow keeps its own data in `newsnow-data`. The optional local macro sidecar is added separately through the [isolated extension overlay](docs_local/DEPLOYMENT.md) and is not part of the official core image path.
 
 Build and start from source:
 
@@ -451,7 +488,7 @@ Windows:
 run.bat --service
 ```
 
-This mode uses LaunchAgent on macOS, user-level systemd on Linux, and Task Scheduler on Windows. It manages three processes: the dashboard, scheduled-task runner, and followed-source monitor. Followed-source features that are not enabled remain dormant.
+This mode uses LaunchAgent on macOS, user-level systemd on Linux, and Task Scheduler on Windows. It manages only two native long-running services: the Dashboard and Cron Scheduler. The followed-source feature is not a third resident process, and disabled features are not forced to start.
 
 Options can be combined to specify a port or prevent the browser from opening automatically:
 
@@ -459,12 +496,14 @@ Options can be combined to specify a port or prevent the browser from opening au
 ./run.sh --service --port 8877 --no-browser
 ```
 
-Before upgrading a source deployment, back up `.local-data/`. If the checkout has no conflicting uncommitted changes, synchronize the default branch and rerun the launcher:
+Before upgrading a source development instance, back up `.local-data/`. If the checkout has no conflicting uncommitted changes, synchronize the default branch and rerun the launcher:
 
 ```bash
 git pull --ff-only
 ./run.sh --service --no-browser
 ```
+
+These commands are for a controlled source-development instance, not the standard production release process. Production deployments must use a tested pinned image tag, a separate environment file, and backup/rollback steps; do not replace release management with `git pull && docker compose up` directly on a server.
 
 For a foreground installation, replace the second command with `./run.sh --no-browser`. The launcher preserves `.local-data/`: it installs Python dependencies when the virtual environment is missing or `requirements.txt` changed, and rebuilds Vue when frontend source, styles, or lock files changed. The settings-page version check is advisory and never performs the upgrade. For containers, change `NIUONE_IMAGE` to an explicit new version tag before running `docker compose pull` and `docker compose up -d --no-build`.
 
@@ -490,7 +529,12 @@ For platform-specific status, restart, uninstall, and unattended-operation instr
 │   └── strategies/         # Strategy registry, scoring, selection, attribution, exits, and prompts
 ├── config/                 # Runtime policies and security conventions
 ├── docs/                   # Deployment, operation, and research documentation
+├── docs_local/             # Isolated Macro architecture, deployment, and fusion docs
+├── local_ext/              # Isolated Macro providers, models, and fusion
+├── local_web/              # Standalone Macro page
+├── deploy/                 # Compose overlay and Macro runtime Dockerfile
 ├── scripts/                # Validation, deployment, and standalone-task scripts
+├── local.env.example       # Macro and local sidecar configuration example
 ├── tests/                  # Automated tests
 ├── tools/                  # Local maintenance tools
 ├── web/                    # Vue 3 components, Vite configuration, and dependency lock
@@ -511,7 +555,7 @@ curl -s -o /dev/null -w 'READY HTTP:%{http_code} TOTAL:%{time_total}\n' http://1
 curl -s -o /dev/null -w 'SNAPSHOT HTTP:%{http_code} TOTAL:%{time_total}\n' http://127.0.0.1:8787/api/v2/public/latest
 ```
 
-`healthz` and the public snapshot should return `HTTP:200`. On a first deployment, NiuOne immediately initializes the full-market daily-K-line data required by the NiuOne strategy. A `503` from `readyz` is expected during this interval and changes to `200` when initialization is complete. The Practice page displays counts, coverage, and deployment notices.
+`healthz` is the liveness check and should return `HTTP:200`; `readyz` is the readiness check. A `503` from `readyz` during first-time initialization is expected and it changes to `HTTP:200` once ready; do not use it as a restart-triggering liveness probe. `healthz`, `scripts/validate.sh`, and the frontend build validate process/code boundaries only; they do not prove that external market, news, model providers, or the Cron Scheduler are healthy. Verify those components separately with controlled smoke checks and runtime status checks.
 
 Development validation:
 
